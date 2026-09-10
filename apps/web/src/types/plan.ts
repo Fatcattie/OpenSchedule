@@ -1,0 +1,718 @@
+/**
+ * 职责：计划/报表相关类型 —— 依赖、CPM 计算结果、甘特行、燃尽点、成员负载
+ */
+
+/** 依赖类型枚举 */
+export type DependencyType = 'FS' | 'SS' | 'FF' | 'SF'
+
+/** 任务依赖（契约 §B15） */
+export interface TaskDependency {
+  id: string
+  projectId: string
+  prevTaskId: string
+  nextTaskId: string
+  type: DependencyType
+  lagDays: number
+  isShared: boolean
+  createdAt: string
+  prevTask?: { id: string; title: string; status: string }
+  nextTask?: { id: string; title: string; status: string }
+}
+
+/** 创建依赖输入（契约 §B15） */
+export interface CreateDependencyInput {
+  prevTaskId: string
+  nextTaskId: string
+  type: DependencyType
+  lagDays?: number
+  isShared?: boolean
+}
+
+/** CPM 计算的单个任务结果（契约 §B15） */
+export interface PlanTask {
+  id: string
+  title: string
+  status: string
+  durationDays: number
+  es: string
+  ef: string
+  ls: string
+  lf: string
+  slackDays: number
+  critical: boolean
+  milestone: boolean
+  eta: string | null
+  dueAt: string | null
+}
+
+/** CPM 计算结果（契约 §B15） */
+export interface PlanResult {
+  projectId: string
+  calculatedAt: string
+  tasks: PlanTask[]
+  criticalPath: string[]
+  projectEta: string
+  projectSlackDays: number
+  milestones: string[]
+  assumptions: string[]
+}
+
+/** 甘特行数据（契约 §B16） */
+export interface GanttRow {
+  taskId: string
+  title: string
+  status: string
+  assigneeId: string | null
+  start: string
+  end: string
+  progress: number
+  critical: boolean
+  milestone: boolean
+  dependencies: string[]
+}
+
+/** 甘特窗口 */
+export interface GanttWindow {
+  start: string
+  end: string
+}
+
+/** 甘特数据响应 */
+export interface GanttData {
+  projectId: string
+  window: GanttWindow
+  rows: GanttRow[]
+}
+
+/** 燃尽点（契约 §B16） */
+export interface BurndownPoint {
+  date: string
+  remaining: number
+  completed: number
+  baseline: number
+}
+
+/** 燃尽数据响应 */
+export interface BurndownData {
+  projectId: string
+  days: number
+  points: BurndownPoint[]
+}
+
+/** 成员每日负载 */
+export interface MemberDailyLoad {
+  date: string
+  taskCount: number
+  hours: number
+}
+
+/** 成员负载（契约 §B16） */
+export interface MemberLoad {
+  userId: string
+  displayName: string
+  loads: MemberDailyLoad[]
+}
+
+/** 负载数据响应 */
+export interface LoadData {
+  days: number
+  start: string
+  members: MemberLoad[]
+}
+
+// ========== B18 周报 + 仪表盘 ==========
+
+/** 周报摘要 */
+export interface WeeklyReportSummary {
+  totalTasks: number
+  completedTasks: number
+  cancelledTasks: number
+  newTasks: number
+  overdueTasks: number
+  totalActualHours: number
+  totalEstimatedHours: number
+  completionRate: number
+  onTimeRate: number | null
+}
+
+/** 成员周报分解 */
+export interface MemberBreakdown {
+  userId: string
+  displayName: string
+  completedCount: number
+  actualHours: number
+  estimatedHours: number
+}
+
+/** 周报结果 */
+export interface WeeklyReport {
+  projectId: string
+  weekStart: string
+  weekEnd: string
+  summary: WeeklyReportSummary
+  memberBreakdown: MemberBreakdown[]
+  highlights: string[]
+  risks: string[]
+  generatedAt: string
+  isTemplate: boolean
+}
+
+/** 周报列表项（摘要） */
+export interface WeeklyReportListItem {
+  weekStart: string
+  summary: { completedTasks: number; newTasks: number; overdueTasks: number }
+  generatedAt: string
+}
+
+/** 周报列表 */
+export interface WeeklyReportList {
+  projectId: string
+  reports: WeeklyReportListItem[]
+}
+
+/** 仪表盘统计 */
+export interface DashboardStats {
+  totalTasks: number
+  activeTasks: number
+  completedThisWeek: number
+  overdueTasks: number
+  totalMembers: number
+  totalActualHoursThisWeek: number
+}
+
+/** 趋势点 */
+export interface TrendPoint {
+  week: string
+  completedCount?: number
+  hours?: number
+}
+
+/** 仪表盘趋势 */
+export interface DashboardTrends {
+  completionTrend: { week: string; completedCount: number }[]
+  hoursTrend: { week: string; hours: number }[]
+}
+
+/** 状态分布 */
+export interface StatusDistribution {
+  todo: number
+  in_progress: number
+  blocked: number
+  done: number
+  cancelled: number
+}
+
+/** Top 成员 */
+export interface TopMember {
+  userId: string
+  displayName: string
+  completedCount: number
+  actualHours: number
+}
+
+/** 仪表盘数据 */
+export interface DashboardData {
+  projectId: string
+  stats: DashboardStats
+  trends: DashboardTrends
+  statusDistribution: StatusDistribution
+  topMembers: TopMember[]
+}
+
+// ========== B19 重叠检测 ==========
+
+export type OverlapSeverity = 'low' | 'medium' | 'high'
+
+export interface TimeConflict {
+  assigneeId: string
+  assigneeName: string
+  taskIds: string[]
+  taskTitles: string[]
+  overlapStart: string
+  overlapEnd: string
+  overlapDays: number
+  severity: OverlapSeverity
+}
+
+export interface ResourceConflict {
+  assigneeId: string
+  assigneeName: string
+  date: string
+  totalHours: number
+  threshold: number
+  taskCount: number
+  taskIds: string[]
+  severity: OverlapSeverity
+}
+
+export interface DependencyHub {
+  hubTaskId: string
+  hubTaskTitle: string
+  downstreamCount: number
+  downstreamTasks: { id: string; title: string }[]
+  isOnCriticalPath: boolean
+  benefitScore: number
+}
+
+export interface OverlapSummary {
+  timeConflicts: number
+  resourceConflicts: number
+  dependencyHubs: number
+  totalAffectedTasks: number
+  severity: OverlapSeverity
+}
+
+export interface OverlapResult {
+  projectId: string
+  generatedAt: string
+  summary: OverlapSummary
+  dimensions: {
+    time: TimeConflict[]
+    resource: ResourceConflict[]
+    dependency: DependencyHub[]
+  }
+}
+
+// ========== B19 模板库 ==========
+
+export interface TaskSnapshot {
+  id: string
+  title: string
+  description?: string
+  status?: string
+  priority?: string
+  estimatedHours?: number
+  tags?: string[]
+  orderIndex?: number
+}
+
+export interface DependencySnapshot {
+  prevTaskRef: string
+  nextTaskRef: string
+  type: 'FS' | 'SS' | 'FF' | 'SF'
+  lagDays?: number
+  isShared?: boolean
+}
+
+export interface ProjectTemplate {
+  id: string
+  name: string
+  description?: string
+  type: string
+  category?: string
+  isPublic: boolean
+  taskCount: number
+  tags: string[]
+  ownerId?: string
+  sourceProjectId?: string
+  createdAt: string
+  updatedAt: string
+  taskSnapshot?: TaskSnapshot[]
+  dependencySnapshot?: DependencySnapshot[]
+}
+
+export interface TemplateApplyResult {
+  projectId: string
+  projectName: string
+  taskCount: number
+  dependencyCount: number
+}
+
+// ========== B20 自动化规则 ==========
+
+export type TriggerType =
+  | 'task_overdue'
+  | 'task_due_soon'
+  | 'status_changed'
+  | 'label_added'
+  | 'label_removed'
+  | 'priority_changed'
+
+export type ActionType =
+  | 'set_priority'
+  | 'set_status'
+  | 'set_assignee'
+  | 'add_label'
+  | 'remove_label'
+  | 'add_comment'
+  | 'send_notification'
+
+export interface RuleAction {
+  type: ActionType
+  config: any
+}
+
+export interface RuleCondition {
+  assigneeIds?: string[]
+  excludeAssigneeIds?: string[]
+  labels?: string[]
+  anyLabels?: string[]
+  noLabels?: string[]
+  priorityGte?: string
+  priorityLte?: string
+  statusIn?: string[]
+  statusNotIn?: string[]
+}
+
+export interface AutomationRule {
+  id: string
+  name: string
+  description?: string
+  projectId?: string | null
+  triggerType: TriggerType
+  triggerConfig: any
+  conditionConfig: RuleCondition | null
+  actions: RuleAction[]
+  isEnabled: boolean
+  isSystem: boolean
+  triggerCount: number
+  lastTriggeredAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RuleTemplate {
+  id: string
+  name: string
+  description: string
+  triggerType: TriggerType
+  triggerConfig: any
+  conditionConfig: any
+  actions: RuleAction[]
+  category: string
+}
+
+export interface TriggerResult {
+  matched: boolean
+  actions?: any[]
+  reason?: string
+}
+
+// ========== B22 开放 API + Webhook ==========
+
+export interface ApiKey {
+  id: string
+  name: string
+  keyPrefix: string
+  scopes: string[]
+  expiresAt?: string | null
+  lastUsedAt?: string | null
+  createdAt: string
+  secret?: string  // 仅创建时返回一次
+}
+
+export interface Webhook {
+  id: string
+  name: string
+  url: string
+  events: string[]
+  isActive: boolean
+  triggerCount: number
+  failureCount: number
+  lastTriggeredAt?: string | null
+  createdAt: string
+  updatedAt: string
+  signingSecret?: string  // 仅创建时返回一次
+}
+
+export interface WebhookEvent {
+  type: string
+  name: string
+  category: string
+  description: string
+}
+
+export interface WebhookTestResult {
+  wouldSendTo: string
+  payload: any
+  headers: Record<string, string>
+  note: string
+}
+
+// ========== B21 日历集成 ==========
+
+export interface CalendarAccount {
+  id: string
+  provider: string
+  accountName: string
+  calendarId: string
+  isActive: boolean
+  lastSyncedAt?: string | null
+  syncCount: number
+  failureCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CalendarEventMapping {
+  id: string
+  accountId: string
+  taskId: string
+  eventId: string
+  eventUid: string
+  syncState: 'synced' | 'pending_create' | 'pending_update' | 'pending_delete' | 'failed'
+  lastSyncedAt?: string | null
+  lastSyncError?: string | null
+  createdAt: string
+}
+
+export interface BusyInterval {
+  start: string
+  end: string
+  summary?: string
+  status: string
+}
+
+export interface FreeSlot {
+  start: string
+  end: string
+  status: string
+}
+
+export interface DayFreeSlots {
+  date: string
+  slots: FreeSlot[]
+}
+
+export interface DayLoad {
+  date: string
+  loadRatio: number
+  busyMinutes: number
+  totalWorkMinutes: number
+}
+
+export interface BusyFreeResult {
+  userId: string
+  startDate: string
+  endDate: string
+  busyIntervals: BusyInterval[]
+  freeSlots: DayFreeSlots[]
+  dayLoads: DayLoad[]
+}
+
+export interface BatchBusyFreeResult {
+  startDate: string
+  endDate: string
+  userIds: string[]
+  perUser: Record<string, BusyFreeResult>
+  commonFreeSlots: DayFreeSlots[]
+}
+
+export interface CalendarProvider {
+  provider: string
+  name: string
+  icon: string
+  features: string[]
+}
+
+/** 飞书日历事件（反向同步来源：记录事件作为个人计划导入工作台） */
+export interface FeishuCalendarEvent {
+  eventId: string
+  summary: string
+  description: string | null
+  startAt: string
+  endAt: string
+  /** 是否全天事件 */
+  allDay: boolean
+}
+
+export interface DecomposeTask {
+  title: string
+  description: string
+  estimatedHours: number
+  isShared: boolean
+  priority: string
+  earliestStart?: string
+  earliestFinish?: string
+}
+
+export interface DecomposeSuggestion {
+  id: string
+  type: string
+  status: 'pending' | 'applied' | 'rejected'
+  source: string
+  relatedProjectId: string | null
+  summary: string
+  tasks: DecomposeTask[]
+  dependencies: Array<{ fromIndex: number; toIndex: number; type: string; lagDays: number }>
+  warnings: string[]
+  diffSummary: any
+  createdAt: string
+  updatedAt: string
+  expiresAt: string | null
+}
+
+export interface ProposalApplyResult {
+  projectId: string
+  taskCount: number
+  dependencyCount: number
+  taskIds: string[]
+}
+
+// ========= 健康度 & 临期保障（B24） =========
+
+export interface HealthDimension {
+  progress: number
+  schedule: number
+  workload: number
+  quality: number
+}
+
+export interface HealthRiskMetric {
+  name: string
+  value: number
+  threshold: number
+  unit: string
+}
+
+export interface HealthRisk {
+  id: string
+  type: string
+  severity: 'low' | 'medium' | 'high' | 'critical'
+  title: string
+  description: string
+  relatedTaskIds: string[]
+  metric?: HealthRiskMetric
+}
+
+export interface TaskStats {
+  total: number
+  done: number
+  inProgress: number
+  blocked: number
+  todo: number
+  overdue: number
+  nearDue: number
+}
+
+export interface HealthScore {
+  projectId: string
+  score: number
+  level: 'green' | 'yellow' | 'red'
+  dimensions: HealthDimension
+  risks: HealthRisk[]
+  suggestions: string[]
+  computedAt: string
+  taskStats: TaskStats
+}
+
+export interface PortfolioHealthItem {
+  projectId: string
+  projectName: string
+  score: number
+  level: 'green' | 'yellow' | 'red'
+  riskCount: number
+  taskCount: number
+  progress: number
+  endDate?: string
+}
+
+export interface PortfolioHealth {
+  items: PortfolioHealthItem[]
+  total: number
+  greenCount: number
+  yellowCount: number
+  redCount: number
+  averageScore: number
+}
+
+export interface EmergencyAction {
+  id: string
+  actionType: string
+  title: string
+  rationale: string
+  impact: string
+  targetTaskIds: string[]
+  targetAssigneeIds?: string[]
+  effortHours?: number
+  riskReductionEstimate?: number
+}
+
+export interface EmergencySuggestion {
+  proposalId?: string
+  projectId: string
+  actions: EmergencyAction[]
+  riskScoreBefore: number
+  riskScoreAfterEstimate: number
+  summary: string
+  generatedAt: string
+}
+
+// ========= 跨项目资源池（B25） =========
+
+export interface MemberProjectLoad {
+  projectId: string
+  projectName: string
+  hours: number
+  taskCount: number
+  inProgressCount: number
+}
+
+export interface ResourceMember {
+  assigneeId: string
+  name?: string
+  projects: MemberProjectLoad[]
+  totalHours: number
+  capacityHours: number
+  utilization: number
+  loadLevel: 'idle' | 'normal' | 'heavy' | 'overload'
+  inProgressCount: number
+  todoCount: number
+  dueSoonCount: number
+  criticalTaskCount: number
+}
+
+export interface PoolResourceConflict {
+  id: string
+  type: 'cross_project_overload' | 'same_deadline_contention' | 'critical_shared_task'
+  severity: 'low' | 'medium' | 'high' | 'critical'
+  title: string
+  description: string
+  assigneeId: string
+  assigneeName?: string
+  relatedProjectIds: string[]
+  relatedTaskIds: string[]
+  metric?: { name: string; value: number; threshold: number; unit: string }
+}
+
+export interface ResourcePoolOverview {
+  members: ResourceMember[]
+  totalCapacity: number
+  totalAllocated: number
+  utilization: number
+  overloadCount: number
+  idleCount: number
+  topBottlenecks: string[]
+  conflicts: PoolResourceConflict[]
+}
+
+export interface ResourceMatrix {
+  projectIds: string[]
+  projectNames: string[]
+  assigneeIds: string[]
+  assigneeNames: string[]
+  matrix: number[][]  // 行=成员, 列=项目
+}
+
+export interface RebalanceAction {
+  id: string
+  actionType: 'reassign' | 'split_work' | 'defer_low_priority' | 'hire_support'
+  title: string
+  rationale: string
+  fromAssigneeId?: string
+  toAssigneeId?: string
+  relatedTaskIds: string[]
+  estimatedHoursReduction?: number
+  impact: string
+}
+
+export interface RebalanceSuggestion {
+  actions: RebalanceAction[]
+  overloadedMembers: number
+  idleMembers: number
+  utilizationBefore: number
+  utilizationAfterEstimate: number
+  summary: string
+  generatedAt: string
+  proposalId?: string
+}

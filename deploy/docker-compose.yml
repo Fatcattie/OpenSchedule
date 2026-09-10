@@ -1,0 +1,154 @@
+# ============================================================
+# OpenSchedule 本地开发栈（Docker Compose v2 格式，无 version 字段）
+# 方案 chapter_02 §2 + B1：一键本地环境 pg + redis + minio + api + web + ai
+# 用法（仓库根目录，先 cp .env.example .env）：
+#   pnpm docker:up        # 等价：docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+#   pnpm docker:infra     # 仅起基础设施（日常本地开发：pg + redis + minio）
+# 端口约定：api 3000 / web 5173 / ai 8300 / pg 5432 / redis 6379 / minio 9000(S3)+9001(控制台)
+# 网络地址覆盖：容器内各服务通过服务名互访（postgres/redis/minio/api/ai），
+#   与根 .env 中的 localhost 地址无关（compose environment 优先于 env_file）。
+# ============================================================
+name: openschedule
+
+services:
+  # ---------- PostgreSQL 16（主存储；方案：PG 全文搜索 tsvector/pg_trgm） ----------
+  postgres:
+    image: postgres:16-alpine
+    container_name: os-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openschedule}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openschedule}
+      POSTGRES_DB: ${POSTGRES_DB:-openschedule}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # 初始化脚本（扩展等）仅在数据卷首次初始化时执行；改脚本后需 down -v 重置
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openschedule} -d ${POSTGRES_DB:-openschedule}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ---------- Redis 7（BullMQ 队列 + zset 延迟提醒 + WS 广播） ----------
+  redis:
+    image: redis:7-alpine
+    container_name: os-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------- MinIO（S3 兼容对象存储，本地模拟；生产切 OSS/COS 只改配置） ----------
+  minio:
+    # TODO：CI/生产环境固定具体 RELEASE tag（latest 便于开发，发布前锁定）
+    image: minio/minio:latest
+    container_name: os-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web 控制台
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------- 主后端（NestJS 模块化单体，唯一写库方） ----------
+  api:
+    build:
+      context: ..                       # 构建上下文 = 仓库根目录（pnpm workspace 需整仓依赖图）
+      dockerfile: services/api/Dockerfile
+    container_name: os-api
+    env_file:
+      # 根目录 .env（cp .env.example 而来）；缺失不阻塞启动（compose v2 语法）
+      - path: ../.env
+        required: false
+    environment:
+      # 容器网络内覆盖：宿主变量中的 localhost 一律换成服务名
+      APP_PORT: "3000"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-openschedule}:${POSTGRES_PASSWORD:-openschedule}@postgres:5432/${POSTGRES_DB:-openschedule}?schema=public
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_PUBLIC_BASE_URL: http://localhost:9000/${STORAGE_BUCKET:-openschedule}
+      AI_SERVICE_URL: http://ai:8300
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    # 健康检查继承自 services/api/Dockerfile（依赖 GET /health 端点，B1 验收点）
+
+  # ---------- 前端 SPA（React 19 + Vite；容器内跑 dev server，HMR 经端口映射） ----------
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    container_name: os-web
+    environment:
+      # 浏览器侧 API 地址（浏览器在宿主机，走宿主端口）
+      VITE_API_BASE_URL: http://localhost:3000
+      VITE_USE_MOCK: "false"
+      # Vite 代理目标（容器内服务名）：apps/web/vite.config.ts 的 proxy 请读取该变量
+      VITE_API_PROXY_TARGET: http://api:3000
+    ports:
+      - "5173:5173"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ---------- AI 服务（Python FastAPI + LangGraph；永不直连业务库，只回调主服务） ----------
+  ai:
+    build:
+      context: ..
+      dockerfile: services/ai/Dockerfile
+    container_name: os-ai
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      # AI 服务端口约定 8300（与 services/ai/.env.example 的 APP_PORT=8300 一致；
+      # 实际绑定由 Dockerfile CMD 决定）
+      APP_PORT: "8300"
+      # AI 服务回调主服务内部 API（变量名与 AI 侧 config.py 对齐：
+      # MAIN_SERVICE_INTERNAL_URL；方案 chapter_02：AI 结果一律回调主服务，不直接写库）
+      MAIN_SERVICE_INTERNAL_URL: http://api:3000
+      # 若在宿主机自建 LiteLLM，取消下行注释改用宿主地址：
+      # LITELLM_URL: http://host.docker.internal:4000/v1
+    ports:
+      - "8300:8300"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ---------- mailpit（方案 B1：本地邮件 dev 服务；当前默认关闭） ----------
+  # 启用方式：取消下方注释，并把 .env 中 SMTP_HOST 改为 mailpit、SMTP_PORT 保持 1025；
+  # Web UI：http://localhost:8025
+  # mailpit:
+  #   image: axllent/mailpit:latest
+  #   container_name: os-mailpit
+  #   ports:
+  #     - "1025:1025"   # SMTP
+  #     - "8025:8025"   # Web UI
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

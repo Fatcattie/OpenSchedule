@@ -1,0 +1,13 @@
+# ============================================================
+# OpenSchedule monorepo workspace 定义（方案 chapter_02 §2）
+# pnpm ≥9 workspaces；目录口径：
+#   apps/*     —— 前端（apps/web：React 19 + Vite SPA）
+#   services/* —— 后端服务（services/api：NestJS 模块化单体；services/ai：Python 服务）
+#   packages/* —— 共享包（packages/shared-types 预留，API 契约单一来源）
+# 说明：services/ai 为 Python 项目（uv 管理，不含 package.json），
+#       pnpm 会自动忽略无 package.json 的目录，不影响 Node 侧安装与构建。
+# ============================================================
+packages:
+  - apps/*
+  - services/*
+  - packages/*

@@ -1,0 +1,177 @@
+/**
+ * event-mapper.spec.ts
+ */
+import {
+  taskToCalendarEvent,
+  shouldSyncTaskChange,
+  generateEventUid,
+  type TaskLite,
+} from './event-mapper'
+
+function makeTask(overrides: Partial<TaskLite> = {}): TaskLite {
+  return {
+    id: 'task-001',
+    title: '完成产品需求文档',
+    description: '需要包含架构图和接口定义',
+    dueDate: new Date(2026, 7, 25),  // 2026-08-25
+    status: 'todo',
+    assigneeId: 'user-001',
+    priority: 'medium',
+    tags: ['产品', '文档'],
+    ...overrides,
+  }
+}
+
+describe('event-mapper', () => {
+  describe('taskToCalendarEvent', () => {
+    it('基本字段：标题 + 描述 + 全天事件', () => {
+      const task = makeTask()
+      const event = taskToCalendarEvent(task)
+
+      expect(event.summary).toBe('完成产品需求文档')
+      expect(event.description).toContain('架构图')  // 描述里有内容
+      expect(event.isAllDay).toBe(true)
+      expect(event.status).toBe('confirmed')
+      expect(event.transparency).toBe('opaque')
+      expect(event.reminders.length).toBe(2)  // 1440 + 60
+    })
+
+    it('截止日 = 全天事件：start 是当天，end 是次日', () => {
+      const task = makeTask()
+      const event = taskToCalendarEvent(task)
+
+      // 全天格式是 date 字符串
+      expect('date' in event.start).toBe(true)
+      expect((event.start as any).date).toBe('2026-08-25')
+      expect((event.end as any).date).toBe('2026-08-26')
+    })
+
+    it('非全天事件：默认 9:00-10:00', () => {
+      const task = makeTask()
+      const event = taskToCalendarEvent(task, { allDay: false })
+
+      expect(event.isAllDay).toBe(false)
+      expect('dateTime' in event.start).toBe(true)
+    })
+
+    it('完成状态 → cancelled + transparent + 无提醒', () => {
+      const task = makeTask({ status: 'done' })
+      const event = taskToCalendarEvent(task)
+
+      expect(event.status).toBe('cancelled')
+      expect(event.transparency).toBe('transparent')
+      expect(event.reminders.length).toBe(0)
+    })
+
+    it('取消状态 → 同样 cancelled', () => {
+      const task = makeTask({ status: 'cancelled' })
+      const event = taskToCalendarEvent(task)
+      expect(event.status).toBe('cancelled')
+    })
+
+    it('描述中包含优先级', () => {
+      const task = makeTask({ priority: 'high' })
+      const event = taskToCalendarEvent(task)
+      expect(event.description).toContain('优先级')
+      expect(event.description).toContain('high')
+    })
+
+    it('高优先级 → 红色', () => {
+      const task = makeTask({ priority: 'high' })
+      const event = taskToCalendarEvent(task)
+      expect(event.color).toBe('#f5222d')
+    })
+
+    it('无截止日 → 仍然返回事件（调用方应该过滤）', () => {
+      const task = makeTask({ dueDate: null })
+      const event = taskToCalendarEvent(task)
+      expect(event.summary).toBe('完成产品需求文档')
+    })
+
+    it('openScheduleTaskId 被嵌入', () => {
+      const task = makeTask()
+      const event = taskToCalendarEvent(task)
+      expect(event.openScheduleTaskId).toBe('task-001')
+    })
+  })
+
+  describe('shouldSyncTaskChange', () => {
+    it('标题变了 → 要同步', () => {
+      const oldTask = makeTask()
+      const newTask = makeTask({ title: '新标题' })
+      const result = shouldSyncTaskChange(oldTask, newTask)
+      expect(result.shouldSync).toBe(true)
+      expect(result.changedFields).toContain('title')
+    })
+
+    it('描述变了 → 要同步', () => {
+      const oldTask = makeTask()
+      const newTask = makeTask({ description: '新描述' })
+      const result = shouldSyncTaskChange(oldTask, newTask)
+      expect(result.shouldSync).toBe(true)
+      expect(result.changedFields).toContain('description')
+    })
+
+    it('截止日变了 → 要同步', () => {
+      const oldTask = makeTask()
+      const newTask = makeTask({ dueDate: new Date(2026, 7, 26) })
+      const result = shouldSyncTaskChange(oldTask, newTask)
+      expect(result.shouldSync).toBe(true)
+      expect(result.changedFields).toContain('dueDate')
+    })
+
+    it('负责人变了 → 要同步', () => {
+      const oldTask = makeTask()
+      const newTask = makeTask({ assigneeId: 'user-002' })
+      const result = shouldSyncTaskChange(oldTask, newTask)
+      expect(result.shouldSync).toBe(true)
+      expect(result.changedFields).toContain('assigneeId')
+    })
+
+    it('状态变了 → 要同步', () => {
+      const oldTask = makeTask()
+      const newTask = makeTask({ status: 'in_progress' })
+      const result = shouldSyncTaskChange(oldTask, newTask)
+      expect(result.shouldSync).toBe(true)
+      expect(result.changedFields).toContain('status')
+    })
+
+    it('优先级变了 → 不同步（日历不显示优先级颜色以外的差异，颜色是次要信息）', () => {
+      const oldTask = makeTask({ priority: 'medium' })
+      const newTask = makeTask({ priority: 'high' })
+      const result = shouldSyncTaskChange(oldTask, newTask)
+      // 优先级不在 SYNC_FIELDS 里
+      expect(result.shouldSync).toBe(false)
+      expect(result.changedFields.length).toBe(0)
+    })
+
+    it('标签变了 → 不同步', () => {
+      const oldTask = makeTask()
+      const newTask = makeTask({ tags: ['新标签'] })
+      const result = shouldSyncTaskChange(oldTask, newTask)
+      expect(result.shouldSync).toBe(false)
+    })
+
+    it('啥都没变 → 不同步', () => {
+      const oldTask = makeTask()
+      const newTask = makeTask()
+      const result = shouldSyncTaskChange(oldTask, newTask)
+      expect(result.shouldSync).toBe(false)
+    })
+  })
+
+  describe('generateEventUid', () => {
+    it('格式正确', () => {
+      const uid = generateEventUid('task-001', 'tn-001')
+      expect(uid).toContain('openschedule-task')
+      expect(uid).toContain('task-001')
+      expect(uid).toContain('@tn-001')
+    })
+
+    it('不同 taskId 生成不同 uid', () => {
+      const a = generateEventUid('task-a', 'tn-001')
+      const b = generateEventUid('task-b', 'tn-001')
+      expect(a).not.toBe(b)
+    })
+  })
+})

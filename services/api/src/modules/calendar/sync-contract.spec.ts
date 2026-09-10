@@ -1,0 +1,38 @@
+import { MockCalendarAdapter } from './calendar-adapter'
+import { externalEventToTaskPatch } from './sync-contract'
+
+describe('calendar bidirectional sync contract', () => {
+  it('lists events created by the adapter with stable UID and version metadata', async () => {
+    const adapter = new MockCalendarAdapter()
+    const created = await adapter.createEvent('token', 'calendar', {
+      summary: '外部可见任务',
+      description: '说明',
+      start: { date: '2026-08-24' },
+      end: { date: '2026-08-25' },
+      isAllDay: true,
+      reminders: [],
+      transparency: 'opaque',
+      status: 'confirmed',
+      openScheduleTaskId: 'task-1',
+    })
+
+    const events = await adapter.listEvents('token', 'calendar', new Date('2026-08-01'), new Date('2026-09-01'))
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ eventId: created.eventId, eventUid: created.eventUid, openScheduleTaskId: 'task-1' })
+    expect(events[0].updatedAt).toBeInstanceOf(Date)
+  })
+
+  it('maps calendar-side changes to a task patch without changing tenant ownership', () => {
+    const patch = externalEventToTaskPatch({
+      summary: '调整后的标题',
+      description: '调整后的描述',
+      start: { date: '2026-08-26' },
+      end: { date: '2026-08-27' },
+      isAllDay: true,
+      status: 'confirmed',
+      eventUid: 'openschedule-task-task-1@tenant-1',
+      updatedAt: new Date('2026-08-22T12:00:00Z'),
+    })
+    expect(patch).toEqual({ title: '调整后的标题', description: '调整后的描述', dueAt: new Date('2026-08-26T00:00:00.000Z') })
+  })
+})

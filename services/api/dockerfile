@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1
+# ============================================================
+# OpenSchedule 主后端镜像（NestJS + Prisma，Node 22，多阶段构建）
+# 构建上下文 = 仓库根目录（pnpm workspace 需整仓依赖图，配合根 .dockerignore）
+# 构建方式（仓库根目录）：
+#   docker compose --env-file .env -f deploy/docker-compose.yml build api
+# 依赖契约（由对应模块同事实现，缺一则构建报错，属预期）：
+#   - services/api/package.json 存在 build 脚本，产物输出到 dist/
+#   - services/api/prisma/schema.prisma 存在（B2 交付，DDL 唯一权威来源）
+#   - GET /health 健康检查端点（B1 验收点：docker compose up 后 /health 全绿）
+# ============================================================
+
+# ---------- 阶段 1：基础层 ----------
+FROM node:22-alpine AS base
+ENV PNPM_HOME="/pnpm" \
+    PATH="/pnpm:$PATH"
+# 按根 package.json 的 packageManager 字段启用对应 pnpm 版本（pnpm ≥9）
+RUN corepack enable
+WORKDIR /app
+
+# ---------- 阶段 2：依赖安装 + Prisma Client 生成 ----------
+FROM base AS deps
+# 借助根目录 .dockerignore 排除 node_modules/.env/.git 等
+COPY . .
+# 锁文件存在则冻结安装（可复现）；首次开发尚无 lockfile 时回退普通安装
+RUN if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi
+# 生成 Prisma Client（产物位于 node_modules/.prisma，随依赖进入后续阶段）
+RUN pnpm --filter "./services/api" exec prisma generate
+
+# ---------- 阶段 3：编译 + 收窄（pnpm deploy 裁剪到单包） ----------
+FROM base AS build
+COPY --from=deps /app /app
+# 先编译 NestJS → services/api/dist，再 pnpm deploy 将服务连同依赖打包到 /out
+# 注意：services/api/package.json 的 files 字段不得排除 prisma/（迁移文件须随镜像发布）
+RUN pnpm --filter "./services/api" run build \
+    && pnpm --filter "./services/api" deploy /out
+
+# ---------- 阶段 4：运行层（仅保留产物与依赖，不含构建工具） ----------
+FROM node:22-alpine AS runner
+ENV NODE_ENV=production \
+    APP_PORT=3000
+WORKDIR /app
+COPY --from=build /out ./
+# 迁移策略：开发环境默认 DB_AUTO_MIGRATE=true（应用启动时自动 migrate deploy）；
+# 生产环境建议关闭该开关，改由部署流水线单独执行 pnpm prisma:deploy
+EXPOSE 3000
+# 健康检查依赖 GET /health（B1 验收点）
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["node", "dist/main.js"]

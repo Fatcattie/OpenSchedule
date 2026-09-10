@@ -1,0 +1,174 @@
+/**
+ * 评分引擎单测（B17）：技能 Jaccard、完成率/准时率、负载分、复杂度档与适配、冷启动中性分、总分合成。
+ */
+import {
+  calculateRecommendation,
+  complexityFitScore,
+  computeMemberStats,
+  deriveComplexityTier,
+  historyScore,
+  loadScore,
+  MemberStats,
+  skillScore,
+} from './scoring';
+
+function stats(partial: Partial<MemberStats>): MemberStats {
+  return { completedCount: 0, completionRate: 0, onTimeRate: 0.5, activeLoad: 0, ...partial };
+}
+
+describe('评分引擎（B17）', () => {
+  // ===================== 技能匹配（Jaccard） =====================
+
+  describe('skillScore 技能匹配（Jaccard）', () => {
+    it('任务 4 标签 ∩ 成员 5 标签（重叠 4/5）→ 0.8', () => {
+      expect(skillScore(['React', 'Node', 'SQL', 'Docker'], ['react', 'node', 'sql', 'docker', 'K8s'])).toBe(0.8);
+    });
+
+    it('任务无标签 → 0.6 中性分（即使成员有标签）', () => {
+      expect(skillScore([], ['React', 'Node'])).toBe(0.6);
+    });
+
+    it('成员无技能标签 → 0', () => {
+      expect(skillScore(['React'], [])).toBe(0);
+    });
+
+    it('大小写/重复标签归一化后计算交集并集', () => {
+      // 归一化后 task={react,node} skills={react,node,sql} → 交集 2 并集 3 → 0.67
+      expect(skillScore(['React', 'react', 'NODE'], ['react', 'node', 'SQL'])).toBe(0.67);
+    });
+  });
+
+  // ===================== 完成率 / 准时率 =====================
+
+  describe('computeMemberStats 完成率/准时率', () => {
+    const base = (status: string, overrides: Partial<{ completedAt: string | null; dueAt: string | null }> = {}) => ({
+      status,
+      completedAt: overrides.completedAt ?? null,
+      dueAt: overrides.dueAt ?? null,
+      assigneeId: 'u1',
+    });
+
+    it('完成率 = done/(done+未取消已认领)；准时率只算有 dueAt 的 done', () => {
+      const tasks = [
+        base('done', { completedAt: '2026-08-01T02:00:00Z', dueAt: '2026-08-01T10:00:00Z' }), // 准时
+        base('done', { completedAt: '2026-08-02T12:00:00Z', dueAt: '2026-08-01T10:00:00Z' }), // 迟到
+        base('done', { completedAt: '2026-08-03T02:00:00Z', dueAt: null }), // done 无 dueAt，不计准时率分母
+        base('in_progress', {}),
+        base('cancelled', {}), // 取消不计入完成率分母
+      ];
+      const s = computeMemberStats(tasks, 'u1');
+      expect(s.completedCount).toBe(3);
+      expect(s.completionRate).toBe(3 / 4); // done 3 / (done+in_progress) 4
+      expect(s.onTimeRate).toBe(0.5); // 有 dueAt 的 done 2 个，准时 1 个
+      expect(s.activeLoad).toBe(1);
+    });
+
+    it('done 全无 dueAt → 准时率中性 0.5（分母为 0）', () => {
+      const tasks = [base('done', { completedAt: '2026-08-01T02:00:00Z', dueAt: null })];
+      const s = computeMemberStats(tasks, 'u1');
+      expect(s.completionRate).toBe(1);
+      expect(s.onTimeRate).toBe(0.5);
+    });
+
+    it('只统计 assignee=该成员的任务', () => {
+      const tasks = [
+        base('done', { completedAt: '2026-08-01T02:00:00Z', dueAt: '2026-08-01T10:00:00Z' }),
+        { status: 'done', completedAt: '2026-08-01T02:00:00Z', dueAt: null, assigneeId: 'u2' },
+      ];
+      const s = computeMemberStats(tasks, 'u1');
+      expect(s.completedCount).toBe(1);
+      expect(s.completionRate).toBe(1);
+    });
+  });
+
+  describe('historyScore 历史绩效合成', () => {
+    it('0.5×完成率 + 0.5×准时率', () => {
+      expect(historyScore({ completedCount: 4, completionRate: 0.8, onTimeRate: 0.5, activeLoad: 2 })).toBe(0.65);
+    });
+
+    it('完成数 0 → 0.5 中性分（冷启动，即使负载很高）', () => {
+      expect(historyScore({ completedCount: 0, completionRate: 0, onTimeRate: 0, activeLoad: 8 })).toBe(0.5);
+    });
+  });
+
+  // ===================== 负载分 =====================
+
+  describe('loadScore 负载分', () => {
+    it('1 - min(n/5, 1)', () => {
+      expect(loadScore(0)).toBe(1);
+      expect(loadScore(2)).toBe(0.6);
+      expect(loadScore(5)).toBe(0);
+      expect(loadScore(8)).toBe(0); // 封顶
+    });
+  });
+
+  // ===================== 复杂度档与适配 =====================
+
+  describe('deriveComplexityTier / complexityFitScore', () => {
+    it('估时 <4 → low；<16 → medium；≥16 → high；无估时 → medium', () => {
+      expect(deriveComplexityTier(2)).toBe('low');
+      expect(deriveComplexityTier(4)).toBe('medium');
+      expect(deriveComplexityTier(15.5)).toBe('medium');
+      expect(deriveComplexityTier(16)).toBe('high');
+      expect(deriveComplexityTier(100)).toBe('high');
+      expect(deriveComplexityTier(null)).toBe('medium');
+    });
+
+    it('档位匹配 1.0 / 相邻 0.7 / 差两档 0.4 / 未设置 0.6', () => {
+      expect(complexityFitScore('medium', 'medium')).toBe(1.0);
+      expect(complexityFitScore('high', 'medium')).toBe(0.7);
+      expect(complexityFitScore('low', 'medium')).toBe(0.7);
+      expect(complexityFitScore('low', 'high')).toBe(0.4);
+      expect(complexityFitScore('medium', null)).toBe(0.6);
+    });
+  });
+
+  // ===================== 总分合成 + reason =====================
+
+  describe('calculateRecommendation 总分合成', () => {
+    it('四因子加权合成（40/30/20/10），reason 数字与 breakdown 一致', () => {
+      const result = calculateRecommendation({
+        taskTags: ['React', 'Node', 'SQL', 'Docker'],
+        taskEstimatedHours: 20, // → high
+        skillTags: ['React', 'Node', 'SQL', 'Docker', 'K8s'],
+        complexityTier: 'high', // 匹配 → 1.0
+        stats: { completedCount: 4, completionRate: 0.8, onTimeRate: 0.5, activeLoad: 2 },
+      });
+      // skill 0.8、history 0.65、load 0.6、complexity 1.0 → 总分 = 0.32+0.195+0.12+0.1 = 0.735 → 0.74
+      expect(result.scoreBreakdown).toEqual({ skill: 0.8, history: 0.65, load: 0.6, complexity: 1 });
+      expect(result.score).toBeCloseTo(0.74, 2);
+      expect(result.reason).toContain('技能匹配 0.8（标签重叠 4/5）');
+      expect(result.reason).toContain('历史绩效 0.65（完成率 80%/准时率 50%）');
+      expect(result.reason).toContain('负载 0.6（活跃 2 项）');
+      expect(result.reason).toContain('复杂度适配 1（档位匹配）');
+    });
+
+    it('冷启动：无历史 → history 0.5 中性；成员未设档位 → complexity 0.6', () => {
+      const result = calculateRecommendation({
+        taskTags: ['React'],
+        taskEstimatedHours: 2, // → low
+        skillTags: ['React'],
+        complexityTier: null,
+        stats: { completedCount: 0, completionRate: 0, onTimeRate: 0.5, activeLoad: 0 },
+      });
+      // skill 1.0、history 0.5、load 1.0、complexity 0.6 → 总分 0.81
+      expect(result.score).toBeCloseTo(0.81, 2);
+      expect(result.reason).toContain('历史绩效 0.5（无历史记录，冷启动中性分）');
+      expect(result.reason).toContain('复杂度适配 0.6（成员未设置复杂度档）');
+    });
+
+    it('任务无标签 → 技能 0.6 中性；差两档 → 0.4', () => {
+      const result = calculateRecommendation({
+        taskTags: [],
+        taskEstimatedHours: 30, // → high
+        skillTags: ['React'],
+        complexityTier: 'low', // 差两档
+        stats: { completedCount: 1, completionRate: 1, onTimeRate: 1, activeLoad: 0 },
+      });
+      expect(result.scoreBreakdown.skill).toBe(0.6);
+      expect(result.scoreBreakdown.complexity).toBe(0.4);
+      expect(result.reason).toContain('技能匹配 0.6（任务无标签，中性分）');
+      expect(result.reason).toContain('复杂度适配 0.4（档位相差两档）');
+    });
+  });
+});

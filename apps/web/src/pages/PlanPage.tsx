@@ -1,0 +1,493 @@
+﻿/**
+ * 职责：计划/报表页 —— Tab 切换（甘特 / 依赖 / 燃尽 / 负载 / 仪表盘 / 周报）
+ */
+import { useMemo, useState } from 'react'
+import { Card, Empty, Tabs, Typography, Button, Table, Tag, Row, Col, List, Avatar, DatePicker } from 'antd'
+import { ReloadOutlined, FileTextOutlined } from '@ant-design/icons'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { useParams } from 'react-router-dom'
+import dayjs from 'dayjs'
+import { projectApi } from '@/api/projectApi'
+import { reportApi } from '@/api/reportApi'
+import DependencyPanel from '@/components/DependencyPanel'
+import GanttChart from '@/components/GanttChart'
+import BurndownChart from '@/components/BurndownChart'
+import LoadHeatmap from '@/components/LoadHeatmap'
+import OverlapPanel from '@/components/OverlapPanel'
+import StatCard from '@/components/StatCard'
+import StatusPie from '@/components/StatusPie'
+import TrendBar from '@/components/TrendBar'
+import AIDecomposePanel from '@/components/AIDecomposePanel'
+import HealthPanel from '@/components/HealthPanel'
+import ErrorView from '@/components/ErrorView'
+import LoadingView from '@/components/LoadingView'
+import type { MemberBreakdown } from '@/types'
+
+const { Title, Text } = Typography
+const { RangePicker } = DatePicker
+
+type TabKey = 'gantt' | 'dependencies' | 'burndown' | 'load' | 'overlap' | 'dashboard' | 'weekly' | 'ai-decompose' | 'health'
+
+export default function PlanPage() {
+  const { projectId = '' } = useParams<{ projectId: string }>()
+  const [activeTab, setActiveTab] = useState<TabKey>('gantt')
+  const [burndownDays, setBurndownDays] = useState(14)
+  const [loadDays, setLoadDays] = useState(14)
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null)
+  const [weekStart, setWeekStart] = useState<string | undefined>(undefined)
+
+  // 项目信息
+  const projectQuery = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => projectApi.getProject(projectId),
+    enabled: !!projectId,
+    retry: false,
+  })
+
+  // 甘特数据
+  const ganttQuery = useQuery({
+    queryKey: ['gantt', projectId],
+    queryFn: () => reportApi.getGantt(projectId),
+    enabled: !!projectId,
+  })
+
+  // 燃尽数据
+  const burndownQuery = useQuery({
+    queryKey: ['burndown', projectId, burndownDays],
+    queryFn: () => reportApi.getBurndown(projectId, burndownDays),
+    enabled: !!projectId && activeTab === 'burndown',
+  })
+
+  // 负载数据
+  const loadQuery = useQuery({
+    queryKey: ['load', projectId, loadDays],
+    queryFn: () => reportApi.getLoad(projectId, loadDays),
+    enabled: !!projectId && activeTab === 'load',
+  })
+
+  // 仪表盘
+  const dashboardQuery = useQuery({
+    queryKey: ['dashboard', projectId],
+    queryFn: () => reportApi.getDashboard(projectId),
+    enabled: !!projectId && activeTab === 'dashboard',
+  })
+
+  // 重叠检测
+  const overlapQuery = useQuery({
+    queryKey: ['overlap', projectId],
+    queryFn: () => reportApi.getOverlap(projectId),
+    enabled: !!projectId && activeTab === 'overlap',
+  })
+
+  // 周报（mutation：POST 生成）
+  const weeklyMutation = useMutation({
+    mutationFn: (ws?: string) => reportApi.getWeeklyReport(projectId, ws),
+  })
+
+  // 构建依赖边
+  const depEdges = useMemo(() => {
+    if (!ganttQuery.data) return undefined
+    const { rows } = ganttQuery.data
+    const idToIndex = new Map(rows.map((r, i) => [r.taskId, i]))
+    return rows.map(row => row.dependencies.map(d => idToIndex.get(d) ?? -1).filter(i => i >= 0))
+  }, [ganttQuery.data]) as number[][] | undefined
+
+  const projectName = projectQuery.data?.name ?? '计划'
+
+  const handleTabChange = (key: string) => {
+    setActiveTab(key as TabKey)
+    // 第一次切到周报自动生成
+    if (key === 'weekly' && !weeklyMutation.data && !weeklyMutation.isPending) {
+      weeklyMutation.mutate(weekStart)
+    }
+  }
+
+  const handleWeekChange = (_dates: any, dateStrings: string[]) => {
+    const ws = dateStrings[0]
+    setWeekStart(ws)
+    if (activeTab === 'weekly') {
+      weeklyMutation.mutate(ws || undefined)
+    }
+  }
+
+  const handleExport = () => {
+    reportApi.exportCsv(projectId)
+  }
+
+  if (projectQuery.isError) {
+    return (
+      <ErrorView
+        error={projectQuery.error}
+        extra={<Text type="secondary">返回项目看板</Text>}
+        onRetry={() => projectQuery.refetch()}
+      />
+    )
+  }
+  if (projectQuery.isLoading) return <LoadingView height={400} tip="正在加载项目…" />
+
+  // 成员周报分解表格列
+  const memberColumns = [
+    { title: '成员', dataIndex: 'displayName', key: 'displayName', width: 120 },
+    { title: '完成数', dataIndex: 'completedCount', key: 'completedCount', width: 80, sorter: (a: MemberBreakdown, b: MemberBreakdown) => a.completedCount - b.completedCount },
+    { title: '实际工时(h)', dataIndex: 'actualHours', key: 'actualHours', width: 100, sorter: (a: MemberBreakdown, b: MemberBreakdown) => a.actualHours - b.actualHours },
+    { title: '估时(h)', dataIndex: 'estimatedHours', key: 'estimatedHours', width: 100 },
+    {
+      title: '估时偏差',
+      key: 'deviation',
+      width: 100,
+      render: (_: any, record: MemberBreakdown) => {
+        if (record.estimatedHours === 0) return '-'
+        const pct = ((record.actualHours - record.estimatedHours) / record.estimatedHours * 100).toFixed(0)
+        const color = Number(pct) > 20 ? '#cf1322' : Number(pct) < -10 ? '#3f8600' : 'inherit'
+        return <span style={{ color }}>{Number(pct) > 0 ? '+' : ''}{pct}%</span>
+      },
+    },
+  ]
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>{projectName} · 报表</Title>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button icon={<FileTextOutlined />} onClick={handleExport}>
+            导出 CSV
+          </Button>
+        </div>
+      </div>
+
+      <Tabs
+        activeKey={activeTab}
+        onChange={handleTabChange}
+        items={[
+          {
+            key: 'gantt',
+            label: '甘特图',
+            children: (
+              <div>
+                {ganttQuery.isLoading ? (
+                  <LoadingView height={300} tip="正在计算甘特数据…" />
+                ) : ganttQuery.isError ? (
+                  <ErrorView error={ganttQuery.error} onRetry={() => ganttQuery.refetch()} />
+                ) : ganttQuery.data?.rows.length === 0 ? (
+                  <Empty description="暂无任务数据，请先在板面上创建任务" />
+                ) : (
+                  <Card
+                    bodyStyle={{ padding: 0 }}
+                    extra={
+                      <Button icon={<ReloadOutlined />} onClick={() => ganttQuery.refetch()}>
+                        刷新
+                      </Button>
+                    }
+                  >
+                    <GanttChart
+                      data={ganttQuery.data!}
+                      dependencies={depEdges}
+                      selectedRowIndex={selectedRowIndex}
+                      onTaskClick={setSelectedRowIndex}
+                    />
+                  </Card>
+                )}
+              </div>
+            ),
+          },
+          {
+            key: 'dependencies',
+            label: '依赖关系',
+            children: (
+              <Card>
+                <DependencyPanel projectId={projectId} />
+              </Card>
+            ),
+          },
+          {
+            key: 'burndown',
+            label: '燃尽图',
+            children: (
+              <Card
+                bodyStyle={{ padding: 16 }}
+                extra={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Text type="secondary">天数：</Text>
+                    <select
+                      value={burndownDays}
+                      onChange={e => setBurndownDays(Number(e.target.value))}
+                      style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #d9d9d9' }}
+                    >
+                      {[7, 14, 21, 30].map(d => (
+                        <option key={d} value={d}>{d} 天</option>
+                      ))}
+                    </select>
+                    <Button icon={<ReloadOutlined />} size="small" onClick={() => burndownQuery.refetch()}>
+                      刷新
+                    </Button>
+                  </div>
+                }
+              >
+                {burndownQuery.isLoading ? (
+                  <LoadingView height={300} tip="正在计算燃尽数据…" />
+                ) : burndownQuery.isError ? (
+                  <ErrorView error={burndownQuery.error} onRetry={() => burndownQuery.refetch()} />
+                ) : burndownQuery.data?.points.length === 0 ? (
+                  <Empty description="暂无燃尽数据" />
+                ) : (
+                  <BurndownChart data={burndownQuery.data!} />
+                )}
+              </Card>
+            ),
+          },
+          {
+            key: 'load',
+            label: '成员负载',
+            children: (
+              <Card
+                bodyStyle={{ padding: 16 }}
+                extra={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Text type="secondary">天数：</Text>
+                    <select
+                      value={loadDays}
+                      onChange={e => setLoadDays(Number(e.target.value))}
+                      style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #d9d9d9' }}
+                    >
+                      {[7, 14, 21, 30].map(d => (
+                        <option key={d} value={d}>{d} 天</option>
+                      ))}
+                    </select>
+                    <Button icon={<ReloadOutlined />} size="small" onClick={() => loadQuery.refetch()}>
+                      刷新
+                    </Button>
+                  </div>
+                }
+              >
+                {loadQuery.isLoading ? (
+                  <LoadingView height={300} tip="正在计算负载数据…" />
+                ) : loadQuery.isError ? (
+                  <ErrorView error={loadQuery.error} onRetry={() => loadQuery.refetch()} />
+                ) : loadQuery.data?.members.length === 0 ? (
+                  <Empty description="暂无负载数据" />
+                ) : (
+                  <LoadHeatmap data={loadQuery.data!} />
+                )}
+              </Card>
+            ),
+          },
+          {
+            key: 'overlap',
+            label: '重叠检测',
+            children: (
+              <Card
+                bodyStyle={{ padding: 16 }}
+                extra={
+                  <Button icon={<ReloadOutlined />} size="small" onClick={() => overlapQuery.refetch()}>
+                    刷新
+                  </Button>
+                }
+              >
+                {overlapQuery.isLoading ? (
+                  <LoadingView height={300} tip="正在检测重叠…" />
+                ) : overlapQuery.isError ? (
+                  <ErrorView error={overlapQuery.error} onRetry={() => overlapQuery.refetch()} />
+                ) : overlapQuery.data ? (
+                  <OverlapPanel data={overlapQuery.data} />
+                ) : (
+                  <Empty description="暂无重叠数据" />
+                )}
+              </Card>
+            ),
+          },
+          {
+            key: 'dashboard',
+            label: '仪表盘',
+            children: (
+              <Card bodyStyle={{ padding: 16 }}>
+                {dashboardQuery.isLoading ? (
+                  <LoadingView height={400} tip="正在加载仪表盘…" />
+                ) : dashboardQuery.isError ? (
+                  <ErrorView error={dashboardQuery.error} onRetry={() => dashboardQuery.refetch()} />
+                ) : dashboardQuery.data ? (
+                  <div>
+                    <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+                      <Col xs={12} md={6}>
+                        <StatCard title="总任务" value={dashboardQuery.data.stats.totalTasks} color="#1677ff" />
+                      </Col>
+                      <Col xs={12} md={6}>
+                        <StatCard title="本周完成" value={dashboardQuery.data.stats.completedThisWeek} color="#52c41a" />
+                      </Col>
+                      <Col xs={12} md={6}>
+                        <StatCard title="进行中" value={dashboardQuery.data.stats.activeTasks} color="#faad14" />
+                      </Col>
+                      <Col xs={12} md={6}>
+                        <StatCard title="逾期" value={dashboardQuery.data.stats.overdueTasks} color="#cf1322" />
+                      </Col>
+                    </Row>
+                    <Row gutter={[12, 12]}>
+                      <Col xs={24} md={10}>
+                        <Card size="small" title="状态分布">
+                          <StatusPie data={dashboardQuery.data.statusDistribution} />
+                        </Card>
+                      </Col>
+                      <Col xs={24} md={14}>
+                        <Card size="small" title="完成趋势">
+                          <TrendBar
+                            data={dashboardQuery.data.trends.completionTrend.map(t => ({
+                              week: t.week,
+                              value: t.completedCount,
+                            }))}
+                            barColor="#52c41a"
+                            height={180}
+                          />
+                        </Card>
+                      </Col>
+                    </Row>
+                    <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
+                      <Col xs={24} md={14}>
+                        <Card size="small" title="工时趋势">
+                          <TrendBar
+                            data={dashboardQuery.data.trends.hoursTrend.map(t => ({
+                              week: t.week,
+                              value: t.hours,
+                            }))}
+                            barColor="#1677ff"
+                            valueSuffix="h"
+                            height={180}
+                          />
+                        </Card>
+                      </Col>
+                      <Col xs={24} md={10}>
+                        <Card size="small" title="Top 成员（本周）">
+                          <List
+                            size="small"
+                            dataSource={dashboardQuery.data.topMembers}
+                            renderItem={(item, idx) => (
+                              <List.Item>
+                                <List.Item.Meta
+                                  avatar={
+                                    <Avatar style={{ backgroundColor: idx < 3 ? '#1677ff' : '#bfbfbf' }}>
+                                      {item.displayName.slice(0, 1)}
+                                    </Avatar>
+                                  }
+                                  title={item.displayName}
+                                  description={
+                                    <span>
+                                      完成 {item.completedCount} 项 · {item.actualHours}h
+                                    </span>
+                                  }
+                                />
+                                <Text type="secondary" style={{ fontSize: 12 }}>#{idx + 1}</Text>
+                              </List.Item>
+                            )}
+                          />
+                        </Card>
+                      </Col>
+                    </Row>
+                  </div>
+                ) : (
+                  <Empty description="暂无数据" />
+                )}
+              </Card>
+            ),
+          },
+          {
+            key: 'weekly',
+            label: '周报',
+            children: (
+              <Card
+                bodyStyle={{ padding: 16 }}
+                extra={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <RangePicker
+                      picker="week"
+                      value={weekStart ? [dayjs(weekStart), dayjs(weekStart).add(6, 'day')] : null}
+                      onChange={handleWeekChange}
+                      allowClear={false}
+                      size="small"
+                    />
+                    <Button icon={<ReloadOutlined />} size="small" onClick={() => weeklyMutation.mutate(weekStart)}>
+                      生成周报
+                    </Button>
+                    <Button icon={<FileTextOutlined />} size="small" onClick={handleExport}>
+                      导出 CSV
+                    </Button>
+                  </div>
+                }
+              >
+                {weeklyMutation.isPending ? (
+                  <LoadingView height={400} tip="正在生成周报…" />
+                ) : weeklyMutation.isError ? (
+                  <ErrorView error={weeklyMutation.error as Error} onRetry={() => weeklyMutation.mutate(weekStart)} />
+                ) : weeklyMutation.data ? (
+                  <div>
+                    <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <Text strong style={{ fontSize: 15 }}>
+                        周报 · {weeklyMutation.data.weekStart}
+                      </Text>
+                      <Text type="secondary">
+                        ~ {weeklyMutation.data.weekEnd}
+                      </Text>
+                      {weeklyMutation.data.isTemplate && (
+                        <Tag color="default">模板生成</Tag>
+                      )}
+                    </div>
+                    <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+                      <Col xs={12} md={4}><StatCard title="完成" value={weeklyMutation.data.summary.completedTasks} color="#52c41a" /></Col>
+                      <Col xs={12} md={4}><StatCard title="新增" value={weeklyMutation.data.summary.newTasks} color="#1677ff" /></Col>
+                      <Col xs={12} md={4}><StatCard title="逾期" value={weeklyMutation.data.summary.overdueTasks} color="#cf1322" /></Col>
+                      <Col xs={12} md={4}><StatCard title="工时(h)" value={weeklyMutation.data.summary.totalActualHours} color="#722ed1" /></Col>
+                      <Col xs={12} md={4}><StatCard title="完成率" value={`${Math.round(weeklyMutation.data.summary.completionRate * 100)}%`} color="#faad14" /></Col>
+                      <Col xs={12} md={4}><StatCard title="准时率" value={weeklyMutation.data.summary.onTimeRate != null ? `${Math.round(weeklyMutation.data.summary.onTimeRate * 100)}%` : '-'} color="#13c2c2" /></Col>
+                    </Row>
+                    {weeklyMutation.data.highlights.length > 0 && (
+                      <div style={{ marginBottom: 12 }}>
+                        <Text strong style={{ fontSize: 13 }}>✨ 亮点</Text>
+                        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {weeklyMutation.data.highlights.map((h, i) => (
+                            <Tag key={i} color="green">{h}</Tag>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {weeklyMutation.data.risks.length > 0 && (
+                      <div style={{ marginBottom: 16 }}>
+                        <Text strong style={{ fontSize: 13 }}>⚠️ 风险</Text>
+                        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {weeklyMutation.data.risks.map((r, i) => (
+                            <Tag key={i} color="red">{r}</Tag>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <Card size="small" title="成员分解">
+                      <Table
+                        size="small"
+                        dataSource={weeklyMutation.data.memberBreakdown}
+                        rowKey="userId"
+                        columns={memberColumns}
+                        pagination={{ pageSize: 6, size: 'small' }}
+                      />
+                    </Card>
+                  </div>
+                ) : (
+                  <Empty description="点击「生成周报」生成本周数据" />
+                )}
+              </Card>
+            ),
+          },
+          {
+            key: 'ai-decompose',
+            label: 'AI 拆解',
+            children: (
+              <AIDecomposePanel projectId={projectId} onApplied={() => ganttQuery.refetch()} />
+            ),
+          },
+          {
+            key: 'health',
+            label: '健康度',
+            children: (
+              <HealthPanel projectId={projectId} />
+            ),
+          },
+        ]}
+      />
+    </div>
+  )
+}

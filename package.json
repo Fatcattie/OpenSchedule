@@ -1,0 +1,34 @@
+{
+  "name": "openschedule",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenSchedule monorepo 根配置：团队协作计划 + AI 半自动协作闭环（React 19 SPA + NestJS 模块化单体 + Python FastAPI）",
+  "packageManager": "pnpm@9.15.5",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "preinstall": "npx -y only-allow pnpm",
+    "dev": "concurrently -n api,web,ai -c blue,green,yellow \"pnpm dev:api\" \"pnpm dev:web\" \"pnpm dev:ai\"",
+    "dev:api": "pnpm --filter \"./services/api\" run start:dev",
+    "dev:web": "pnpm --filter \"./apps/web\" run dev",
+    "dev:ai": "cd services/ai && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8300",
+    "build": "pnpm --filter \"./services/api\" --filter \"./apps/web\" run build",
+    "lint": "pnpm --filter \"./services/api\" --filter \"./apps/web\" run typecheck",
+    "test": "pnpm --filter \"./services/api\" run test && pnpm --filter \"./apps/web\" run typecheck",
+    "test:ai": "cd services/ai && uv run pytest",
+    "prisma:generate": "pnpm --filter \"./services/api\" exec prisma generate",
+    "prisma:migrate": "pnpm --filter \"./services/api\" exec prisma migrate dev",
+    "prisma:deploy": "pnpm --filter \"./services/api\" exec prisma migrate deploy",
+    "prisma:studio": "pnpm --filter \"./services/api\" exec prisma studio",
+    "docker:up": "docker compose --env-file .env -f deploy/docker-compose.yml up -d --build",
+    "docker:down": "docker compose --env-file .env -f deploy/docker-compose.yml down",
+    "docker:logs": "docker compose --env-file .env -f deploy/docker-compose.yml logs -f --tail=100",
+    "docker:ps": "docker compose --env-file .env -f deploy/docker-compose.yml ps",
+    "docker:infra": "docker compose --env-file .env -f deploy/docker-compose.yml up -d postgres redis minio"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

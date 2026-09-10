@@ -1,0 +1,745 @@
+/**
+ * 任务服务：任务树 CRUD + 表驱动状态机（T1-T13）+ 完成落 actual_hours/completed_at（★D3）+ 计时 + 看板移动 + 历史。
+ * 状态机查表校验：非法迁移 40902 + allowed_transitions；乐观锁 version 冲突 40901；全部写操作事务 + 审计。
+ */
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Prisma, Project, Task } from '@prisma/client';
+import { AuditService } from '../../common/audit/audit.service';
+import {
+  TASK_ERROR_CODES,
+  TASK_SORT_WHITELIST,
+  TaskStatus,
+  TransitionContext,
+  assertTransitionLegal,
+  checkTransitionPreconditions,
+} from '../../common/constants/task-status';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { AuthUser, isTenantAdmin } from './current-user.decorator';
+import { CreateTaskDto } from './dto/create-task.dto';
+import { CompleteTaskDto } from './dto/complete-task.dto';
+import { MoveTaskDto } from './dto/move-task.dto';
+import { ReopenTaskDto } from './dto/reopen-task.dto';
+import { StartTimerDto } from './dto/timer.dto';
+import { TaskQueryDto } from './dto/task-query.dto';
+import { UpdateTaskDto } from './dto/update-task.dto';
+import { TASK_EVENTS } from './events/task.events';
+import { sortTodayItems } from './today';
+
+/** 任务模块错误码（§3.1 分段码表） */
+const E = { BAD_REQUEST: 40001, FORBIDDEN: 40301, NOT_FOUND: 40401 } as const;
+
+/** 树节点响应类型（tree view） */
+export type TaskTreeNode = Task & { children: TaskTreeNode[] };
+
+/** applyTransition 选项（由调用方构造；assignments 模块复用） */
+export interface ApplyTransitionOpts {
+  /** 迁移校验上下文（assigneeId 取迁移生效后值：claim 场景=领取人） */
+  ctx: TransitionContext;
+  /** 乐观锁版本（必带：状态变更请求必须携带 version，§3.1） */
+  expectedVersion?: number;
+  /** 迁移原因（T2/T8/T9 必填 ≥4 字符） */
+  reason?: string;
+  /** 实际工时（T4/T7 必填，★D3） */
+  actualHours?: number | null;
+  /** 审计动作名（默认 task.transition:{from}->{to}） */
+  action?: string;
+  /** Phase4：启用 Phase2 扩展态迁移（T10/T11/T12 pending_review 审批流） */
+  includePhase2?: boolean;
+}
+
+@Injectable()
+export class TasksService {
+  private readonly logger = new Logger(TasksService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
+    @Optional() private readonly eventBus?: EventEmitter2,
+  ) {}
+
+  // ===================== 查询 =====================
+
+  /** 项目任务列表（树或平铺；tenant 谓词 + 项目可见性；X-Total-Count 由 controller 设置） */
+  async listByProject(projectId: string, user: AuthUser, query: TaskQueryDto) {
+    const project = await this.loadProject(projectId, user.tenantId);
+    await this.assertProjectAccess(project, user, 'view');
+    const page = query.page ?? 1;
+    const pageSize = Math.min(query.pageSize ?? 50, 100);
+    const where: Prisma.TaskWhereInput = {
+      tenantId: user.tenantId,
+      projectId,
+      deletedAt: null,
+      // Phase4：未审核通过的提报不进看板（普通成员提报 → 管理员审核通过后才可见）
+      OR: [{ source: 'published' }, { submissionStatus: 'approved' }],
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.assigneeId ? { assigneeId: query.assigneeId } : {}),
+      ...(query.priority ? { priority: query.priority } : {}),
+      ...(query.dueFrom || query.dueTo ? { dueAt: { gte: query.dueFrom, lte: query.dueTo } } : {}),
+      ...(query.search ? { title: { contains: query.search, mode: 'insensitive' } } : {}),
+    };
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.task.findMany({ where, orderBy: this.resolveSort(query.sort), skip: (page - 1) * pageSize, take: pageSize }),
+      this.prisma.task.count({ where }),
+    ]);
+    return query.view === 'tree' ? { data: this.buildTree(items), meta: { page, pageSize, total } } : { data: items, meta: { page, pageSize, total } };
+  }
+
+  /** 任务详情 */
+  async getOne(id: string, user: AuthUser) {
+    return this.loadTaskOr404(id, user);
+  }
+
+  /** 当前用户今日聚焦：聚合本人未完成团队任务与个人任务，按逾期/截止时间/优先级排序。 */
+  async today(user: AuthUser, limit = 50) {
+    const take = Math.min(Math.max(limit, 1), 100);
+    const activeStatuses = { notIn: [TaskStatus.DONE, TaskStatus.CANCELLED] };
+    const [teamTasks, personalTasks] = await Promise.all([
+      this.prisma.task.findMany({
+        where: { tenantId: user.tenantId, assigneeId: user.userId, status: activeStatuses, deletedAt: null },
+        select: { id: true, title: true, status: true, priority: true, dueAt: true, projectId: true },
+        orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
+        take,
+      }),
+      this.prisma.personalTask.findMany({
+        where: { tenantId: user.tenantId, userId: user.userId, status: activeStatuses, deletedAt: null },
+        select: { id: true, title: true, status: true, priority: true, dueAt: true },
+        orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
+        take,
+      }),
+    ]);
+    const items = sortTodayItems([
+      ...teamTasks.map((task) => ({ ...task, type: 'team' as const })),
+      ...personalTasks.map((task) => ({ ...task, type: 'personal' as const, projectId: null })),
+    ]).slice(0, take);
+    return { data: items, meta: { limit: take, total: items.length } };
+  }
+
+  /** 任务变更历史（审计；/tasks/:id/history 由 AuditService 提供数据，audit 模块 ★） */
+  async history(id: string, user: AuthUser, query: { page?: number; pageSize?: number }) {
+    const task = await this.loadTaskOr404(id, user);
+    const page = query.page ?? 1;
+    const pageSize = Math.min(query.pageSize ?? 50, 100);
+    const { items, total } = await this.audit.list(task.tenantId, { resourceType: 'task', resourceId: task.id, page, pageSize });
+    return { data: items, meta: { page, pageSize, total } };
+  }
+
+  // ===================== 写操作 =====================
+
+  /**
+   * 创建任务（Phase4：发布/提报分流）。
+   * - 管理员/项目负责人 → source=published，直接进看板；可带 subtasks（AI 拆解）、reviewRequired（需评审）
+   * - 普通成员 → source=submission + submissionStatus=pending，管理员审核通过后才进看板
+   * - taskMode=independent（独立任务）拒绝 subtasks（不支持 AI 拆解）
+   */
+  async create(projectId: string, user: AuthUser, body: CreateTaskDto | CreateTaskDto[]) {
+    const items = Array.isArray(body) ? body : [body];
+    if (items.length === 0) throw new BadRequestException({ code: E.BAD_REQUEST, message: '任务列表不能为空' });
+    if (items.length > 50) throw new BadRequestException({ code: E.BAD_REQUEST, message: '单次批量创建不超过 50 条' });
+    const project = await this.loadProject(projectId, user.tenantId);
+    await this.assertProjectAccess(project, user, 'create');
+    const isPublisher = isTenantAdmin(user) || project.ownerId === user.userId;
+    for (const dto of items) {
+      if (dto.subtasks?.length) {
+        if (!isPublisher) throw new ForbiddenException({ code: E.FORBIDDEN, message: '仅管理员/项目负责人可发布带子任务的任务（普通成员仅可提报）' });
+        if (dto.taskMode === 'independent') throw new BadRequestException({ code: E.BAD_REQUEST, message: '独立任务不支持 AI 拆解/子任务' });
+      }
+      if (dto.reviewRequired && !isPublisher) {
+        throw new ForbiddenException({ code: E.FORBIDDEN, message: '仅管理员/项目负责人可设置需要评审' });
+      }
+    }
+    // TODO(幂等)：Idempotency-Key 24h 去重由 common 拦截器提供（§3.1）；本服务暂不自行实现
+    const created = await this.prisma.$transaction(async tx => {
+      const list: Task[] = [];
+      let sortCursor = this.nextSortCursor(await tx.task.aggregate({ where: { projectId, tenantId: user.tenantId, deletedAt: null }, _max: { sortOrder: true } }));
+      for (const dto of items) {
+        if (dto.assigneeId) await this.assertAssigneeInProject(tx, dto.assigneeId, project);
+        if (dto.parentId) await this.assertParentValid(tx, dto.parentId, projectId, user.tenantId, null);
+        const task = await tx.task.create({
+          data: {
+            tenantId: user.tenantId,
+            projectId,
+            parentId: dto.parentId,
+            title: dto.title,
+            description: dto.description,
+            status: TaskStatus.TODO,
+            priority: dto.priority ?? 'medium',
+            assigneeId: dto.assigneeId,
+            startAt: dto.startAt,
+            dueAt: dto.dueAt,
+            taskMode: dto.taskMode ?? 'team',
+            source: isPublisher ? 'published' : 'submission',
+            submissionStatus: isPublisher ? null : 'pending',
+            submissionNote: dto.submissionNote,
+            reviewRequired: isPublisher ? (dto.reviewRequired ?? false) : false,
+            estimatedHours: dto.estimatedHours,
+            createdBy: user.userId,
+            tags: dto.tags ?? [],
+            sortOrder: sortCursor++,
+            version: 0,
+            isAiGenerated: dto.isAiGenerated ?? false,
+          },
+        });
+        // 随发布一并创建子任务（AI 拆解/手动），明确挂在主任务下（parentId=主任务）
+        if (dto.subtasks?.length) {
+          for (const st of dto.subtasks) {
+            if (st.assigneeId) await this.assertAssigneeInProject(tx, st.assigneeId, project);
+            await tx.task.create({
+              data: {
+                tenantId: user.tenantId,
+                projectId,
+                parentId: task.id,
+                title: st.title,
+                description: st.description,
+                status: TaskStatus.TODO,
+                priority: st.priority ?? 'medium',
+                assigneeId: st.assigneeId,
+                dueAt: st.dueAt,
+                taskMode: dto.taskMode ?? 'team',
+                source: 'published',
+                estimatedHours: st.estimatedHours,
+                createdBy: user.userId,
+                sortOrder: sortCursor++,
+                version: 0,
+                isAiGenerated: st.isAiGenerated ?? false,
+              },
+            });
+          }
+        }
+        await this.audit.record(
+          { tenantId: user.tenantId, actorId: user.userId, action: 'task.create', resourceType: 'task', resourceId: task.id, after: task },
+          tx,
+        );
+        list.push(task);
+      }
+      return list;
+    });
+    // 事务提交后发布事件（工程决策 11）
+    for (const t of created) this.eventBus?.emit(TASK_EVENTS.CREATED, { taskId: t.id, projectId, tenantId: user.tenantId });
+    return Array.isArray(body) ? created : created[0];
+  }
+
+  /** 更新任务（含状态流转；编辑权限：assignee 本人、项目负责人、租户 Admin） */
+  async update(id: string, user: AuthUser, dto: UpdateTaskDto) {
+    const task = await this.loadTaskOr404(id, user);
+    const project = await this.loadProject(task.projectId!, user.tenantId);
+    const canEdit = isTenantAdmin(user) || project.ownerId === user.userId || task.assigneeId === user.userId;
+    if (!canEdit) throw new ForbiddenException({ code: E.FORBIDDEN, message: '普通成员不能编辑他人任务' });
+
+    const statusChanged = dto.status !== undefined && dto.status !== task.status;
+    const result = await this.prisma.$transaction(async tx => {
+      let current = task;
+      if (statusChanged) {
+        if (dto.version == null) throw new BadRequestException({ code: E.BAD_REQUEST, message: '状态变更必须携带 version（乐观锁，§3.1）' });
+        current = await this.applyTransition(tx, task, dto.status!, {
+          ctx: this.buildCtx(user, task, project),
+          expectedVersion: dto.version,
+          reason: dto.statusReason,
+          actualHours: dto.actualHours,
+          action: `task.update:${task.status}->${dto.status}`,
+        });
+      } else if (dto.version != null) {
+        this.assertTaskVersion(task, dto.version);
+      }
+      const patch: Prisma.TaskUpdateInput = {
+        ...(dto.title !== undefined ? { title: dto.title } : {}),
+        ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.priority !== undefined ? { priority: dto.priority } : {}),
+        ...(dto.estimatedHours !== undefined ? { estimatedHours: dto.estimatedHours } : {}),
+        ...(dto.actualHours !== undefined ? { actualHours: dto.actualHours } : {}),
+        ...(dto.dueAt !== undefined ? { dueAt: dto.dueAt } : {}),
+        ...(dto.startAt !== undefined ? { startAt: dto.startAt } : {}),
+        ...(dto.tags !== undefined ? { tags: dto.tags } : {}),
+      };
+      let assigneeChanged = false;
+      if (dto.assigneeId !== undefined && dto.assigneeId !== task.assigneeId) {
+        if (!(isTenantAdmin(user) || project.ownerId === user.userId)) {
+          throw new ForbiddenException({ code: E.FORBIDDEN, message: '分配任务仅项目负责人或租户 Admin 可操作；成员只能自领（§3.4）' });
+        }
+        await this.assertAssigneeInProject(tx, dto.assigneeId, project);
+        patch.assignee = { connect: { id: dto.assigneeId } }; // TaskUpdateInput 无标量 assigneeId，走关系 connect
+        patch.startedAt = task.startedAt ?? new Date(); // 首次分配即开始时间
+        assigneeChanged = true;
+      }
+      if (dto.parentId !== undefined && dto.parentId !== task.parentId) {
+        if (dto.parentId === null) {
+          patch.parent = { disconnect: true }; // 清空父任务
+        } else {
+          await this.assertParentValid(tx, dto.parentId, project.id, user.tenantId, task.id);
+          patch.parent = { connect: { id: dto.parentId } };
+        }
+      }
+      const after = Object.keys(patch).length > 0
+        ? await tx.task.update({ where: { id: task.id }, data: { ...patch, ...(statusChanged ? {} : { version: { increment: 1 } }) } })
+        : current;
+      await this.audit.record(
+        { tenantId: user.tenantId, actorId: user.userId, action: 'task.update', resourceType: 'task', resourceId: task.id, before: task, after },
+        tx,
+      );
+      return { after, assigneeChanged, assigneeId: dto.assigneeId };
+    });
+
+    if (result.assigneeChanged) {
+      await this.notifications.notify({
+        tenantId: user.tenantId,
+        userId: result.assigneeId!,
+        type: 'task.assigned',
+        title: `你被分配了任务「${result.after.title}」`,
+        data: { taskId: task.id, projectId: project.id },
+      });
+      this.eventBus?.emit(TASK_EVENTS.ASSIGNED, { taskId: task.id, projectId: project.id, tenantId: user.tenantId, assigneeId: result.assigneeId });
+    }
+    if (statusChanged) this.afterStatusChange(task, result.after, project, user);
+    return result.after;
+  }
+
+  /** 删除/归档（T13：任意态→归档=软删；有子任务/依赖禁止物理删除只归档；审计 + 子树递归） */
+  async softDelete(id: string, user: AuthUser) {
+    const task = await this.loadTaskOr404(id, user);
+    const project = await this.loadProject(task.projectId!, user.tenantId);
+    if (!(isTenantAdmin(user) || project.ownerId === user.userId)) {
+      throw new ForbiddenException({ code: E.FORBIDDEN, message: '删除/归档仅项目负责人、租户 Admin（T13）' });
+    }
+    return this.prisma.$transaction(async tx => {
+      const subtreeIds = await this.collectSubtreeIds(tx, task.id, user.tenantId);
+      // 依赖存在时仅归档（T13：禁止物理删除）；Phase 1 DELETE 一律软删，物理删除策略 TODO
+      const deps = await tx.taskDependency.count({
+        where: { tenantId: user.tenantId, OR: [{ prevTaskId: task.id }, { nextTaskId: task.id }] },
+      });
+      if (deps > 0) this.logger.warn(`task ${task.id} 存在 ${deps} 条依赖，按 T13 仅归档（递归）`);
+      const res = await tx.task.updateMany({
+        where: { id: { in: subtreeIds }, tenantId: user.tenantId, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+      await this.audit.record(
+        { tenantId: user.tenantId, actorId: user.userId, action: 'task.archive', resourceType: 'task', resourceId: task.id, before: task, after: { archivedIds: subtreeIds, count: res.count } },
+        tx,
+      );
+      return { archivedIds: subtreeIds, count: res.count };
+    });
+  }
+
+  /**
+   * 完成（T4/T7；Phase4：reviewRequired 且非评审子任务本身 → 不直接 done，转 pending_review（T10）
+   * 并在同一事务内自动生成「项目评审」子任务（挂主任务下，管理员/项目负责人自动承接）。
+   * 评审子任务自身完成走正常 T4 → done。
+   */
+  async complete(id: string, user: AuthUser, dto: CompleteTaskDto) {
+    const task = await this.loadTaskOr404(id, user);
+    const project = await this.loadProject(task.projectId!, user.tenantId);
+    const needsReview = task.reviewRequired && !task.isReviewTask;
+    let reviewCreated: Task | null = null;
+    const result = await this.prisma.$transaction(async tx => {
+      const actualHours = dto.actualHours ?? (await this.resolveActualHours(tx, task, user.tenantId));
+      const target = needsReview ? TaskStatus.PENDING_REVIEW : TaskStatus.DONE;
+      const updated = await this.applyTransition(tx, task, target, {
+        ctx: this.buildCtx(user, task, project),
+        expectedVersion: dto.version,
+        actualHours,
+        action: needsReview ? 'task.submit_review' : 'task.complete',
+        includePhase2: needsReview,
+      });
+      await this.closeOpenTimers(tx, task.id, user.tenantId); // 完成时关闭进行中的计时
+      if (needsReview) {
+        // 复用未完成的评审子任务（驳回后重新提报不重复建评审）
+        const openReview = await tx.task.findFirst({
+          where: { parentId: task.id, tenantId: task.tenantId, isReviewTask: true, status: { not: TaskStatus.DONE }, deletedAt: null },
+        });
+        if (!openReview) {
+          const reviewAssignee = project.ownerId ?? task.createdBy ?? user.userId; // 管理员自动承接：项目负责人优先
+          reviewCreated = await tx.task.create({
+            data: {
+              tenantId: task.tenantId,
+              projectId: task.projectId!,
+              parentId: task.id,
+              title: `项目评审 — ${task.title}`,
+              description: `评审主任务「${task.title}」的完成情况（提交人累计工时 ${actualHours ?? '-'}h）。评审子任务完成后，项目负责人/租户 Admin 才能审批通过主任务。`,
+              status: TaskStatus.TODO,
+              priority: 'high',
+              assigneeId: reviewAssignee,
+              startAt: new Date(),
+              taskMode: 'team',
+              source: 'published',
+              reviewRequired: false,
+              isReviewTask: true,
+              reviewerIds: reviewAssignee ? [reviewAssignee] : [],
+              createdBy: user.userId,
+              sortOrder: this.nextSortCursor(await tx.task.aggregate({ where: { projectId: task.projectId!, tenantId: task.tenantId, deletedAt: null }, _max: { sortOrder: true } })),
+              version: 0,
+            },
+          });
+          await this.audit.record(
+            { tenantId: task.tenantId, actorId: user.userId, action: 'task.review.created', resourceType: 'task', resourceId: reviewCreated.id, after: reviewCreated },
+            tx,
+          );
+        }
+      }
+      return updated;
+    });
+    this.afterStatusChange(task, result, project, user);
+    // 评审子任务就绪通知（事务提交后）
+    if (reviewCreated) {
+      const ownerId = project.ownerId ?? task.createdBy;
+      if (ownerId && ownerId !== user.userId) {
+        await this.notifications.notify({
+          tenantId: task.tenantId,
+          userId: ownerId,
+          type: 'task.review.pending',
+          title: `评审任务已生成并分配给你：「项目评审 — ${task.title}」`,
+          data: { taskId: reviewCreated.id, parentTaskId: task.id, projectId: project.id },
+        }).catch((err: Error) => this.logger.warn(`评审通知发送失败: ${err.message}`));
+      }
+      this.eventBus?.emit(TASK_EVENTS.STATUS_CHANGED, { taskId: reviewCreated.id, projectId: project.id, tenantId: task.tenantId, from: null, to: TaskStatus.TODO });
+    }
+    return result;
+  }
+
+  /** 重开（T9：原因必填；completed_at 置空、actual_hours 保留） */
+  async reopen(id: string, user: AuthUser, dto: ReopenTaskDto) {
+    const task = await this.loadTaskOr404(id, user);
+    const project = await this.loadProject(task.projectId!, user.tenantId);
+    const target = dto.targetStatus ?? TaskStatus.TODO;
+    const result = await this.prisma.$transaction(async tx =>
+      this.applyTransition(tx, task, target, {
+        ctx: this.buildCtx(user, task, project),
+        expectedVersion: dto.version,
+        reason: dto.reason,
+        action: 'task.reopen',
+      }),
+    );
+    this.afterStatusChange(task, result, project, user);
+    return result;
+  }
+
+  /** 看板移动（{column_id?, status?, sort_order?, version}；乐观锁 40901；状态变更走迁移表 40902） */
+  async move(id: string, user: AuthUser, dto: MoveTaskDto) {
+    const task = await this.loadTaskOr404(id, user);
+    const project = await this.loadProject(task.projectId!, user.tenantId);
+    const statusChanged = dto.status !== undefined && dto.status !== task.status;
+    const result = await this.prisma.$transaction(async tx => {
+      let current = task;
+      if (statusChanged) {
+        current = await this.applyTransition(tx, task, dto.status!, {
+          ctx: this.buildCtx(user, task, project),
+          expectedVersion: dto.version,
+          reason: dto.reason,
+          action: `task.move:${task.status}->${dto.status}`,
+        });
+      } else {
+        this.assertTaskVersion(task, dto.version);
+      }
+      const after = await tx.task.update({
+        where: { id: task.id },
+        data: {
+          ...(statusChanged ? {} : { version: { increment: 1 } }),
+          ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+          ...(dto.columnId !== undefined ? { workflowColumnId: dto.columnId } : {}), // Phase 2 自定义列
+        },
+      });
+      await this.audit.record(
+        { tenantId: user.tenantId, actorId: user.userId, action: 'task.move', resourceType: 'task', resourceId: task.id, before: task, after },
+        tx,
+      );
+      return after;
+    });
+    if (statusChanged) this.afterStatusChange(task, result, project, user);
+    return result;
+  }
+
+  // ===================== 计时（time_entries） =====================
+
+  /** 开始计时：写入 open 的 time_entry（同任务同人只能有一个进行中计时） */
+  async startTimer(id: string, user: AuthUser, dto: StartTimerDto) {
+    const task = await this.loadTaskOr404(id, user);
+    await this.assertCanTime(task, user);
+    const open = await this.prisma.timeEntry.findFirst({
+      where: { taskId: task.id, tenantId: user.tenantId, userId: user.userId, endedAt: null },
+    });
+    if (open) throw new BadRequestException({ code: E.BAD_REQUEST, message: '已有进行中的计时，请先停止' });
+    const entry = await this.prisma.timeEntry.create({
+      data: { tenantId: user.tenantId, taskId: task.id, userId: user.userId, startedAt: new Date(), note: dto.note },
+    });
+    await this.audit.record(
+      { tenantId: user.tenantId, actorId: user.userId, action: 'task.timer.start', resourceType: 'task', resourceId: task.id, after: entry },
+    );
+    return entry;
+  }
+
+  /** 停止计时：写 ended_at/duration_seconds 并累计 actual_hours（★D3 采集点） */
+  async stopTimer(id: string, user: AuthUser) {
+    const task = await this.loadTaskOr404(id, user);
+    await this.assertCanTime(task, user);
+    return this.prisma.$transaction(async tx => {
+      const open = await tx.timeEntry.findFirst({
+        where: { taskId: task.id, tenantId: user.tenantId, userId: user.userId, endedAt: null },
+      });
+      if (!open) throw new BadRequestException({ code: E.BAD_REQUEST, message: '没有进行中的计时' });
+      const endedAt = new Date();
+      const durationSeconds = Math.max(1, Math.floor((endedAt.getTime() - open.startedAt.getTime()) / 1000));
+      const entry = await tx.timeEntry.update({ where: { id: open.id }, data: { endedAt, durationSeconds } });
+      const prev = this.toNum(task.actualHours) ?? 0;
+      const next = Math.round((prev + durationSeconds / 3600) * 10) / 10; // 小数 1 位
+      const updatedTask = await tx.task.update({ where: { id: task.id }, data: { actualHours: next, version: { increment: 1 } } });
+      await this.audit.record(
+        { tenantId: user.tenantId, actorId: user.userId, action: 'task.timer.stop', resourceType: 'task', resourceId: task.id, before: { actualHours: task.actualHours }, after: { actualHours: next, entry } },
+        tx,
+      );
+      return { entry, actualHours: next, task: updatedTask };
+    });
+  }
+
+  /** 计时明细列表 */
+  async listTimeEntries(id: string, user: AuthUser, query: { page?: number; pageSize?: number }) {
+    const task = await this.loadTaskOr404(id, user);
+    const page = query.page ?? 1;
+    const pageSize = Math.min(query.pageSize ?? 50, 100);
+    const where: Prisma.TimeEntryWhereInput = { taskId: task.id, tenantId: user.tenantId };
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.timeEntry.findMany({ where, orderBy: { startedAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+      this.prisma.timeEntry.count({ where }),
+    ]);
+    return { data: items, meta: { page, pageSize, total } };
+  }
+
+  // ===================== 状态机核心（供本模块与 assignments 模块复用） =====================
+
+  /**
+   * 迁移表驱动状态流转（唯一入口）：
+   * 1) version 乐观锁校验 → 40901；2) 查 TRANSITIONS 表 → 非法 40902 + allowed_transitions；
+   * 3) 执行者校验 → 40301；4) 前置条件校验 → 40001；5) 副作用：done 写 completed_at/actual_hours、T9 置空 completed_at、started_at、version+1、审计。
+   */
+  async applyTransition(tx: Prisma.TransactionClient, task: Task, to: TaskStatus, opts: ApplyTransitionOpts): Promise<Task> {
+    this.assertTaskVersion(task, opts.expectedVersion);
+    const t = assertTransitionLegal(task.status as TaskStatus, to, opts.ctx, task, { includePhase2: opts.includePhase2 }); // schema status 为 varchar，断言为枚举
+    checkTransitionPreconditions(t, { reason: opts.reason, actualHours: opts.actualHours, ctx: opts.ctx });
+    const now = new Date();
+    const patch: Prisma.TaskUpdateInput = { status: to, version: { increment: 1 } };
+    if (to === TaskStatus.DONE) {
+      patch.completedAt = now; // ★D3：完成时间（准时率=实际 vs due_at）
+      if (opts.actualHours != null) patch.actualHours = opts.actualHours;
+    }
+    if (task.status === TaskStatus.DONE && (to === TaskStatus.TODO || to === TaskStatus.IN_PROGRESS)) {
+      patch.completedAt = null; // T9：completed_at 置空、actual_hours 保留
+    }
+    if (to === TaskStatus.IN_PROGRESS && !task.startedAt) patch.startedAt = now; // 首次领取/开始时间
+    const after = await tx.task.update({ where: { id: task.id }, data: patch });
+    await this.audit.record(
+      { tenantId: task.tenantId, actorId: opts.ctx.userId, action: opts.action ?? `task.transition:${task.status}->${to}`, resourceType: 'task', resourceId: task.id, before: task, after },
+      tx,
+    );
+    return after;
+  }
+
+  /** 供 reminders 等模块校验任务可见性（=loadTaskOr404 别名语义） */
+  async assertTaskVisible(id: string, user: AuthUser): Promise<Task> {
+    return this.loadTaskOr404(id, user);
+  }
+
+  // ===================== 内部工具 =====================
+
+  /** 加载任务（tenant 谓词 + 软删过滤 + 查看权限；不可见一律 40401 防存在性探测） */
+  async loadTaskOr404(id: string, user: AuthUser): Promise<Task> {
+    const task = await this.prisma.task.findFirst({ where: { id, tenantId: user.tenantId, deletedAt: null } });
+    if (!task || !task.projectId) throw new NotFoundException({ code: E.NOT_FOUND, message: '任务不存在或不可见' }); // 个人任务走 /me/tasks
+    const project = await this.loadProject(task.projectId, user.tenantId);
+    await this.assertProjectAccess(project, user, 'view');
+    return task;
+  }
+
+  /** 加载项目（40401 防探测） */
+  private async loadProject(projectId: string, tenantId: string): Promise<Project> {
+    const project = await this.prisma.project.findFirst({ where: { id: projectId, tenantId, deletedAt: null } });
+    if (!project) throw new NotFoundException({ code: E.NOT_FOUND, message: '项目不存在或不可见' });
+    return project;
+  }
+
+  /** 项目访问权限（§3.4：view/create=项目成员+只读/负责人/Admin；edit=负责人/Admin） */
+  private async assertProjectAccess(project: Project, user: AuthUser, mode: 'view' | 'edit' | 'create'): Promise<void> {
+    if (isTenantAdmin(user) || project.ownerId === user.userId) return;
+    if (mode === 'edit') throw new ForbiddenException({ code: E.FORBIDDEN, message: '仅项目负责人或租户 Admin 可执行此操作' });
+    const member = await this.prisma.userRole.findFirst({
+      where: { tenantId: user.tenantId, userId: user.userId, scopeResourceId: project.id, role: { scope: 'project' } },
+      select: { id: true },
+    });
+    if (!member) throw new ForbiddenException({ code: E.FORBIDDEN, message: '非项目成员，无权访问' });
+  }
+
+  /** 计时权限：assignee 本人、项目负责人、租户 Admin */
+  private async assertCanTime(task: Task, user: AuthUser): Promise<void> {
+    const project = await this.loadProject(task.projectId!, user.tenantId);
+    if (isTenantAdmin(user) || project.ownerId === user.userId || task.assigneeId === user.userId) return;
+    throw new ForbiddenException({ code: E.FORBIDDEN, message: '仅 assignee 本人、项目负责人或租户 Admin 可计时' });
+  }
+
+  /** 乐观锁校验：version 不匹配 → 40901（§3.1）；供 assignments 等模块复用 */
+  assertTaskVersion(task: Task, expected?: number): void {
+    if (expected !== undefined && task.version !== expected) {
+      throw new ConflictException({
+        code: TASK_ERROR_CODES.OPTIMISTIC_LOCK,
+        message: '乐观锁冲突：任务已被他人修改，请刷新后重试',
+        details: { currentVersion: task.version, expectedVersion: expected },
+      });
+    }
+  }
+
+  /** 迁移校验上下文 */
+  private buildCtx(user: AuthUser, task: Task, project: Project): TransitionContext {
+    return { userId: user.userId, assigneeId: task.assigneeId, projectOwnerId: project.ownerId, createdBy: task.createdBy, isTenantAdmin: isTenantAdmin(user) };
+  }
+
+  /** 状态变更后的副作用：事件 + 通知（事务提交后调用，工程决策 11） */
+  private afterStatusChange(before: Task, after: Task, project: Project, actor: AuthUser): void {
+    const from = before.status;
+    const to = after.status;
+    this.eventBus?.emit(TASK_EVENTS.STATUS_CHANGED, { taskId: after.id, projectId: after.projectId, tenantId: after.tenantId, from, to });
+    if (to === TaskStatus.DONE) {
+      this.eventBus?.emit(TASK_EVENTS.COMPLETED, { taskId: after.id, projectId: after.projectId, tenantId: after.tenantId, actualHours: this.toNum(after.actualHours) });
+      this.notifyExcept(actor.userId, [project.ownerId, after.createdBy, after.assigneeId], {
+        type: 'task.completed',
+        title: `任务「${after.title}」已完成`,
+        data: { taskId: after.id, projectId: project.id },
+        tenantId: after.tenantId,
+      });
+      // TODO(Phase 2)：触发自动化规则（automation 模块）；关注人表就绪前通知 owner/creator/assignee
+    } else if (to === TaskStatus.BLOCKED) {
+      // T2/T5 副作用：通知负责人
+      this.notifyExcept(actor.userId, [project.ownerId], {
+        type: 'task.status_changed',
+        title: `任务「${after.title}」被标记为阻塞`,
+        data: { taskId: after.id, projectId: project.id, status: to },
+        tenantId: after.tenantId,
+      });
+    } else if (to === TaskStatus.CANCELLED) {
+      // T8 副作用：通知 assignee
+      this.notifyExcept(actor.userId, [after.assigneeId], {
+        type: 'task.status_changed',
+        title: `任务「${after.title}」已取消`,
+        data: { taskId: after.id, projectId: project.id, status: to },
+        tenantId: after.tenantId,
+      });
+    } else if (to === TaskStatus.IN_PROGRESS && from === TaskStatus.TODO) {
+      // T1 副作用：通知项目负责人
+      this.notifyExcept(actor.userId, [project.ownerId], {
+        type: 'task.status_changed',
+        title: `任务「${after.title}」开始执行`,
+        data: { taskId: after.id, projectId: project.id, status: to },
+        tenantId: after.tenantId,
+      });
+    }
+    // TODO(Phase 3)：阻塞>3 天自动升级通知（偏差检测）
+  }
+
+  /** 通知多个接收人（跳过操作者本人；null 接收人跳过） */
+  private notifyExcept(actorId: string, userIds: (string | null)[], input: { tenantId: string; type: string; title: string; data: Record<string, unknown> }): void {
+    const targets = [...new Set(userIds.filter((x): x is string => x !== null && x !== actorId))];
+    for (const userId of targets) {
+      void this.notifications.notify({ tenantId: input.tenantId, userId, type: input.type, title: input.title, data: input.data }).catch(err =>
+        this.logger.warn(`通知发送失败 userId=${userId} type=${input.type}: ${err.message}`),
+      );
+    }
+  }
+
+  /** 从 time_entries 累计 actual_hours（含未停止的计时按当前时间估算；★D3） */
+  private async resolveActualHours(tx: Prisma.TransactionClient, task: Task, tenantId: string): Promise<number | null> {
+    const agg = await tx.timeEntry.aggregate({ where: { taskId: task.id, tenantId, endedAt: { not: null } }, _sum: { durationSeconds: true } });
+    let secs = agg._sum.durationSeconds ?? 0;
+    const open = await tx.timeEntry.findFirst({ where: { taskId: task.id, tenantId, endedAt: null } });
+    if (open) secs += Math.max(0, Math.floor((Date.now() - open.startedAt.getTime()) / 1000));
+    return secs > 0 ? Math.round((secs / 3600) * 10) / 10 : null;
+  }
+
+  /** 关闭进行中的计时（完成流程用） */
+  private async closeOpenTimers(tx: Prisma.TransactionClient, taskId: string, tenantId: string): Promise<void> {
+    const now = new Date();
+    const open = await tx.timeEntry.findMany({ where: { taskId, tenantId, endedAt: null } });
+    for (const e of open) {
+      const durationSeconds = Math.max(1, Math.floor((now.getTime() - e.startedAt.getTime()) / 1000));
+      await tx.timeEntry.update({ where: { id: e.id }, data: { endedAt: now, durationSeconds } });
+    }
+  }
+
+  /** assignee 必须是本项目成员（§3.5.5：跨项目分配直接拒绝；owner 由派生身份放行） */
+  private async assertAssigneeInProject(tx: Prisma.TransactionClient, assigneeId: string, project: Project): Promise<void> {
+    if (assigneeId === project.ownerId) return;
+    const row = await tx.userRole.findFirst({
+      where: { tenantId: project.tenantId, userId: assigneeId, scopeResourceId: project.id, role: { scope: 'project' } },
+      select: { id: true },
+    });
+    if (!row) throw new BadRequestException({ code: E.BAD_REQUEST, message: 'assignee 必须是本项目成员（跨项目分配直接拒绝）' });
+  }
+
+  /** 父任务校验（§3.5.5：同项目内；树深度 ≤4（A4 默认）；不可把自己的后代设为父防环） */
+  private async assertParentValid(tx: Prisma.TransactionClient, parentId: string, projectId: string, tenantId: string, selfId: string | null): Promise<void> {
+    let levels = 0;
+    let cursor: string | null = parentId;
+    while (cursor) {
+      const parent: { id: string; parentId: string | null } | null = await tx.task.findFirst({ where: { id: cursor, tenantId, projectId, deletedAt: null }, select: { id: true, parentId: true } });
+      if (!parent) throw new BadRequestException({ code: E.BAD_REQUEST, message: '父任务不存在或不在同一项目内' });
+      if (selfId && parent.id === selfId) throw new BadRequestException({ code: E.BAD_REQUEST, message: '不能把自己的后代设为父（防环）' });
+      levels += 1;
+      if (levels >= 4) throw new BadRequestException({ code: E.BAD_REQUEST, message: '任务树深度不得超过 4 层（A4 默认）' });
+      cursor = parent.parentId;
+    }
+  }
+
+  /** 递归收集子树 id（T13 归档用；深度受 assertParentValid 约束 ≤4） */
+  private async collectSubtreeIds(tx: Prisma.TransactionClient, rootId: string, tenantId: string): Promise<string[]> {
+    const ids: string[] = [rootId];
+    const queue = [rootId];
+    while (queue.length > 0) {
+      const parentId = queue.shift()!;
+      const children = await tx.task.findMany({ where: { parentId, tenantId, deletedAt: null }, select: { id: true } });
+      for (const c of children) {
+        ids.push(c.id);
+        queue.push(c.id);
+        if (ids.length > 1000) throw new BadRequestException({ code: E.BAD_REQUEST, message: '任务树过大，拒绝递归归档（防御性上限）' });
+      }
+    }
+    return ids;
+  }
+
+  /** 组树（tree view；任务列表内 parent/child 关系） */
+  private buildTree(items: Task[]): TaskTreeNode[] {
+    const byParent = new Map<string | null, Task[]>();
+    for (const t of items) {
+      const bucket = byParent.get(t.parentId) ?? [];
+      bucket.push(t);
+      byParent.set(t.parentId, bucket);
+    }
+    const attach = (parentId: string | null): TaskTreeNode[] =>
+      (byParent.get(parentId) ?? []).map(t => ({ ...t, children: attach(t.id) }) as TaskTreeNode);
+    return attach(null);
+  }
+
+  /** 排序白名单解析（§3.1：sort 参数走白名单；默认看板列内排序） */
+  private resolveSort(sort?: string): Prisma.TaskOrderByWithRelationInput | Prisma.TaskOrderByWithRelationInput[] {
+    if (!sort) return [{ sortOrder: 'asc' }, { createdAt: 'asc' }];
+    const desc = sort.startsWith('-');
+    const field = desc ? sort.slice(1) : sort;
+    if (!(TASK_SORT_WHITELIST as readonly string[]).includes(field)) return { createdAt: 'desc' };
+    return { [field]: desc ? 'desc' : 'asc' } as Prisma.TaskOrderByWithRelationInput;
+  }
+
+  /** numeric 列（Prisma Decimal）→ number */
+  private toNum(v: Prisma.Decimal | number | null | undefined): number | null {
+    if (v == null) return null;
+    return typeof v === 'number' ? v : v.toNumber();
+  }
+
+  /** 下一排序游标 */
+  private nextSortCursor(max: { _max: { sortOrder: Prisma.Decimal | null } } | null): number {
+    const cur = max?._max.sortOrder;
+    const n = cur == null ? -1 : (typeof cur === 'number' ? cur : cur.toNumber());
+    return Math.floor(n) + 1;
+  }
+}

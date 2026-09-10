@@ -1,0 +1,771 @@
+/**
+ * ResourcePoolPage.tsx —— 跨项目资源池页面
+ *
+ * 结构：
+ *  - 顶部指标卡：总容量 / 总分配 / 整体利用率 / 过载人数 / 闲人数
+ *  - 成员负载列表：头像 + 利用率进度条 + 项目标签 + 等级
+ *  - 资源冲突清单：严重度 / 类型 / 成员 / 描述
+ *  - 再平衡按钮：生成建议 → Modal 预览
+ */
+import { useState } from 'react'
+import {
+  Card,
+  Row,
+  Col,
+  Statistic,
+  Progress,
+  Tag,
+  List,
+  Button,
+  Modal,
+  Typography,
+  Space,
+  Avatar,
+  message,
+  Empty,
+  Tabs,
+  Alert,
+  Tooltip,
+  Segmented,
+  theme,
+} from 'antd'
+import {
+  TeamOutlined,
+  ThunderboltOutlined,
+  SwapOutlined,
+  AlertOutlined,
+  RiseOutlined,
+  FallOutlined,
+  UserOutlined,
+  DownloadOutlined,
+} from '@ant-design/icons'
+import { downloadCsv } from '@/utils/download'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import {
+  getResourcePoolOverview,
+  getResourceConflicts,
+  getResourceMatrix,
+  generateRebalance,
+} from '@/api/resourcePoolApi'
+import type { ResourceMember, PoolResourceConflict, RebalanceSuggestion } from '@/types'
+import LoadingView from '@/components/LoadingView'
+import ErrorView from '@/components/ErrorView'
+
+const { Title, Text } = Typography
+
+const LOAD_LEVEL_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  idle: { label: '空闲', color: '#52c41a', bg: '#f6ffed' },
+  normal: { label: '正常', color: '#1890ff', bg: '#e6f7ff' },
+  heavy: { label: '偏重', color: '#faad14', bg: '#fffbe6' },
+  overload: { label: '过载', color: '#f5222d', bg: '#fff1f0' },
+}
+
+const CONFICT_TYPE_LABEL: Record<string, string> = {
+  cross_project_overload: '跨项目过载',
+  same_deadline_contention: '同截止日争抢',
+  critical_shared_task: '关键路径共享',
+}
+
+const SEVERITY_COLOR: Record<string, string> = {
+  critical: '#cf1322',
+  high: '#d46b08',
+  medium: '#d4b106',
+  low: '#389e0d',
+}
+
+const SEVERITY_LABEL: Record<string, string> = {
+  critical: '严重',
+  high: '高',
+  medium: '中',
+  low: '低',
+}
+
+export default function ResourcePoolPage() {
+  const [rebalanceVisible, setRebalanceVisible] = useState(false)
+  const [rebalanceData, setRebalanceData] = useState<RebalanceSuggestion | null>(null)
+
+  const overviewQuery = useQuery({
+    queryKey: ['resource-pool-overview'],
+    queryFn: () => getResourcePoolOverview(),
+  })
+
+  const conflictsQuery = useQuery({
+    queryKey: ['resource-conflicts'],
+    queryFn: () => getResourceConflicts(),
+  })
+
+  const matrixQuery = useQuery({
+    queryKey: ['resource-matrix'],
+    queryFn: () => getResourceMatrix(),
+  })
+
+  const rebalanceMutation = useMutation({
+    mutationFn: () => generateRebalance(),
+    onSuccess: (data) => {
+      setRebalanceData(data)
+      setRebalanceVisible(true)
+    },
+    onError: (err: any) => message.error(err.response?.data?.message || '生成失败'),
+  })
+
+  const overview = overviewQuery.data
+  const utilization = overview?.utilization ?? 0
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <Title level={3} style={{ margin: 0 }}>
+          <TeamOutlined style={{ marginRight: 8 }} />
+          跨项目资源池
+        </Title>
+        <Button
+          type="primary"
+          icon={<SwapOutlined />}
+          onClick={() => rebalanceMutation.mutate()}
+          loading={rebalanceMutation.isPending}
+        >
+          生成再平衡建议
+        </Button>
+      </div>
+
+      {/* 指标卡 */}
+      <Row gutter={16} style={{ marginBottom: 20 }}>
+        <Col span={4}>
+          <Card size="small">
+            <Statistic
+              title="总容量"
+              value={overview?.totalCapacity ?? 0}
+              suffix="人·时/周"
+              prefix={<TeamOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col span={4}>
+          <Card size="small">
+            <Statistic
+              title="已分配"
+              value={overview?.totalAllocated ?? 0}
+              suffix="小时"
+              valueStyle={{ color: '#1890ff' }}
+            />
+          </Card>
+        </Col>
+        <Col span={4}>
+          <Card size="small">
+            <Statistic
+              title="整体利用率"
+              value={utilization}
+              suffix="%"
+              valueStyle={{ color: utilization >= 90 ? '#f5222d' : utilization >= 70 ? '#faad14' : '#52c41a' }}
+              prefix={utilization >= 70 ? <RiseOutlined /> : <FallOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col span={4}>
+          <Card size="small">
+            <Statistic
+              title="过载人数"
+              value={overview?.overloadCount ?? 0}
+              valueStyle={{ color: '#f5222d' }}
+              prefix={<ThunderboltOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col span={4}>
+          <Card size="small">
+            <Statistic
+              title="闲人数"
+              value={overview?.idleCount ?? 0}
+              valueStyle={{ color: '#52c41a' }}
+            />
+          </Card>
+        </Col>
+        <Col span={4}>
+          <Card size="small">
+            <Statistic
+              title="资源冲突"
+              value={overview?.conflicts.length ?? 0}
+              valueStyle={{ color: overview && overview.conflicts.length > 0 ? '#faad14' : '#52c41a' }}
+              prefix={<AlertOutlined />}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Tab 切换 */}
+      <Tabs
+        defaultActiveKey="members"
+        items={[
+          {
+            key: 'members',
+            label: '成员负载',
+            children: (
+              <Card size="small" title="成员负载列表">
+                {overviewQuery.isLoading ? (
+                  <LoadingView height={200} />
+                ) : overviewQuery.isError ? (
+                  <ErrorView error={overviewQuery.error as Error} onRetry={() => overviewQuery.refetch()} />
+                ) : overview?.members.length === 0 ? (
+                  <Empty description="暂无成员负载数据" />
+                ) : (
+                  <List
+                    dataSource={overview?.members ?? []}
+                    renderItem={(member: ResourceMember) => (
+                      <MemberCard member={member} />
+                    )}
+                  />
+                )}
+              </Card>
+            ),
+          },
+          {
+            key: 'conflicts',
+            label: `冲突清单 (${overview?.conflicts.length ?? 0})`,
+            children: (
+              <Card size="small" title="资源冲突">
+                {conflictsQuery.isLoading ? (
+                  <LoadingView height={200} />
+                ) : conflictsQuery.isError ? (
+                  <ErrorView error={conflictsQuery.error as Error} onRetry={() => conflictsQuery.refetch()} />
+                ) : overview?.conflicts.length === 0 ? (
+                  <Empty description="暂无资源冲突 🎉" />
+                ) : (
+                  <List
+                    dataSource={overview?.conflicts ?? []}
+                    renderItem={(conflict: PoolResourceConflict) => (
+                      <ConflictItem conflict={conflict} />
+                    )}
+                  />
+                )}
+              </Card>
+            ),
+          },
+          {
+            key: 'matrix',
+            label: '工时矩阵',
+            children: (
+              <Card size="small" title="成员 × 项目工时矩阵">
+                {matrixQuery.isLoading ? (
+                  <LoadingView height={200} />
+                ) : matrixQuery.isError ? (
+                  <ErrorView error={matrixQuery.error as Error} onRetry={() => matrixQuery.refetch()} />
+                ) : matrixQuery.data ? (
+                  <MatrixTable data={matrixQuery.data} />
+                ) : null}
+              </Card>
+            ),
+          },
+        ]}
+      />
+
+      {/* 再平衡建议弹窗 */}
+      <Modal
+        title={
+          <Space>
+            <SwapOutlined style={{ color: '#1890ff' }} />
+            <span>再平衡建议</span>
+          </Space>
+        }
+        open={rebalanceVisible}
+        onCancel={() => setRebalanceVisible(false)}
+        width={720}
+        footer={[
+          <Button key="close" onClick={() => setRebalanceVisible(false)}>关闭</Button>,
+          <Button key="apply" type="primary" disabled>应用建议（v2）</Button>,
+        ]}
+      >
+        {rebalanceData && (
+          <div>
+            <Alert
+              type={rebalanceData.overloadedMembers > 0 ? 'warning' : 'success'}
+              showIcon
+              message={rebalanceData.summary}
+              description={`当前利用率 ${rebalanceData.utilizationBefore}% → 预估调整后 ${rebalanceData.utilizationAfterEstimate}%`}
+              style={{ marginBottom: 16 }}
+            />
+            <Title level={5} style={{ marginBottom: 12 }}>
+              建议措施（{rebalanceData.actions.length} 项）
+            </Title>
+            {rebalanceData.actions.length === 0 ? (
+              <Empty description="资源分配均衡，无需调整" />
+            ) : (
+              <List
+                size="small"
+                bordered
+                dataSource={rebalanceData.actions}
+                renderItem={(action) => (
+                  <List.Item>
+                    <List.Item.Meta
+                      avatar={<SwapOutlined style={{ color: '#1890ff', fontSize: 20 }} />}
+                      title={
+                        <Space>
+                          <span>{action.title}</span>
+                          <Tag color="blue">{action.actionType}</Tag>
+                          {action.estimatedHoursReduction ? (
+                            <Tag color="green">释放 {action.estimatedHoursReduction}h</Tag>
+                          ) : null}
+                        </Space>
+                      }
+                      description={
+                        <div>
+                          <div style={{ color: '#595959', marginBottom: 4 }}>
+                            <strong>理由：</strong>{action.rationale}
+                          </div>
+                          <div style={{ color: '#389e0d' }}>
+                            <strong>效果：</strong>{action.impact}
+                          </div>
+                        </div>
+                      }
+                    />
+                  </List.Item>
+                )}
+              />
+            )}
+            <div style={{ marginTop: 16, fontSize: 12, color: '#8c8c8c' }}>
+              💡 以上为自动生成的再平衡建议草稿（草稿态 + 审批门），点击「应用」才会真正执行人调整
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  )
+}
+
+// ===== 成员卡片 =====
+function MemberCard({ member }: { member: ResourceMember }) {
+  const config = LOAD_LEVEL_CONFIG[member.loadLevel]
+  return (
+    <List.Item
+      style={{ padding: '16px 0' }}
+      extra={
+        <Tag color={config.color} style={{ fontSize: 12 }}>
+          {config.label}
+        </Tag>
+      }
+    >
+      <List.Item.Meta
+        avatar={
+          <Avatar style={{ backgroundColor: config.color }}>
+            {member.name ? member.name.charAt(0) : <UserOutlined />}
+          </Avatar>
+        }
+        title={
+          <Space>
+            <span style={{ fontWeight: 500 }}>{member.name ?? member.assigneeId}</span>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {member.totalHours}h / {member.capacityHours}h
+            </Text>
+          </Space>
+        }
+        description={
+          <div>
+            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Progress
+                percent={member.utilization}
+                size="small"
+                showInfo
+                strokeColor={config.color}
+                style={{ flex: 1, maxWidth: 300 }}
+              />
+              <Space size="small">
+                <span style={{ fontSize: 12, color: '#8c8c8c' }}>
+                  进行中 {member.inProgressCount}
+                </span>
+                <span style={{ fontSize: 12, color: '#8c8c8c' }}>
+                  待办 {member.todoCount}
+                </span>
+                <span style={{ fontSize: 12, color: '#faad14' }}>
+                  临期 {member.dueSoonCount}
+                </span>
+              </Space>
+            </div>
+            <Space wrap>
+              {member.projects.map(p => (
+                <Tooltip key={p.projectId} title={`${p.projectName}: ${p.hours}h / ${p.taskCount}个任务`}>
+                  <Tag
+                    style={{ cursor: 'pointer' }}
+                    color={p.inProgressCount > 0 ? 'blue' : 'default'}
+                  >
+                    {p.projectName} · {p.hours}h
+                  </Tag>
+                </Tooltip>
+              ))}
+              {member.projects.length === 0 && (
+                <Text type="secondary" style={{ fontSize: 12 }}>无活跃项目</Text>
+              )}
+            </Space>
+          </div>
+        }
+      />
+    </List.Item>
+  )
+}
+
+// ===== 冲突项 =====
+function ConflictItem({ conflict }: { conflict: PoolResourceConflict }) {
+  return (
+    <List.Item>
+      <List.Item.Meta
+        avatar={
+          <div
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              background: SEVERITY_COLOR[conflict.severity],
+              marginTop: 8,
+            }}
+          />
+        }
+        title={
+          <Space>
+            <span>{conflict.title}</span>
+            <Tag color={SEVERITY_COLOR[conflict.severity]}>
+              {SEVERITY_LABEL[conflict.severity]}
+            </Tag>
+            <Tag>{CONFICT_TYPE_LABEL[conflict.type] ?? conflict.type}</Tag>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {conflict.assigneeName ?? conflict.assigneeId}
+            </Text>
+          </Space>
+        }
+        description={
+          <div>
+            <div style={{ color: '#595959', marginBottom: 4 }}>{conflict.description}</div>
+            <Space size="small">
+              {conflict.relatedProjectIds.map(pid => (
+                <Tag key={pid} color="blue">{pid}</Tag>
+              ))}
+              {conflict.metric && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  指标：{conflict.metric.name} = {conflict.metric.value}{conflict.metric.unit}
+                  （阈值 {conflict.metric.threshold}{conflict.metric.unit}）
+                </Text>
+              )}
+            </Space>
+          </div>
+        }
+      />
+    </List.Item>
+  )
+}
+
+// ===== 工时矩阵表（沿用日视图视觉语言：轴列 + 交替行 + 语义热度） =====
+const WEEK_CAPACITY = 40
+
+/** 按占比返回语义热度样式（Token 半透明叠加，暗色/亮色自适应） */
+function useHeat() {
+  const { token } = theme.useToken()
+  return (val: number, max: number) => {
+    if (val <= 0) {
+      return { bg: 'transparent', fg: token.colorTextQuaternary, weight: 400 as const }
+    }
+    const ratio = val / max
+    if (ratio > 0.7) return { bg: `${token.colorError}47`, fg: token.colorError, weight: 600 as const }
+    if (ratio > 0.4) return { bg: `${token.colorWarning}38`, fg: token.colorWarning, weight: 600 as const }
+    if (ratio > 0.2) return { bg: `${token.colorInfo}2e`, fg: token.colorInfo, weight: 500 as const }
+    return { bg: `${token.colorSuccess}24`, fg: token.colorSuccess, weight: 500 as const }
+  }
+}
+
+function MatrixTable({ data }: { data: any }) {
+  const { token } = theme.useToken()
+  const heat = useHeat()
+  const assigneeNames: string[] = data?.assigneeNames ?? []
+  const projectNames: string[] = data?.projectNames ?? []
+  const matrix: number[][] = data?.matrix ?? []
+  const [metric, setMetric] = useState<'hours' | 'count'>('hours')
+
+  const flat = matrix.flat()
+  /** 任务数指标：以 8h 折算 1 个任务量级，避免单位混乱 */
+  const toDisplay = (val: number) => (metric === 'hours' ? val : Math.round((val / 8) * 10) / 10)
+  const displayMax = Math.max(...flat.map(toDisplay), 1)
+
+  const rowTotals = matrix.map((row) => row.reduce((a, b) => a + b, 0))
+  const colTotals = projectNames.map((_, j) => matrix.reduce((sum, row) => sum + (row[j] ?? 0), 0))
+  const grandTotal = rowTotals.reduce((a, b) => a + b, 0)
+
+  const legendItems = [
+    { label: '空闲', bg: 'transparent', fg: token.colorTextQuaternary },
+    { label: '轻松 ≤20%', bg: `${token.colorSuccess}24`, fg: token.colorSuccess },
+    { label: '适中 20-40%', bg: `${token.colorInfo}2e`, fg: token.colorInfo },
+    { label: '偏重 40-70%', bg: `${token.colorWarning}38`, fg: token.colorWarning },
+    { label: '饱和 >70%', bg: `${token.colorError}47`, fg: token.colorError },
+  ]
+
+  const exportCsv = () => {
+    downloadCsv(
+      '成员项目工时矩阵',
+      ['成员', ...projectNames, '合计'],
+      assigneeNames.map((n, i) => [n, ...matrix[i], rowTotals[i]]),
+    )
+  }
+
+  if (!matrix.length) return <Empty description="暂无工时数据" />
+
+  return (
+    <div>
+      {/* 图例与工具条 */}
+      <Row justify="space-between" align="middle" gutter={[8, 8]} style={{ marginBottom: 12 }}>
+        <Col>
+          <Space size={10} wrap>
+            {legendItems.map((it) => (
+              <span
+                key={it.label}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  fontSize: 11,
+                  color: token.colorTextSecondary,
+                }}
+              >
+                <span
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: 3,
+                    background: it.bg,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    display: 'inline-block',
+                  }}
+                />
+                {it.label}
+              </span>
+            ))}
+            <span style={{ fontSize: 11, color: token.colorTextDescription }}>
+              容量基准 {WEEK_CAPACITY}h／周
+            </span>
+          </Space>
+        </Col>
+        <Col>
+          <Space size={8}>
+            <Segmented
+              size="small"
+              value={metric}
+              onChange={(v) => setMetric(v as 'hours' | 'count')}
+              options={[
+                { value: 'hours', label: '工时' },
+                { value: 'count', label: '任务量' },
+              ]}
+            />
+            <Button size="small" icon={<DownloadOutlined />} onClick={exportCsv}>
+              导出 CSV
+            </Button>
+          </Space>
+        </Col>
+      </Row>
+
+      <div
+        style={{
+          overflowX: 'auto',
+          border: `1px solid ${token.colorBorder}`,
+          borderRadius: token.borderRadiusLG,
+          background: token.colorBgContainer,
+        }}
+      >
+        <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%', fontSize: 13 }}>
+          <thead>
+            <tr>
+              <th
+                style={{
+                  position: 'sticky',
+                  left: 0,
+                  top: 0,
+                  zIndex: 3,
+                  background: token.colorFillTertiary,
+                  padding: '12px 14px',
+                  textAlign: 'left',
+                  fontWeight: 600,
+                  fontSize: 12,
+                  color: token.colorTextSecondary,
+                  borderRight: `1px solid ${token.colorBorder}`,
+                  borderBottom: `1px solid ${token.colorBorder}`,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                成员 \ 项目
+              </th>
+              {projectNames.map((name: string) => (
+                <th
+                  key={name}
+                  style={{
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 2,
+                    background: token.colorFillTertiary,
+                    padding: '12px 14px',
+                    textAlign: 'center',
+                    fontWeight: 600,
+                    fontSize: 13,
+                    color: token.colorText,
+                    borderBottom: `1px solid ${token.colorBorder}`,
+                    borderRight: `1px solid ${token.colorBorderSecondary}`,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {name}
+                </th>
+              ))}
+              <th
+                style={{
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 2,
+                  background: token.colorFillTertiary,
+                  padding: '12px 14px',
+                  textAlign: 'center',
+                  fontWeight: 600,
+                  fontSize: 12,
+                  color: token.colorText,
+                  borderBottom: `1px solid ${token.colorBorder}`,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                合计
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {assigneeNames.map((name: string, i: number) => {
+              const total = rowTotals[i]
+              const over = total > WEEK_CAPACITY
+              const util = Math.min(100, Math.round((total / WEEK_CAPACITY) * 100))
+              return (
+                <tr key={i}>
+                  <td
+                    style={{
+                      position: 'sticky',
+                      left: 0,
+                      zIndex: 1,
+                      background: token.colorFillTertiary,
+                      padding: '10px 14px',
+                      borderRight: `1px solid ${token.colorBorder}`,
+                      borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Space size={8}>
+                      <Avatar size={24} style={{ background: token.colorPrimary, fontSize: 12 }}>
+                        {name.slice(0, 1)}
+                      </Avatar>
+                      <span>
+                        <span style={{ fontWeight: 600, color: token.colorText }}>{name}</span>
+                        <span
+                          style={{
+                            display: 'block',
+                            fontSize: 11,
+                            color: over ? token.colorError : token.colorTextDescription,
+                          }}
+                        >
+                          {util}%{over ? ' 超载' : ''}
+                        </span>
+                      </span>
+                    </Space>
+                  </td>
+                  {matrix[i].map((val: number, j: number) => {
+                    const shown = toDisplay(val)
+                    const s = heat(shown, displayMax)
+                    return (
+                      <td
+                        key={j}
+                        title={`${name} · ${projectNames[j]}：${val}h`}
+                        style={{
+                          padding: 6,
+                          textAlign: 'center',
+                          borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                          borderRight: `1px solid ${token.colorBorderSecondary}`,
+                          background: i % 2 === 1 ? token.colorFillQuaternary : 'transparent',
+                        }}
+                      >
+                        {val > 0 ? (
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              minWidth: 46,
+                              padding: '3px 8px',
+                              borderRadius: token.borderRadiusSM,
+                              background: s.bg,
+                              color: s.fg,
+                              fontWeight: s.weight,
+                              fontSize: 12,
+                            }}
+                          >
+                            {shown}
+                            {metric === 'hours' ? 'h' : ''}
+                          </span>
+                        ) : (
+                          <span style={{ color: token.colorTextQuaternary }}>—</span>
+                        )}
+                      </td>
+                    )
+                  })}
+                  <td
+                    style={{
+                      padding: '10px 14px',
+                      textAlign: 'center',
+                      borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                      fontWeight: 600,
+                      color: over ? token.colorError : token.colorText,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {metric === 'hours' ? `${total}h` : toDisplay(total)}
+                  </td>
+                </tr>
+              )
+            })}
+            {/* 列合计 */}
+            <tr>
+              <td
+                style={{
+                  position: 'sticky',
+                  left: 0,
+                  zIndex: 1,
+                  background: token.colorFillTertiary,
+                  padding: '10px 14px',
+                  borderRight: `1px solid ${token.colorBorder}`,
+                  borderTop: `1px solid ${token.colorBorder}`,
+                  fontWeight: 600,
+                  fontSize: 12,
+                  color: token.colorTextSecondary,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                项目合计
+              </td>
+              {colTotals.map((t: number, j: number) => (
+                <td
+                  key={j}
+                  style={{
+                    padding: '10px 14px',
+                    textAlign: 'center',
+                    borderTop: `1px solid ${token.colorBorder}`,
+                    borderRight: `1px solid ${token.colorBorderSecondary}`,
+                    fontWeight: 600,
+                    color: token.colorText,
+                    fontSize: 12,
+                  }}
+                >
+                  {metric === 'hours' ? `${t}h` : toDisplay(t)}
+                </td>
+              ))}
+              <td
+                style={{
+                  padding: '10px 14px',
+                  textAlign: 'center',
+                  borderTop: `1px solid ${token.colorBorder}`,
+                  fontWeight: 700,
+                  color: token.colorPrimary,
+                  fontSize: 12,
+                }}
+              >
+                {metric === 'hours' ? `${grandTotal}h` : toDisplay(grandTotal)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}

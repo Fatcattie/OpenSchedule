@@ -1,0 +1,60 @@
+# ============================================================
+# OpenSchedule .gitignore
+# 原则：真实凭据不进 git（只提交 .env.example），生成物/依赖一律忽略
+# ============================================================
+
+# ---------- 依赖 ----------
+node_modules/
+.pnpm-store/
+
+# ---------- 构建产物 ----------
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.vite/
+.turbo/            # Turborepo 缓存（如后续启用 turbo）
+
+# ---------- 环境变量（真实凭据绝不提交，只提交 .env.example） ----------
+.env
+.env.*
+!.env.example
+
+# ---------- Prisma ----------
+# 迁移文件（services/api/prisma/migrations）必须提交——DDL 唯一权威来源；
+# 生成的 Prisma Client 默认位于 node_modules/.prisma，随 node_modules 忽略；
+# 如自定义生成输出目录（如 src/generated/prisma），请在此追加对应目录
+**/.prisma/
+
+# ---------- 日志与临时文件 ----------
+*.log
+logs/
+.tmp/
+.DS_Store
+Thumbs.db
+
+# ---------- 编辑器 / IDE ----------
+.idea/
+.vscode/
+*.swp
+
+# ---------- Python（services/ai） ----------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.uv/
+
+# ---------- 本地附件/导出落盘（开发环境；生产走对象存储） ----------
+uploads/
+local-data/
+
+# ---------- 本地项目数据 / 工具缓存（绝不入库） ----------
+.workbuddy/
+.repro/
+dist-*/
+dist-mvp-8/
+.DS_Store

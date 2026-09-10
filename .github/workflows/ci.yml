@@ -1,0 +1,84 @@
+# ============================================================
+# OpenSchedule CI 骨架（方案 chapter_04 §4.5 DoD 的流水线承载）
+# 当前：lint + build + test 三个 job（Node 侧；pnpm 缓存）
+# ⚠️ 需补充项（标注 TODO，按 DoD 8 条逐步放开）：
+#   1. OpenAPI 快照进 CI：改动即 diff 失败（方案 §4.5「API 契约」）
+#   2. 跨租户隔离集成测试 ≥5 用例（tenant_id 铁律，方案 §4.5「多租户隔离」）
+#   3. 迁移可回滚验证：fresh + migrate + rollback 三步进 CI
+#   4. AI 服务 pytest（setup-python + uv，services/ai 不进 pnpm workspace）
+#      + schema 合规率 eval（strict 模式 100 次采样 ≥99%，方案 §4.5「AI 批次额外」）
+#   5. Playwright E2E（含移动端 375px 视口清单）
+# 首次提交 pnpm-lock.yaml 后，--frozen-lockfile 才可用
+# ============================================================
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------- 静态检查 ----------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # 按根 package.json 的 packageManager 字段启用对应 pnpm 版本
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm            # pnpm 依赖缓存（基于 pnpm-lock.yaml）
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  # ---------- 构建 ----------
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+  # ---------- 测试 ----------
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    # TODO：放开集成测试前需在 CI 内起 postgres + redis 服务容器：
+    # services:
+    #   postgres:
+    #     image: postgres:16-alpine
+    #     env:
+    #       POSTGRES_USER: openschedule
+    #       POSTGRES_PASSWORD: openschedule
+    #       POSTGRES_DB: openschedule
+    #     options: >-
+    #       --health-cmd "pg_isready -U openschedule"
+    #       --health-interval 5s --health-timeout 5s --health-retries 10
+    #   redis:
+    #     image: redis:7-alpine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      # TODO：AI 服务测试（Python，独立于 pnpm workspace）
+      # - uses: actions/setup-python@v5
+      #   with:
+      #     python-version: "3.12"
+      # - run: cd services/ai && pip install uv && uv sync --frozen && uv run pytest

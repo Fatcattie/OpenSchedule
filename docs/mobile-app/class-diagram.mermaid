@@ -1,0 +1,128 @@
+%% OpenSchedule 移动端 · 增量 7 审核对标 · 类图（数据结构与接口）
+%% 权威来源：docs/mobile-app/ARCH-mobile-increment-7-audit-alignment.md §4.1
+%% 增量 7.1 增补（Route 2 孤儿消除 §2.4.2 + C/E 耦合缺陷 §2.4.3）：见文末 note 与 taskService/auditUtils 成员
+classDiagram
+    class TaskStatus {
+        <<enumeration>>
+        todo
+        in_progress
+        blocked
+        done
+        cancelled
+        pending_review
+    }
+
+    class AuditAction {
+        <<enumeration>>
+        approve
+        reject
+        withdraw
+    }
+
+    class AuditOpinion {
+        <<enumeration>>
+        agree
+        reject
+        rework
+        other
+    }
+
+    class AuditLog {
+        +string id
+        +string taskId
+        +AuditAction action
+        +AuditOpinion opinion
+        +string reason
+        +string operatorId
+        +string operatorName
+        +string createdAt
+    }
+
+    class Task {
+        +string id
+        +string tenantId
+        +string projectId
+        +string parentId
+        +string title
+        +TaskStatus status
+        +string assigneeId
+        +string completedAt
+        +string source
+        +SubmissionStatus submissionStatus
+        +SubmissionKind submissionKind
+        +boolean reviewRequired
+        +boolean isReviewTask
+        +string[] reviewerIds
+        +string reviewNote
+        +string reviewedBy
+        +string reviewedAt
+        +AuditLog[] auditLogs
+    }
+
+    class Project {
+        +string id
+        +string name
+        +string ownerId
+    }
+
+    class CreateTaskInput {
+        +string projectId
+        +string title
+        +string description
+        +TaskPriority priority
+        +string assigneeId
+        +string dueAt
+        +number estimatedHours
+        +boolean reviewRequired
+    }
+
+    class taskService {
+        <<module>>
+        +createTask(input: CreateTaskInput) Task
+        +completeTask(taskId, input) Task
+        +moveTask(taskId, input) Task
+        +reopenTask(taskId, input) Task
+        +undoCompletion(taskId, input) Task
+        +reviewSubmission(taskId, action, version, reason) Task
+        +withdrawCompletion(taskId, input) Task
+        +listPendingReview(userId) Task[]
+        +listDeadlineApproaching(userId, tz) Task[]
+        +ensureReviewSubtask(mainTask) Task
+        +closeOpenReviewSubtasks(mainTask) void
+    }
+
+    class auditService {
+        <<module>>
+        +listAuditTasks(actorId, isManager) Task[]
+        +submitAudit(input) Task
+    }
+
+    class auditUtils {
+        <<module>>
+        +deriveApprovalStatus(task) ApprovalStatus
+        +deriveApprovalType(task) ApprovalType
+        +derivePendingReview(task) boolean
+        +canApproveMainTask(task, children) boolean
+        +isTaskRelated(task, userId, isManager) boolean
+        +filterPendingReport(tasks) Task[]
+        +filterPendingAudit(tasks) Task[]
+        +filterApproved(tasks, range) Task[]
+        +filterWithdrawnLogs(tasks, range) AuditLogWithTask[]
+    }
+
+    Task --> TaskStatus : status
+    Task "1" --> "0..*" AuditLog : auditLogs
+    Task "1" --> "0..*" Task : children(评审子任务)
+    Task --> Project : projectId
+    auditService ..> taskService : 编排
+    auditService ..> auditUtils : 筛选
+    taskService ..> auditUtils : derivePendingReview
+    taskService ..> Task : 读写
+    taskService ..> CreateTaskInput : 入参
+    taskService ..> Task : closeOpenReviewSubtasks 置 status=cancelled
+
+    note for taskService "增量 7.1 · Route 2 · ARCH §2.4.2：closeOpenReviewSubtasks(mainTask) 遍历 db.tasks，对 parentId===mainTask.id 且 isReviewTask===true 且 status 非 done/cancelled 的子任务置 status='cancelled'、version+=1、updatedAt=now()（幂等、零通知）。"
+    note for taskService "4 处调用点（reviewRequired 被清除时）：moveTask / reopenTask（clearReviewOnLeaveDone 分支）；undoCompletion（仅当 reviewReset 非空，即 submissionStatus=null；传 'pending' 的审核轮回态不清理）；withdrawCompletion（submissionStatus='withdrawn' 之后）。"
+    note for taskService "缺陷 C · ARCH §2.4.3：ensureReviewSubtask 复用过滤 = status 非 done/cancelled ⇒ 不复用已取消的评审子任务。"
+    note for auditUtils "缺陷 E · ARCH §2.4.3：canApproveMainTask 过滤排除 child.status==='cancelled' ⇒ cancelled 子任务不阻塞（否则用户取消子任务后门禁永久 false，审批死锁）。"
+    note for Task "评审子任务在 UI 即普通 todo 任务，用户可经 TASK_TRANSITION_ACTIONS.todo 的「取消任务」置 cancelled ⇒ 触发 C/E 可达链。"

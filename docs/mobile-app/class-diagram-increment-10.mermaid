@@ -1,0 +1,88 @@
+classDiagram
+    class ThemeMode {
+        <<type>>
+        'system' | 'light' | 'dark'
+    }
+    class ColorScheme {
+        <<type>>
+        'light' | 'dark'
+    }
+    class ThemeColors {
+        <<type = typeof lightColors>>
+        bg: {base,baseWarm,surface,subtle}
+        primary, primarySoft, primaryFaint
+        successFaint, dangerFaint, warningFaint
+        text: {primary,secondary,tertiary,inverse}
+        border, borderStrong, overlay
+        success, warning, danger
+        brandGradient: string[]
+    }
+    class StatusStyle {
+        +string color
+        +string bg
+        +string label
+    }
+    class StatusColorMap {
+        <<Record~TaskStatus,StatusStyle~>>
+    }
+    class PriorityColorMap {
+        <<Record~TaskPriority,string~>>
+    }
+    class ThemeContextValue {
+        +ThemeMode mode
+        +ColorScheme scheme
+        +ThemeColors colors
+        +StatusColorMap statusColor
+        +PriorityColorMap priorityColor
+        +boolean isReady
+        +setMode(mode) Promise~void~
+    }
+    class ThemeProvider {
+        <<component>>
+        -useColorScheme() systemScheme
+        -os.theme_mode hydrate/persist
+        +resolve() ColorScheme
+    }
+    class tokens_module {
+        <<module tokens.ts>>
+        +lightColors ThemeColors
+        +darkColors ThemeColors
+        +colors = lightColors
+        +typography/spacing/radius/shadow/motion/layout
+    }
+    class semantic_module {
+        <<module semantic.ts>>
+        +lightStatusColor StatusColorMap
+        +darkStatusColor StatusColorMap
+        +lightPriorityColor PriorityColorMap
+        +darkPriorityColor PriorityColorMap
+        +getStatusStyle(status) StatusStyle
+        +getStatusStyleFor(status,map) StatusStyle
+        +getPriorityColor(priority) string
+        +getPriorityColorFor(priority,map) string
+    }
+    class themeHooks {
+        <<hooks>>
+        +useTheme() ThemeContextValue
+        +useThemeColors() ThemeColors
+        +useThemedStyles(factory) T
+    }
+    class AppContent {
+        <<component>>
+        +StatusBar style=scheme
+        +View style=styles.root
+    }
+    class ProfileScreen {
+        <<screen>>
+        +外观 SegmentedControl(mode,setMode)
+    }
+
+    tokens_module --> ThemeColors : defines
+    tokens_module --> semantic_module : statusColor/priorityColor(light)
+    ThemeProvider --> tokens_module : lightColors/darkColors
+    ThemeProvider --> semantic_module : light/dark maps
+    ThemeProvider --> ThemeContextValue : provides
+    themeHooks --> ThemeProvider : useContext
+    themeHooks --> ThemeColors : factory(colors)
+    AppContent --> themeHooks : useTheme()
+    ProfileScreen --> themeHooks : useTheme().setMode

@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "OpenSchedule",
+    "slug": "openschedule-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "openschedule",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#F7F8FA",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F7F8FA"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.openschedule.mobile",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "用于快捷解锁 OpenSchedule，免去重复输入密码。"
+      }
+    },
+    "android": {
+      "package": "dev.openschedule.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#F7F8FA",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "用于快捷解锁 OpenSchedule，免去重复输入密码。"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "用于从相册选择图片作为任务附件。",
+          "cameraPermission": "用于拍摄照片作为任务附件。",
+          "microphonePermission": false
+        }
+      ],
+      "expo-document-picker"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "00000000-0000-0000-0000-000000000000"
+      }
+    }
+  }
+}

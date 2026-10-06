@@ -1,0 +1,63 @@
+%% 增量 10 · 深色模式 —— 时序图 ①：冷启动解析主题
+sequenceDiagram
+    autonumber
+    participant RN as react-native
+    participant App as App.tsx
+    participant TP as ThemeProvider
+    participant AS as AsyncStorage
+    participant AC as AppContent
+    participant NAV as RootNavigator
+
+    App->>TP: mount ThemeProvider
+    TP->>RN: useColorScheme()
+    RN-->>TP: systemScheme (jest='light'; null->'light')
+    TP->>AS: getItem('os.theme_mode')
+    AS-->>TP: mode ?? 'system'
+    TP->>TP: resolvedScheme = mode==='system' ? systemScheme : mode
+    TP->>TP: 选择 lightColors/darkColors + light/dark statusColor
+    TP-->>AC: Context{scheme,colors,statusColor,priorityColor,isReady}
+    AC->>AC: StatusBar style={scheme==='dark'?'light':'dark'}
+    AC->>AC: styles.root <- useThemedStyles(makeStyles)
+    Note over NAV: AppProvider.isBootstrapping 期间渲染 BootSplash(渐变,主题无关)
+    NAV-->>NAV: 按 scheme 渲染登录/主栈
+
+%% ============================================================
+%% 时序图 ②：用户手动切换三态（我的 -> 外观）
+%% ============================================================
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant PS as ProfileScreen(我的)
+    participant SC as SegmentedControl
+    participant TP as ThemeProvider
+    participant AS as AsyncStorage
+    participant C as 全树消费组件
+
+    U->>PS: 点「深色」
+    PS->>SC: onChange('dark')
+    SC->>TP: setMode('dark')
+    TP->>TP: setState(mode='dark') -> scheme='dark' (即时生效)
+    TP->>AS: setItem('os.theme_mode','dark') (fire-and-forget,失败静默)
+    TP-->>C: Context 值变化 -> 全树重渲染
+    C->>C: useThemedStyles 因 colors 变化重算 styles (useMemo)
+    C-->>U: 颜色 100ms 淡变,无整屏转场,不丢页面状态
+    Note over U: 杀进程重开 -> 冷启动读到 'dark' -> 保持深色 (US-10-04)
+
+%% ============================================================
+%% 时序图 ③：跟随态下系统外观变化
+%% ============================================================
+sequenceDiagram
+    autonumber
+    participant OS as 系统设置
+    participant RN as react-native(Appearance)
+    participant TP as ThemeProvider(mode='system')
+    participant C as 全树消费组件
+    participant AC as AppContent(StatusBar)
+
+    OS->>RN: 系统外观 light -> dark
+    RN-->>TP: useColorScheme() 返回 'dark' (内部订阅触发重渲染)
+    TP->>TP: mode==='system' => resolvedScheme='dark'
+    TP->>TP: 切换 darkColors + darkStatusColor
+    TP-->>C: Context 变化 -> 全树重渲染 (<=1s, 事件驱动)
+    TP-->>AC: scheme='dark' -> StatusBar style="light"
+    Note over C: 手动覆盖态(light/dark)不响应系统变化(仅 system 态跟随)

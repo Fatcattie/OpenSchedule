@@ -1,7 +1,9 @@
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 const MIME_WHITELIST = new Set([
-  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf',
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+  'image/heic', 'image/heif', // ← 增量 11：iPhone 相机直出为 HEIC，用户拍板放宽（ARCH §2.7）
+  'application/pdf',
   'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',

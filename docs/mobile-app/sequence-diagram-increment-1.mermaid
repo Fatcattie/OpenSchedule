@@ -1,0 +1,85 @@
+%% 增量 1 时序图（与 ARCH-mobile-increment-1.md §4 一致）
+
+%% 链路 ① member 提报 → pending → manager 通过 → 落地
+sequenceDiagram
+  actor M as member
+  participant S as SubmissionScreen
+  participant TS as task.service
+  participant DB as db.tasks
+  actor A as manager
+  participant R as TodayFocusScreen(review)
+  participant PS as project.service
+  M->>S: 填表(类型=项目/任务) + 提交
+  S->>TS: submitItem(input, actorId)
+  TS->>TS: USE_MOCK? 本地写 : POST /tasks/submissions
+  TS->>DB: 建记录(source='submission', submissionKind, submissionStatus='pending',<br/>reviewRequired=true, reviewerIds=[全部 manager], status='todo')
+  TS-->>S: Task(pending)
+  S->>S: Toast「已提交，等待审核」→ goBack()
+  A->>R: 打开「待我审核」
+  R->>TS: listPendingReview(managerId)
+  TS-->>R: [pending 提报]（守卫只作用于正式列表）
+  R->>TS: reviewSubmission(id, 'approve', version)  // 签名不变
+  TS->>TS: assertVersion(task, version)
+  alt resolveApproveBranch === 'project'
+    TS->>PS: createProject(from record, reviewer)
+    PS->>DB: 建 Project(source='published')
+    TS->>DB: 记录 submissionStatus='approved', reviewedBy/At, status='cancelled'(归档)
+  else === 'task'
+    TS->>DB: 新建 Task(source='published', status='todo', createdBy=reviewer)
+    TS->>DB: 记录归档(approved/cancelled)
+  else === 'completion'（既有完成提报）
+    TS->>DB: status='done', submissionStatus='approved'  // 保持现状，不动
+  end
+  TS-->>R: 记录(approved)
+  R->>R: 乐观移除 + UndoToast
+
+%% 链路 ② manager 直接创建（免审）
+sequenceDiagram
+  actor A as manager
+  participant C as CreateItemScreen
+  participant TS as task.service
+  participant PS as project.service
+  A->>C: 进入（can('project:create')/can('task:create') 校验；无权限→ErrorState）
+  A->>C: 填表 + 提交
+  C->>C: 按类型分叉
+  alt 项目
+    C->>PS: createProject(input, actorId)
+    PS-->>C: Project(source='published', createdBy=me)
+  else 任务
+    C->>TS: createTask(input, actorId)
+    TS-->>C: Task(source='published', status='todo', createdBy=me)
+  end
+  C->>C: Toast「已创建」→ goBack()（来源页 refetch）
+
+%% 链路 ③ 排期视图长按拖拽改期
+sequenceDiagram
+  actor U as 用户
+  participant T as PersonalPlanScreen
+  participant B as ScheduleTimeline(DraggableBlock)
+  participant H as useDragReschedule
+  participant SU as utils/schedule
+  participant FS as focus.service
+  U->>B: 长按 300ms（Pressable.onLongPress）
+  B->>H: beginDrag()
+  H->>B: scale→1.05 + 阴影加重（Animated）
+  H->>T: onDragStateChange(true)
+  T->>T: ScrollView scrollEnabled=false（手势隔离）
+  U->>B: 垂直拖动 dy
+  B->>H: onPanResponderMove(gestureState.dy)
+  H->>SU: resolveDrop(origStartMin, dyPx, durationMin)
+  SU-->>H: { startMin(吸附 30min + 钳制 08:00–20:00), endMin }
+  H->>B: translateY.setValue(吸附后像素) + 对齐参考线
+  U->>B: 松手 onPanResponderRelease
+  alt isCancelDrag(orig, dy, dur) === true（上滑 / 越界过远）
+    H->>B: Animated 回原位，不落库
+  else 正常放置
+    B->>FS: schedulePersonalTask(id, { startAt, endAt })
+    alt 成功
+      FS-->>B: PersonalTask(新时间)
+      B->>T: LayoutAnimation 重排 + refetch
+    else 失败（无 version，前端承担回滚）
+      FS-->>B: ApiError
+      B->>B: Animated 回原位 + Toast「改期失败，请重试」
+    end
+  end
+  H->>T: onDragStateChange(false) → scrollEnabled=true

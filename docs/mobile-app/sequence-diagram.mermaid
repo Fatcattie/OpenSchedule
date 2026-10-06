@@ -1,0 +1,129 @@
+%% OpenSchedule 移动端 · 增量 7 审核对标 · 时序图
+%% 权威来源：docs/mobile-app/ARCH-mobile-increment-7-audit-alignment.md §5
+%% 增量 7.1 增补（③ 孤儿消除 Route 2 §2.4.2 + C/E 耦合缺陷 §2.4.3）
+
+%% ─────────────────────────────────────────────────────────────
+%% ① 完成提报 → pending_review → 自动生成「项目评审」子任务 → 评审完成 → 管理员审批 → 主任务 done
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant Member as 成员(assignee)
+    participant Screen as TaskDetail/TodayFocus
+    participant TaskSvc as taskService
+    participant DB as db (mock)
+    participant Owner as 项目负责人(承接人)
+
+    Member->>Screen: 点击「完成提报」
+    Screen->>TaskSvc: completeTask(taskId, {version, actualHours})
+    TaskSvc->>DB: findTask + assertVersion(40901)
+    TaskSvc->>TaskSvc: needsReview = task.reviewRequired && !task.isReviewTask
+    alt needsReview = true（需评审的正式任务）
+        TaskSvc->>TaskSvc: assertTransition(status → 'pending_review')
+        TaskSvc->>DB: status='pending_review'；completedAt=now()；submissionStatus='pending'；reviewerIds=allManagerIds()（不再写 reviewRequired）
+        TaskSvc->>DB: findFirst(parentId=task.id AND isReviewTask AND status 非 done/cancelled)
+        alt 无未完成评审子任务（或仅剩 cancelled）
+            TaskSvc->>DB: create 评审子任务(title='项目评审 — {title}', assigneeId=project.ownerId??createdBy, priority='high', source='published', reviewRequired=false, isReviewTask=true, reviewerIds=[承接人])
+            TaskSvc->>DB: pushNotificationOnce(承接人, 'task.review.pending')
+        else 命中未完成（驳回后重提，status 非 done/cancelled）
+            TaskSvc->>TaskSvc: 复用，跳过创建
+        end
+        TaskSvc->>DB: pushAudit('task.submit_review')
+        TaskSvc->>DB: for r of reviewerIds: pushNotificationOnce('review.pending')
+    else needsReview = false（reviewRequired !== true，或 isReviewTask）
+        TaskSvc->>TaskSvc: assertTransition(status → 'done')
+        TaskSvc->>DB: status='done'；completedAt=now()（不写提报态、不生成下级评审）
+    end
+    TaskSvc-->>Screen: 更新后的 task
+
+    Note over Owner: 承接人在「待办」看到评审子任务（初始 status='todo'）
+    Owner->>TaskSvc: moveTask(评审子任务id, 'in_progress')（todo → in_progress）
+    Owner->>TaskSvc: completeTask(评审子任务id)
+    TaskSvc->>DB: 评审子任务 status='done'（isReviewTask=true ⇒ needsReview=false）
+    Note over Owner: 评审子任务已完成 → 主任务满足门禁
+    Owner->>TaskSvc: reviewSubmission(主任务id, 'approve', version, opinion, reason)
+    TaskSvc->>DB: submissionStatus='approved'；status='done'（completedAt 保持）
+    TaskSvc->>DB: task.auditLogs += {action:'approve', opinion, reason, operatorId, operatorName, createdAt}
+    TaskSvc->>DB: pushNotification(提报人, 'review.result')
+    TaskSvc-->>Owner: 主任务 done
+
+    Note over Owner,TaskSvc: 分支 · 驳回：reviewSubmission(主任务,'reject',v,reason) → status='in_progress' + completedAt=null + reviewNote=reason + AuditLog{action:'reject'}
+    Note over Owner,TaskSvc: 分支 · 驳回后重新提报：completeTask → ensureReviewSubtask 复用未完成子任务（7.1 缺陷 C：status 非 done/cancelled，cancelled 不复用）
+
+%% ─────────────────────────────────────────────────────────────
+%% ② 四栏审核中心主流程
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant User as 用户(manager/member)
+    participant Screen as AuditCenterScreen
+    participant AuditSvc as auditService
+    participant TaskSvc as taskService
+    participant DB as db (mock)
+
+    User->>Screen: 从「我的」页进入审核中心
+    Screen->>AuditSvc: listAuditTasks(actorId, isManager)
+    AuditSvc->>DB: db.tasks.filter(isTaskRelated)
+    AuditSvc-->>Screen: tasks
+    Screen->>Screen: filterPendingReport / filterPendingAudit / filterApproved / filterWithdrawnLogs
+    Screen-->>User: SegmentedControl 四栏 + 角标 + 列表
+
+    User->>Screen: 切换栏位 / 设置日期区间(DateTimeField)
+    Screen->>Screen: 重算四栏（filterApproved / filterWithdrawnLogs 按区间）
+
+    User->>Screen: 「待审核」栏点「审核」→ 打开 BottomSheet
+    Screen->>Screen: 选 opinion（other ⇒ 原因必填 ≥4）；通过前用 canApproveMainTask 门禁
+    Note over Screen: 7.1 缺陷 E：canApproveMainTask 过滤排除 status==='cancelled' 的子任务 ⇒ 用户取消子任务后不再审批死锁
+    User->>Screen: 提交审核
+    Screen->>AuditSvc: submitAudit({taskId, action, opinion, reason, version})
+    alt action = approve
+        AuditSvc->>TaskSvc: reviewSubmission(taskId, 'approve', version)
+    else action = reject
+        AuditSvc->>TaskSvc: reviewSubmission(taskId, 'reject', version, reason)
+    else action = withdraw（提报人本人）
+        AuditSvc->>TaskSvc: withdrawCompletionAndNotify(taskId, {version, actorId})
+    end
+    TaskSvc->>DB: 状态迁移 + 写 AuditLog + pushAudit + 通知
+    TaskSvc-->>AuditSvc: updated task
+    AuditSvc-->>Screen: ok
+    Screen->>AuditSvc: listAuditTasks(...) 重新拉取
+    AuditSvc-->>Screen: 刷新后的四栏
+
+%% ─────────────────────────────────────────────────────────────
+%% ③ 增量 7.1 · 孤儿消除（Route 2，§2.4.2）+ C/E 耦合可达链（§2.4.3）
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant User as 用户(成员/负责人)
+    participant TaskSvc as taskService
+    participant DB as db (mock)
+    participant Gate as canApproveMainTask
+
+    Note over TaskSvc,DB: 孤儿消除 Route 2 · ARCH §2.4.2 —— 4 处 reviewRequired 清除点
+    User->>TaskSvc: withdrawCompletion / moveTask(离开完成态) / reopenTask / undoCompletion
+    TaskSvc->>DB: applyClearedReviewState(task) ⇒ reviewRequired=false（moveTask / reopenTask / withdrawCompletion 共 3 处）
+    TaskSvc->>TaskSvc: undoCompletion 走 Object.assign(task, reviewReset)，不经 applyClearedReviewState（第 4 处，见下 alt）
+    TaskSvc->>TaskSvc: closeOpenReviewSubtasks(task)
+    TaskSvc->>DB: 子任务(parentId=task.id 且 isReviewTask 且 status 非 done/cancelled): status='cancelled'；version+=1；updatedAt=now()
+    Note over TaskSvc: 幂等（已 done/cancelled 跳过）；零通知；永不把主任务写成 cancelled
+
+    Note over TaskSvc: undoCompletion 是双语义入口 —— 仅当 resolveUndoReviewReset 非空才清理
+    alt submissionStatus = null（撤销「完成」）
+        TaskSvc->>TaskSvc: reviewReset = createClearedReviewState() ⇒ Object.assign + closeOpenReviewSubtasks
+    else submissionStatus = 'pending'（审核轮回态，撤销「审核通过」）
+        TaskSvc->>TaskSvc: reviewReset === null ⇒ 不清理 ⇒ 子任务存活（守门用例 R-6）
+    end
+
+    Note over User,Gate: C/E 耦合可达链 · ARCH §2.4.3
+    User->>TaskSvc: completeTask(主任务, reviewRequired=true)
+    TaskSvc->>DB: 主任务 pending_review；生成评审子任务 status='todo'
+    User->>TaskSvc: 手动「取消任务」评审子任务（TASK_TRANSITION_ACTIONS.todo → cancelled）
+    TaskSvc->>DB: 评审子任务 cancelled；主任务 reviewRequired 仍 true
+    User->>TaskSvc: reviewSubmission(主任务, 'reject')
+    TaskSvc->>DB: 主任务 in_progress；reviewRequired 仍 true（不清审核态）
+    User->>TaskSvc: completeTask(主任务) 重新提报
+    TaskSvc->>TaskSvc: ensureReviewSubtask(mainTask)
+    Note over TaskSvc: 缺陷 C 修复：复用过滤 status 非 done/cancelled ⇒ 不复用 cancelled，改新建
+    TaskSvc->>DB: create 新评审子任务 status='todo'（干净）
+    TaskSvc->>Gate: canApproveMainTask(主任务, children)
+    Note over Gate: 缺陷 E 修复：过滤排除 child.status==='cancelled' ⇒ cancelled 不阻塞
+    Gate-->>TaskSvc: true（可审批，链路自洽）

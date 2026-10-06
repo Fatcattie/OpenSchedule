@@ -1,0 +1,67 @@
+%% 增量 4 — 程序调用流程（时序图）
+%% 来源：docs/mobile-app/ARCH-mobile-increment-4.md §4
+
+%% ── 链路 ① 撤回完成提报（withdrawCompletion）──────────────────────────────
+sequenceDiagram
+  autonumber
+  participant U as 用户（提报人）
+  participant S as TaskDetailScreen
+  participant T as task.service.withdrawCompletion
+  participant P as utils/submission
+  participant DB as db（tasks / auditFeed / notifications）
+
+  U->>S: 点「撤回提报」
+  S->>S: withdrawable = submissionStatus==='pending'<br/>&& isWithdrawable(task, userId)<br/>&& can('submission:withdraw')  ← 隐藏而非置灰
+  S-->>U: 弹二次确认 BottomSheet（可选原因，≤200 字）
+  U->>S: 点「确定撤回」
+  S->>T: withdrawCompletion(taskId, { version, actorId, reason? })
+  T->>DB: findTask(taskId)
+  T->>T: assertVersion(task, version)   // 不匹配 ⇒ 40901（AC-04）
+  alt submissionStatus !== 'pending'
+    T-->>S: throw 40302（仅待审核可撤回）   // AC-05/06/07/08
+  else 主体非本人
+    T->>P: isWithdrawable(task, actorId)
+    P-->>T: false
+    T-->>S: throw 40302（只能撤回本人提报） // AC-02
+  else 通过
+    alt task.status === 'done'
+      T->>T: assertTransition('done','in_progress') ⇒ status='in_progress'；completedAt=null（INV-1）
+    else 非 done（审核轮回态）
+      T->>T: 不改 status（避免非法自迁移 40902）   // AC-10
+    end
+    T->>P: createClearedReviewState()（唯一构造点，K19）
+    P-->>T: { submissionStatus:null, reviewRequired:false, reviewerIds:[], reviewNote:null, reviewedBy:null, reviewedAt:null }
+    T->>T: Object.assign(task, 清理包) ⇒ 再覆写 submissionStatus='withdrawn'
+    T->>T: version += 1 / updatedAt = now()
+    T->>DB: pushAudit('submission.withdraw.completion', actorId, taskId, …)（零通知）
+    T-->>S: { ...task }
+    S-->>U: Toast「已撤回」+ detail.refetch()
+  end
+
+%% ── 链路 ② 修正后的「重开」链路（M5-P1-04）───────────────────────────────
+sequenceDiagram
+  autonumber
+  participant U as 用户
+  participant S as TaskDetailScreen.runTransition
+  participant M as task.service.moveTask
+  participant R as task.service.reopenTask
+  participant P as utils/submission
+
+  U->>S: done 态点「重开为进行中」/「重开为待办」（均 requireReason ⇒ 先弹原因抽屉）
+  alt action.to === 'in_progress'   ← M5-P1-04 修正（原恒走 reopenTask ⇒ 落 todo）
+    S->>M: moveTask(id, { status:'in_progress', version, reason? })
+    M->>M: assertVersion / assertTransition('done','in_progress') 合法
+    M->>P: shouldClearReviewOnLeaveDone(task, 'in_progress')（改写前求值）
+    P-->>M: true（done + pending）
+    M->>M: status='in_progress'；completedAt=null；startedAt ??= now()
+    M->>P: createClearedReviewState() ⇒ 六字段全清
+    M->>M: pushAudit('task.move', assigneeId ?? createdBy, …)
+    M-->>S: { ...task }（落 in_progress）
+  else action.to === 'todo'   ← 既有行为逐字节不变
+    S->>R: reopenTask(id, { reason, version })
+    R->>R: assertTransition(task.status,'todo')；status='todo'；completedAt=null
+    R->>P: shouldClearReviewOnLeaveDone(task,'todo') ⇒ createClearedReviewState()
+    R->>R: pushAudit('task.reopen', createdBy, …)
+    R-->>S: { ...task }（落 todo）
+  end
+  S->>S: detail.refetch()

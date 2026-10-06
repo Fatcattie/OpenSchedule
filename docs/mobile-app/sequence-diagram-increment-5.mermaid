@@ -1,0 +1,32 @@
+sequenceDiagram
+  autonumber
+  participant U as 提报人(李娜)
+  participant S as TaskDetailScreen
+  participant W as taskService.withdrawCompletionAndNotify
+  participant C as taskService.withdrawCompletion
+  participant DB as db(内存库)
+
+  U->>S: 点「撤回提报」→ 二次确认抽屉 → 确定
+  S->>W: withdrawCompletionAndNotify(taskId, {version, actorId})
+  W->>DB: findTask(taskId)
+  DB-->>W: task
+  Note over W: ① 快照 reviewerIds（K28/K34）<br/>const reviewerIds = [...(task.reviewerIds ?? [])]
+  W->>C: withdrawCompletion(taskId, input)（内部组合）
+  C->>DB: assertVersion(40901) → pending 门禁(40302) → isWithdrawable(40302)
+  Note over C: ② 快照 fromSubmissionStatus（K28/K34）<br/>必须在 applyClearedReviewState 之前
+  C->>C: assertSubmissionTransition(from,'withdrawn')（K30）
+  C->>DB: applyClearedReviewState(task) ⇒ reviewerIds=[]
+  C->>DB: task.submissionStatus='withdrawn'； version+=1； pushAudit(...)
+  C-->>W: {...task}
+  alt 撤回成功
+    loop 撤回前每位审核人（reviewerIds 快照）
+      W->>DB: pushNotificationOnce({type:'review.withdrawn', data:{taskId}})
+      Note over DB: 未读级去重（readAt===null）
+    end
+    W-->>S: updated task
+    S->>U: Toast「已撤回提报」+ detail.refetch()
+  else 撤回失败（40302 / 40901）
+    C-->>W: throw ApiError
+    W-->>S: throw（零通知 / 零 audit / 零字段变更）
+    S->>U: Toast 错误文案 + detail.refetch()
+  end

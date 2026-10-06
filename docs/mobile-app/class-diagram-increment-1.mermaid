@@ -1,0 +1,56 @@
+%% 增量 1 类图（与 ARCH-mobile-increment-1.md §3 一致）
+classDiagram
+  class Task {
+    +SubmissionKind submissionKind  «新增»
+    +string reviewedBy  «新增»
+    +string reviewedAt  «新增»
+    +SubmissionStatus submissionStatus  «扩展 draft / withdrawn»
+    +source 'published' / 'submission'
+    +boolean reviewRequired
+    +string[] reviewerIds
+    +number version  «仅团队 Task 有»
+  }
+  class PersonalTask {
+    <<无扩展>>
+    +string userId / startAt / endAt
+    «无 version：不做乐观锁»
+  }
+  class permission_ts {
+    +PERMISSIONS: Record~PermissionAction, AppRole[]~
+    +can(role, action) boolean
+    +useCan() (action)=>boolean
+  }
+  class submission_ts {
+    +isSubmissionRecord(task) boolean
+    +SUBMISSION_TRANSITIONS
+    +resolveApproveBranch(task) 'project'|'task'|'completion'
+  }
+  class schedule_ts {
+    +SLOT_MINUTES=30 / AXIS_START_MIN=480 / AXIS_END_MIN=1200
+    +pxToMinutes(dyPx) / snapToSlot(min) / clampStartMin(target,dur)
+    +resolveDrop(orig,dyPx,dur) ｛startMin,endMin｝
+    +isCancelDrag(orig,dyPx,dur) boolean
+    +minutesToIso(day,min,tz) string
+  }
+  class SubmitItemInput {
+    +SubmissionKind kind / string title / description / priority
+    +string projectId / dueAt / ownerId / note / number estimatedHours
+  }
+  class CreateTaskInput {
+    +string projectId / title / assigneeId / dueAt / TaskPriority priority
+  }
+  class CreateProjectInput {
+    +string name / description / ownerId / deadline
+  }
+  class UpdatePersonalTaskInput {
+    +string title / startAt / endAt / TaskPriority priority / TaskStatus status
+  }
+  class SchedulePersonalTaskInput {
+    +string startAt / endAt
+  }
+  class PickerSheetProps {
+    +boolean visible / string title / PickerOption~T~[] options / T value
+    +fn onSelect / onClose / boolean clearable / fn onClear
+  }
+  permission_ts ..> Task : 无
+  submission_ts ..> Task : 判定

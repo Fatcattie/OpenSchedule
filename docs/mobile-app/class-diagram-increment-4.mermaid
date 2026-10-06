@@ -1,0 +1,56 @@
+%% 增量 4 — 提报 / 审核状态机收口（类图 / 依赖关系）
+%% 来源：docs/mobile-app/ARCH-mobile-increment-4.md §3.3
+classDiagram
+  class Task {
+    +string id
+    +TaskStatus status
+    +SubmissionStatus? submissionStatus
+    +boolean? reviewRequired
+    +string[]? reviewerIds
+    +string createdBy
+    +string? assigneeId
+    +string? source
+    +SubmissionKind? submissionKind
+    +number version
+    +string? completedAt
+  }
+
+  class WithdrawCompletionInput {
+    +number version
+    +string actorId
+    +string? reason
+  }
+
+  class TaskService {
+    +withdrawCompletion(taskId, input) Task
+    +moveTask(taskId, input) Task
+    +reopenTask(taskId, input) Task
+    +withdrawSubmission(taskId, version, actorId) Task
+    +completeTask(taskId, input) Task
+    -applyClearedReviewState(task) void
+  }
+
+  class SubmissionUtils {
+    <<pure>>
+    +isWithdrawable(task, actorId) boolean
+    +resolveApproveBranch(task) ApproveBranch
+    +createClearedReviewState() UndoReviewReset
+    +shouldClearReviewOnLeaveDone(task, next) boolean
+    +resolveReviewItemView(task) ReviewItemView
+  }
+
+  class TaskDetailScreen {
+    +runTransition(action) void
+    +handleWithdrawConfirm() void
+  }
+
+  class TodayFocusScreen {
+    +handleUndo() void
+  }
+
+  TaskDetailScreen --> TaskService : withdrawCompletion / moveTask / reopenTask
+  TaskDetailScreen ..> SubmissionUtils : isWithdrawable(task, userId)
+  TodayFocusScreen --> TaskService : undoCompletion / reviewSubmission
+  TaskService ..> SubmissionUtils : isWithdrawable / createClearedReviewState / shouldClearReviewOnLeaveDone / resolveApproveBranch
+  TaskService --> WithdrawCompletionInput : param
+  TaskService --> Task : mutates

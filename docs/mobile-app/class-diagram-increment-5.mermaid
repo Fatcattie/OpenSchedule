@@ -1,0 +1,60 @@
+classDiagram
+  class Task {
+    +string id
+    +TaskStatus status
+    +SubmissionStatus submissionStatus
+    +string[] reviewerIds
+    +boolean reviewRequired
+    +string|null completedAt
+    +number version
+    +string createdBy
+    +string|null assigneeId
+    +SubmissionKind|null submissionKind
+    +string source
+  }
+  class submission_utils {
+    <<module: utils/submission.ts>>
+    +SUBMISSION_TRANSITIONS (const)
+    +canTransition(from, to) bool
+    +isSubmissionRecord(task) bool
+    +isWithdrawable(task, actorId) bool
+    +createClearedReviewState() UndoReviewReset
+  }
+  class task_service {
+    <<module: services/task.service.ts>>
+    -assertVersion(task, version)
+    -assertTransition(from, to)
+    -assertSubmissionTransition(from, to)  «新增·唯一守卫»
+    +completeTask()  «W1»
+    +undoCompletion()  «W2»
+    +withdrawSubmission()  «W5 + ④守卫»
+    +withdrawCompletion()  «W6·零通知»
+    +reviewSubmission()  «W7/W8»
+    +withdrawCompletionAndNotify()  «新增·包装»
+    -landSubmissionRecord()  «W4»
+  }
+  class data_layer {
+    <<module: data/index.ts>>
+    +pushNotificationOnce(input) NotificationItem|null
+    +findTask(id) Task|null
+  }
+  class TaskDetailScreen {
+    <<screen>>
+    +handleWithdrawConfirm()
+  }
+  class NotificationsScreen {
+    <<screen>>
+    +NOTIFICATION_ICON
+  }
+  class domain_types {
+    <<module: types/domain.ts>>
+    +NOTIFICATION_EVENT_LABEL
+    +NotificationItem.type (注释)
+  }
+
+  TaskDetailScreen --> task_service : 调 withdrawCompletionAndNotify
+  task_service --> submission_utils : canTransition / isWithdrawable / createClearedReviewState
+  task_service --> data_layer : findTask / pushNotificationOnce
+  task_service --> Task : 读 from / 写 submissionStatus
+  NotificationsScreen --> domain_types : 三处映射同步
+  submission_utils ..> Task : 纯判定（无副作用）

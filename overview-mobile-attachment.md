@@ -59,7 +59,7 @@
 | `runTransition`→`handleClaim` 源码片段 | 未被破坏（`increment4-qa` / `increment4-withdraw` 通过） |
 | 深色模式套件 | `theme-contrast` / `theme-runtime` 全绿 |
 
-未 commit（除 react-dom 钉版本修复 `679f709` 外，其余增量仍在未跟踪工作区）。
+全部已提交（见「八、提交记录」）。
 
 ## 四-B、QA 端到端验收（真实浏览器实跑，2026-10-06）
 
@@ -115,4 +115,22 @@ QA 真浏览器跑 `dist-v29` 时，`#root` 渲染为空、控制台报 **React 
 
 1. ~~QA 端到端验收~~ —— **已完成**（见「四-B」），真实浏览器实跑，0 error。
 2. 真实分支口径：`EXPO_PUBLIC_USE_MOCK=false` 时才有真实上传；`allowsEditing` 是否真产出 JPEG 属 **真机验证项**（无真机未验证，但**放行不依赖它** —— 后端已放宽收 HEIC）。
-3. `dist-v22..v28` 产物清理（及本次新增的 `dist-v29` 白屏产物、`qa-e2e/` 脚手架按需保留）。
+3. `dist-v22..v29` 产物清理（白屏产物 `dist-v29` + 更早的 `dist-v22..v28`；`dist-v30` 为可用构建，保留或随需清理）。`qa-e2e/` 脚手架（含 `pw.js` 可复用）按需保留。
+
+## 八、提交记录（2026-10-06）
+
+| 提交 | 内容 | 范围 |
+|---|---|---|
+| `679f709` | `fix(mobile): pin react-dom to 19.2.3` | 仅 `apps/mobile/package.json`（#527 白屏根因修复） |
+| `c886012` | `feat(mobile): 11 个增量实现 + 后端 HEIC 放宽 + E2E 工具链` | **306 文件**：`apps/mobile` 全部源码 + `docs/mobile-app` + `scripts`（`serve-dist.mjs` / `check-mermaid.mjs`）+ `qa-e2e/pw.js`（+`playwright-cli.json`）+ 各 `overview-*` + 后端 `attachment-policy.ts`（+HEIC）/ 新 spec |
+| `0774b31` | `chore: wire check:mermaid npm script` | 仅根 `package.json` 一行（为已提交的 `scripts/check-mermaid.mjs` 补 npm 接线） |
+
+**提交时显式排除 / 保留为未跟踪的项**（经核对，确认非本次增量引入或属噪声）：
+
+- `apps/mobile/package-lock.json` —— **npm 锁文件，与本仓强制 pnpm（`only-allow pnpm`）冲突**，是脚手架遗留噪声；已剔除，保留未跟踪，建议后续删除。
+- `pnpm-lock.yaml`（+4487/−139）—— 锁文件缺 `apps/mobile` importer 的重解析，属已知 workspace 不一致，**非本次依赖新增**；按约定不提交（提交它会固化当前解析态，但也可能掩盖该不一致）。
+- `apps/web/src/hooks/useWorkspaceTasks.ts`（`M`）—— **非本次改动**，是 `apps/web` 侧早先为演示审核流预置 `task-004` 待审的种子改动，独立于移动端增量，留待 web 侧单独处理。
+- `.playwright-cli/` · `qa-e2e/.playwright-cli/` · `screenshots/mobile/` —— 运行时日志 / 截图，未跟踪（临时探针 `qa-e2e/tmp-*.js` 已清理）。
+- `node_modules/` · `dist-*/` —— 已被 `.gitignore` 忽略，未入库。
+
+> 提交安全校验：暂存集 306 文件，误带检查对 `node_modules` / `.workbuddy-ai` / `.playwright-cli` / `dist` 均为空。

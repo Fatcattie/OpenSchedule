@@ -124,11 +124,13 @@ QA 真浏览器跑 `dist-v29` 时，`#root` 渲染为空、控制台报 **React 
 | `679f709` | `fix(mobile): pin react-dom to 19.2.3` | 仅 `apps/mobile/package.json`（#527 白屏根因修复） |
 | `c886012` | `feat(mobile): 11 个增量实现 + 后端 HEIC 放宽 + E2E 工具链` | **306 文件**：`apps/mobile` 全部源码 + `docs/mobile-app` + `scripts`（`serve-dist.mjs` / `check-mermaid.mjs`）+ `qa-e2e/pw.js`（+`playwright-cli.json`）+ 各 `overview-*` + 后端 `attachment-policy.ts`（+HEIC）/ 新 spec |
 | `0774b31` | `chore: wire check:mermaid npm script` | 仅根 `package.json` 一行（为已提交的 `scripts/check-mermaid.mjs` 补 npm 接线） |
+| `4e1c5ba` | `docs(mobile): 更新增量 11 交付概览（提交记录 + 排除项说明）` | 仅 `overview-mobile-attachment.md` |
+| `4d99aa6` | `chore: 将 apps/mobile 纳入 pnpm-lock.yaml` | 仅 `pnpm-lock.yaml`（+4487/−139 纯解析；固化 mobile importer + react-dom 19.2.3） |
 
 **提交时显式排除 / 保留为未跟踪的项**（经核对，确认非本次增量引入或属噪声）：
 
 - `apps/mobile/package-lock.json` —— **npm 锁文件，与本仓强制 pnpm（`only-allow pnpm`）冲突**，是脚手架遗留噪声；已剔除，保留未跟踪，建议后续删除。
-- `pnpm-lock.yaml`（+4487/−139）—— 锁文件缺 `apps/mobile` importer 的重解析，属已知 workspace 不一致，**非本次依赖新增**；按约定不提交（提交它会固化当前解析态，但也可能掩盖该不一致）。
+- `pnpm-lock.yaml`（+4487/−139）—— **已提交 `4d99aa6`**：锁文件缺 `apps/mobile` importer 的重解析属已知 workspace 不一致、非本次依赖新增，但提交它反而**修复**了该不一致（今后 `pnpm install` 不再产出巨型 diff），并把移动端 `react-dom` 锁定 `19.2.3` 固化进锁文件（防 #527 复发）。`--frozen-lockfile` 校验通过（"Already up to date"）。
 - `apps/web/src/hooks/useWorkspaceTasks.ts`（`M`）—— **非本次改动**，是 `apps/web` 侧早先为演示审核流预置 `task-004` 待审的种子改动，独立于移动端增量，留待 web 侧单独处理。
 - `.playwright-cli/` · `qa-e2e/.playwright-cli/` · `screenshots/mobile/` —— 运行时日志 / 截图，未跟踪（临时探针 `qa-e2e/tmp-*.js` 已清理）。
 - `node_modules/` · `dist-*/` —— 已被 `.gitignore` 忽略，未入库。

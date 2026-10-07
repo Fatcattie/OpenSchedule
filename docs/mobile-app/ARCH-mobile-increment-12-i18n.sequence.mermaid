@@ -1,0 +1,77 @@
+%% 增量 12 — 移动端多语言（中/英/跟随系统）· 时序图
+%% 来源：docs/mobile-app/ARCH-mobile-increment-12-i18n.md §5
+%% ① 冷启动 hydrate（含 user.locale seed 与三级兜底）
+sequenceDiagram
+    autonumber
+    participant App as App.tsx
+    participant AP as AppProvider
+    participant IP as I18nProvider
+    participant AS as AsyncStorage
+    participant UA as useOptionalAppContext
+    participant C as 全树消费组件
+
+    App->>AP: mount <AppProvider>
+    AP->>IP: mount <I18nProvider>（在 AppProvider 内）
+    IP->>AS: getItem('os.locale')
+    AS-->>IP: storedPreference（null / 'zh-CN' / 'en-US' / 'system' / 非法）
+    IP->>IP: normalizePreference（非法/null → null）
+    IP->>UA: 读 user.locale（seed）
+    UA-->>IP: userLocale（冷启动多为 null ⇒ 回落 'zh-CN'）
+    IP->>IP: effectivePreference = stored ?? (userLocale==='en-US' ? 'en-US' : 'zh-CN')
+    alt effectivePreference === 'system'
+        IP->>IP: resolveSystemLocale()（懒加载 expo-localization）
+        IP->>IP: zh* → zh-CN / 其余 → en-US / 异常 → zh-CN
+    end
+    IP->>IP: setIsReady(true)
+    IP-->>C: Context{ locale, preference, isReady, t, setPreference }
+    Note over C: isReady=false 期间按 zh-CN 渲染（避免闪变）
+    AP-->>IP: 稍后 user 到达（若 seed 为 en-US 且无本地偏好）⇒ 派生值自动更新
+
+%% ② 用户切换三态（「我的 → 语言」）
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant PS as ProfileScreen(我的)
+    participant SC as SegmentedControl
+    participant IP as I18nProvider
+    participant AS as AsyncStorage
+    participant SL as systemLocale
+    participant C as 全树消费组件
+
+    U->>PS: 点「English」
+    PS->>SC: onChange('en-US')
+    SC->>IP: setPreference('en-US')
+    IP->>IP: setState(preference='en-US') → locale='en-US'（即时生效）
+    IP->>AS: setItem('os.locale','en-US')（fire-and-forget，失败静默）
+    IP-->>C: Context 变化 → 全树重渲染（不 remount / 不丢状态）
+    U->>PS: 点「跟随系统」
+    PS->>IP: setPreference('system')
+    IP->>SL: resolveSystemLocale()（当次立即探测）
+    alt 设备 zh*
+        SL-->>IP: 'zh-CN'
+    else 其余
+        SL-->>IP: 'en-US'
+    else 抛错/空
+        SL-->>IP: 'zh-CN'
+    end
+    IP->>AS: setItem('os.locale','system')
+    IP-->>C: Context 变化 → 全树重渲染（不等冷启动）
+
+%% ③ 组件消费 t()（含无 Provider 兜底）
+sequenceDiagram
+    autonumber
+    participant Cmp as 组件 / 屏
+    participant Hook as useI18n()/useT()
+    participant IP as I18nProvider
+    participant TR as translate()
+
+    Cmp->>Hook: useI18n()
+    alt 有 <I18nProvider>
+        Hook->>IP: useContext(I18nContext)
+        IP-->>Hook: { locale, preference, t, … }
+    else 无 Provider（31 个渲染套件）
+        Hook-->>Hook: 回退 FALLBACK_I18N（locale='zh-CN'，绝不 throw）
+    end
+    Cmp->>TR: t('taskStatus.todo')
+    TR->>TR: dict = DICTS[locale]; template = dict[key] ?? zh[key] ?? key
+    TR-->>Cmp: '待办'（zh）/ 'To do'（en）

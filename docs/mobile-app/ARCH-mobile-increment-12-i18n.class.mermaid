@@ -1,0 +1,89 @@
+%% 增量 12 — 移动端多语言（中/英/跟随系统）· 类图
+%% 来源：docs/mobile-app/ARCH-mobile-increment-12-i18n.md §4.1
+classDiagram
+    class Locale {
+        <<type>>
+        'zh-CN' | 'en-US'
+    }
+    class LocalePreference {
+        <<type>>
+        'zh-CN' | 'en-US' | 'system'
+    }
+    class TranslationKey {
+        <<type>>
+        keyof typeof zh
+    }
+    class TParams {
+        <<type>>
+        Record~string, string|number~
+    }
+    class ZhDict {
+        <<module locales/zh/*>>
+        +common
+        +domain  (派生自常量)
+        +nav
+        +ui
+        +screens.core
+        +screens.more
+        +business
+        +services
+    }
+    class EnDict {
+        <<module locales/en/*>>
+        +Record~DomainKey,string~
+    }
+    class translate_fn {
+        <<pure function>>
+        +translate(locale, key, params?) string
+        +interpolate(template, params?) string
+    }
+    class systemLocale_adapter {
+        <<adapter>>
+        +resolveSystemLocale() Locale
+        懒 require expo-localization
+        三级兜底
+    }
+    class I18nContextValue {
+        +Locale locale
+        +LocalePreference preference
+        +boolean isReady
+        +t(key, params?) string
+        +setPreference(pref) Promise~void~
+    }
+    class I18nProvider {
+        <<component>>
+        -hydrate os.locale
+        -resolve(偏好, user.locale seed)
+        -AppState probe (仅 system)
+        +persist os.locale
+    }
+    class i18nHooks {
+        <<hooks 唯一入口>>
+        +useI18n() I18nContextValue
+        +useT() t
+    }
+    class AppProvider {
+        <<modified>>
+        +useOptionalAppContext() AppContextValue|null
+    }
+    class config_module {
+        <<modified>>
+        +PREFERENCE_KEYS.locale = 'os.locale'
+    }
+    class Consumer {
+        <<导航/组件/屏/服务>>
+        +useI18n().t(key)
+    }
+
+    ZhDict --> TranslationKey : defines
+    EnDict --> TranslationKey : constrained by
+    translate_fn --> ZhDict : reads
+    translate_fn --> EnDict : reads
+    I18nProvider --> translate_fn : uses
+    I18nProvider --> systemLocale_adapter : calls (仅 system)
+    I18nProvider --> config_module : os.locale
+    I18nProvider --> AppProvider : useOptionalAppContext (seed)
+    I18nProvider --> I18nContextValue : provides
+    i18nHooks --> I18nProvider : useContext ?? FALLBACK
+    i18nHooks --> translate_fn : FALLBACK 用 zh
+    Consumer --> i18nHooks : useI18n/useT

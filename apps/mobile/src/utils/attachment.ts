@@ -3,6 +3,8 @@
  * 纯函数模块，供 service 层与页面共用；不依赖 React / React Native 运行时，便于单元测试。
  */
 import { formatBytes } from './format'
+import { translate } from '@/i18n'
+import { getCurrentLocale } from '@/i18n/current'
 
 /** 单文件大小上限：20MB */
 export const ATTACHMENT_MAX_SIZE_BYTES = 20 * 1024 * 1024
@@ -51,20 +53,24 @@ export function isAllowedMimeType(mimeType: string): boolean {
  */
 export function validateAttachment(meta: AttachmentFileMeta): AttachmentValidationResult {
   const fileName = meta.fileName?.trim() ?? ''
-  if (!fileName) return { ok: false, message: '文件名不能为空' }
+  if (!fileName) return { ok: false, message: translate(getCurrentLocale(), 'attachment.emptyName') }
   if (!Number.isFinite(meta.sizeBytes) || meta.sizeBytes <= 0) {
-    return { ok: false, message: '文件大小无效，请重新选择文件' }
+    return { ok: false, message: translate(getCurrentLocale(), 'attachment.invalidSize') }
   }
   if (meta.sizeBytes > ATTACHMENT_MAX_SIZE_BYTES) {
     return {
       ok: false,
-      message: `文件大小超出限制：最大 20MB，当前 ${formatBytes(meta.sizeBytes)}`,
+      message: translate(getCurrentLocale(), 'attachment.tooLarge', {
+        current: formatBytes(meta.sizeBytes),
+      }),
     }
   }
   if (!isAllowedMimeType(meta.mimeType)) {
     return {
       ok: false,
-      message: `不支持的文件类型：${meta.mimeType || '未知'}，仅支持图片、PDF、文本、Office 文档与 ZIP`,
+      message: translate(getCurrentLocale(), 'attachment.unsupportedType', {
+        mime: meta.mimeType || translate(getCurrentLocale(), 'attachment.unknownMime'),
+      }),
     }
   }
   return { ok: true, message: '' }

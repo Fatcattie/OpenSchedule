@@ -10,6 +10,8 @@
  * 纯函数模块：不依赖 React / React Native 运行时，便于单元测试。
  */
 import type { AttachmentFileMeta } from './attachment'
+import { translate } from '@/i18n'
+import { getCurrentLocale } from '@/i18n/current'
 
 /**
  * 服务端白名单镜像（本次放宽后，与 `attachment-policy.ts` 的 `MIME_WHITELIST` 逐字对齐）。
@@ -121,26 +123,38 @@ function describeRejection(mime: string): ServerPrecheckResult {
   if (mime.startsWith('text/')) {
     return {
       ok: false,
-      message: '文本类附件暂不支持上传（服务端仅收图片 / PDF / Office / ZIP）',
-      hint: '可先另存为 PDF 后再上传',
+      message: translate(getCurrentLocale(), 'attachmentServer.textRejected'),
+      hint: translate(getCurrentLocale(), 'attachmentServer.textHint'),
       kind: 'text',
     }
   }
   if (mime.startsWith('video/')) {
-    return { ok: false, message: '暂不支持视频附件', kind: 'video' }
+    return {
+      ok: false,
+      message: translate(getCurrentLocale(), 'attachmentServer.videoRejected'),
+      kind: 'video',
+    }
   }
   if (mime.startsWith('image/')) {
     return {
       ok: false,
-      message: '暂不支持该图片格式（仅支持 JPEG/PNG/GIF/WebP/HEIC）',
-      hint: '可在相册中另存为 JPEG 后重选',
+      message: translate(getCurrentLocale(), 'attachmentServer.imageRejected'),
+      hint: translate(getCurrentLocale(), 'attachmentServer.imageHint'),
       kind: 'image-unsupported',
     }
   }
   if (mime === 'application/x-msdownload') {
-    return { ok: false, message: '不支持上传可执行程序文件', kind: 'unknown' }
+    return {
+      ok: false,
+      message: translate(getCurrentLocale(), 'attachmentServer.executableRejected'),
+      kind: 'unknown',
+    }
   }
-  return { ok: false, message: '无法识别的文件类型', kind: 'unknown' }
+  return {
+    ok: false,
+    message: translate(getCurrentLocale(), 'attachmentServer.unknownRejected'),
+    kind: 'unknown',
+  }
 }
 
 /**

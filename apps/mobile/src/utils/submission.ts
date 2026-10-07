@@ -14,6 +14,7 @@ import {
   type Task,
   type TaskStatus,
 } from '@/types'
+import { translateCurrent } from '@/i18n/current'
 
 /**
  * 提报状态机迁移表（PRD §6 / 增量 5 R6-3）：**表即契约**（K31），等于实读反推的**真实可写入集合**。
@@ -119,7 +120,7 @@ export function isWithdrawable(
 
 /** 提报标题校验：非空白（返回错误文案或 null） */
 export function validateSubmissionTitle(title: string | null | undefined): string | null {
-  if (!title || title.trim().length === 0) return '请填写事项标题'
+  if (!title || title.trim().length === 0) return translateCurrent('submission.titleRequired')
   return null
 }
 
@@ -232,18 +233,18 @@ export function resolveReviewItemView(
   if (branch === 'completion') {
     return {
       branch,
-      label: '完成待审',
+      label: translateCurrent('reviewView.completionLabel'),
       submitterId: task.assigneeId,
-      actionText: '提交了完成提报',
+      actionText: translateCurrent('reviewView.completionAction'),
       tagStatus: 'done',
     }
   }
   const isProject = branch === 'project'
   return {
     branch,
-    label: isProject ? '提报待审 · 新项目' : '提报待审 · 新任务',
+    label: translateCurrent(isProject ? 'reviewView.projectLabel' : 'reviewView.taskLabel'),
     submitterId: task.createdBy,
-    actionText: isProject ? '提报了新项目' : '提报了新任务',
+    actionText: translateCurrent(isProject ? 'reviewView.projectAction' : 'reviewView.taskAction'),
     tagStatus: 'in_progress',
   }
 }

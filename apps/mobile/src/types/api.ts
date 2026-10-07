@@ -2,6 +2,8 @@
  * 职责：统一响应包装与错误模型（对齐 Web 端约定，ARCH §4）。
  */
 
+import { translateCurrent } from '@/i18n/current'
+
 /** 后端统一响应信封 */
 export interface ApiResponse<T> {
   /** 0 = 成功；非 0 为业务错误码 */
@@ -53,7 +55,9 @@ export function parseAllowedTransitions(error: unknown): string[] | null {
 
 /** 取错误人话文案 */
 export function getErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.message || `请求失败（${error.code}）`
+  if (error instanceof ApiError) {
+    return error.message || translateCurrent('error.failedWithCode', { code: error.code })
+  }
   if (error instanceof Error) return error.message
   return String(error)
 }

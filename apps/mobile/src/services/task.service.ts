@@ -44,6 +44,8 @@ import {
   type TimeEntry,
   type User,
 } from '@/types'
+import { translate } from '@/i18n'
+import { getCurrentLocale } from '@/i18n/current'
 import { demoDayAt } from '@/data/seed'
 import { toDateKey } from '@/utils/date'
 import {
@@ -102,7 +104,7 @@ const PRIORITY_WEIGHT: Record<Task['priority'], number> = {
 /** 校验乐观锁 version，不一致抛 40901 */
 function assertVersion(task: Task, version: number): void {
   if (task.version !== version) {
-    throw new ApiError(ERR_OPTIMISTIC_LOCK, '任务已被他人更新，已为你刷新最新数据')
+    throw new ApiError(ERR_OPTIMISTIC_LOCK, translate(getCurrentLocale(), 'task.versionConflict'))
   }
 }
 
@@ -110,7 +112,7 @@ function assertVersion(task: Task, version: number): void {
 function assertTransition(from: TaskStatus, to: TaskStatus): void {
   const allowed = TASK_TRANSITIONS[from] ?? []
   if (!allowed.includes(to)) {
-    throw new ApiError(ERR_ILLEGAL_TRANSITION, '该状态迁移不被允许，请刷新后重试', {
+    throw new ApiError(ERR_ILLEGAL_TRANSITION, translate(getCurrentLocale(), 'task.illegalTransition'), {
       allowed_transitions: allowed.map((status) => ({ to: status })),
     })
   }
@@ -135,13 +137,13 @@ function assertSubmissionTransition(from: Task['submissionStatus'], to: Submissi
   if (to === from) return
   if (from == null) {
     if (to === 'pending') return
-    throw new ApiError(ERR_SUBMISSION_FORBIDDEN, '提报状态迁移不被允许', {
+    throw new ApiError(ERR_SUBMISSION_FORBIDDEN, translate(getCurrentLocale(), 'submission.illegalTransition'), {
       allowed_transitions: [{ to: 'pending' }],
     })
   }
   if (!canTransition(from, to)) {
     const allowed = SUBMISSION_TRANSITIONS[from] ?? []
-    throw new ApiError(ERR_SUBMISSION_FORBIDDEN, '提报状态迁移不被允许', {
+    throw new ApiError(ERR_SUBMISSION_FORBIDDEN, translate(getCurrentLocale(), 'submission.illegalTransition'), {
       allowed_transitions: allowed.map((target) => ({ to: target })),
     })
   }
@@ -154,7 +156,7 @@ function pushAudit(action: string, actorId: string, resourceId: string, summary:
     id: nextId('feed'),
     action,
     actorId,
-    actorName: actor?.displayName ?? '系统',
+    actorName: actor?.displayName ?? translate(getCurrentLocale(), 'common.systemActor'),
     resourceType: 'task',
     resourceId,
     summary,
@@ -288,7 +290,7 @@ export async function getTaskDetail(taskId: string): Promise<TaskDetail> {
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
     return {
       task: { ...task },
       assignee: findUser(task.assigneeId),
@@ -308,7 +310,7 @@ export async function getTask(taskId: string): Promise<Task> {
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
     return { ...task }
   }
   // TODO(real-api): GET /tasks/:taskId
@@ -323,7 +325,7 @@ export async function claimTask(taskId: string, version: number, userId: string)
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
     assertVersion(task, version)
     if (task.status !== 'todo') {
       assertTransition(task.status, 'in_progress')
@@ -333,7 +335,7 @@ export async function claimTask(taskId: string, version: number, userId: string)
     task.startedAt = task.startedAt ?? now()
     task.version += 1
     task.updatedAt = now()
-    pushAudit('task.claim', userId, taskId, `承接了「${task.title}」`)
+    pushAudit('task.claim', userId, taskId, translate(getCurrentLocale(), 'audit.claim', { title: task.title }))
     return { ...task }
   }
   // TODO(real-api): POST /tasks/:taskId/claim  body: { version }
@@ -345,7 +347,7 @@ export async function moveTask(taskId: string, input: MoveTaskInput): Promise<Ta
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
     assertVersion(task, input.version)
     assertTransition(task.status, input.status)
 
@@ -369,12 +371,19 @@ export async function moveTask(taskId: string, input: MoveTaskInput): Promise<Ta
       closeOpenReviewSubtasks(task)
     }
 
-    const reasonSuffix = input.reason ? `（原因：${input.reason}）` : ''
+    const reasonSuffix = input.reason
+      ? translate(getCurrentLocale(), 'audit.reasonSuffix', { reason: input.reason })
+      : ''
     pushAudit(
       'task.move',
       task.assigneeId ?? task.createdBy,
       taskId,
-      `将「${task.title}」由 ${previous} 变更为 ${input.status}${reasonSuffix}`,
+      translate(getCurrentLocale(), 'audit.move', {
+        title: task.title,
+        from: previous,
+        to: input.status,
+        reason: reasonSuffix,
+      }),
     )
     return { ...task }
   }
@@ -397,7 +406,7 @@ export async function completeTask(taskId: string, input: CompleteTaskInput): Pr
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
     assertVersion(task, input.version)
 
     // M1：严格后端公式；`reviewRequired` 只读不改
@@ -433,7 +442,12 @@ export async function completeTask(taskId: string, input: CompleteTaskInput): Pr
       'task.complete',
       task.assigneeId ?? task.createdBy,
       taskId,
-      `完成了「${task.title}」${input.summary ? `：${input.summary}` : ''}`,
+      input.summary
+        ? translate(getCurrentLocale(), 'audit.completeWithSummary', {
+            title: task.title,
+            summary: input.summary,
+          })
+        : translate(getCurrentLocale(), 'audit.complete', { title: task.title }),
     )
     if (needsReview) {
       // S3（增量 3）：向全部审核人派发「待你审核」通知（未读级去重，M4-P0-03 / M4-P0-04）
@@ -442,8 +456,8 @@ export async function completeTask(taskId: string, input: CompleteTaskInput): Pr
         pushNotificationOnce({
           userId: reviewerId,
           type: 'review.pending',
-          title: '待你审核',
-          body: `「${task.title}」已完成提报，等待你的审核`,
+          title: translate(getCurrentLocale(), 'notif.reviewPendingTitle'),
+          body: translate(getCurrentLocale(), 'notif.reviewPendingBody', { title: task.title }),
           data: { taskId },
         })
       }
@@ -459,7 +473,7 @@ export async function reopenTask(taskId: string, input: ReopenTaskInput): Promis
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
     assertVersion(task, input.version)
     assertTransition(task.status, 'todo')
 
@@ -474,7 +488,12 @@ export async function reopenTask(taskId: string, input: ReopenTaskInput): Promis
       applyClearedReviewState(task)
       closeOpenReviewSubtasks(task)
     }
-    pushAudit('task.reopen', task.createdBy, taskId, `重开了「${task.title}」（原因：${input.reason}）`)
+    pushAudit(
+      'task.reopen',
+      task.createdBy,
+      taskId,
+      translate(getCurrentLocale(), 'audit.reopen', { title: task.title, reason: input.reason }),
+    )
     return { ...task }
   }
   // TODO(real-api): POST /tasks/:taskId/reopen  body: { reason, version }
@@ -507,7 +526,7 @@ export async function undoCompletion(taskId: string, input: UndoCompletionInput)
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
     assertVersion(task, input.version)
     assertTransition(task.status, input.status)
 
@@ -535,7 +554,12 @@ export async function undoCompletion(taskId: string, input: UndoCompletionInput)
       'task.undo',
       task.assigneeId ?? task.createdBy,
       taskId,
-      `撤销了对「${task.title}」的完成操作${input.reason ? `（${input.reason}）` : ''}`,
+      translate(getCurrentLocale(), 'audit.undo', {
+        title: task.title,
+        reason: input.reason
+          ? translate(getCurrentLocale(), 'audit.undoReasonSuffix', { reason: input.reason })
+          : '',
+      }),
     )
     return { ...task }
   }
@@ -601,7 +625,7 @@ export async function addComment(
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
     const timestamp = now()
     const mentions = parseMentions(input.content, db.users)
     const comment: TaskComment = {
@@ -618,8 +642,13 @@ export async function addComment(
     }
     db.comments.push(comment)
     const author = findUser(authorId)
-    const authorName = author?.displayName ?? '有人'
-    pushAudit('comment.create', authorId, taskId, `${authorName}在「${task.title}」中发表了评论`)
+    const authorName = author?.displayName ?? translate(getCurrentLocale(), 'common.someone')
+    pushAudit(
+      'comment.create',
+      authorId,
+      taskId,
+      translate(getCurrentLocale(), 'audit.comment', { author: authorName, title: task.title }),
+    )
 
     // @提及触发通知：落入 mock 通知库，通知列表可见；不给自己发通知
     mentions.forEach((mention) => {
@@ -630,7 +659,7 @@ export async function addComment(
         tenantId: task.tenantId,
         userId: mention.userId,
         type: 'mention',
-        title: `${authorName} 在任务《${task.title}》中提到了你`,
+        title: translate(getCurrentLocale(), 'notif.mentionTitle', { author: authorName, title: task.title }),
         body: input.content,
         data: { taskId },
         channel: 'in_app',
@@ -744,7 +773,7 @@ export async function uploadAttachment(
     const validation = validateAttachment(input)
     if (!validation.ok) throw new ApiError(ERR_INVALID_ATTACHMENT, validation.message)
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
 
     // 模拟分片上传：按比例回推进度（让线性进度条可见）
     const steps = [0.25, 0.5, 0.75, 0.95]
@@ -767,13 +796,18 @@ export async function uploadAttachment(
     }
     db.attachments.push(attachment)
     onProgress?.(1)
-    pushAudit('attachment.create', uploaderId, taskId, `上传了附件「${input.fileName}」`)
+    pushAudit(
+      'attachment.create',
+      uploaderId,
+      taskId,
+      translate(getCurrentLocale(), 'audit.attachment', { name: input.fileName }),
+    )
     return { ...attachment }
   }
   // 真实分支：multipart/form-data → POST /api/v1/attachments
   // 前置守卫：既无 File（Web）也无 uri（native）⇒ 读不到文件内容，不发起请求
   if (input.file == null && !input.uri) {
-    throw new ApiError(ERR_INVALID_ATTACHMENT, '未能读取所选文件内容，请重新选择')
+    throw new ApiError(ERR_INVALID_ATTACHMENT, translate(getCurrentLocale(), 'attachment.readFailed'))
   }
 
   const form = buildAttachmentFormData(input, 'task', taskId)
@@ -800,7 +834,7 @@ export async function startTimer(taskId: string, userId: string): Promise<TimeEn
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
     const running = db.timeEntries.find((entry) => entry.taskId === taskId && entry.endedAt === null)
     if (running) return { ...running }
     const entry: TimeEntry = {
@@ -814,7 +848,7 @@ export async function startTimer(taskId: string, userId: string): Promise<TimeEn
       note: null,
     }
     db.timeEntries.unshift(entry)
-    pushAudit('time.start', userId, taskId, `开始为「${task.title}」计时`)
+    pushAudit('time.start', userId, taskId, translate(getCurrentLocale(), 'audit.timeStart', { title: task.title }))
     return { ...entry }
   }
   // TODO(real-api): POST /tasks/:taskId/time-entries  body: { action: 'start' }
@@ -826,7 +860,7 @@ export async function stopTimer(entryId: string, note?: string): Promise<TimeEnt
   if (USE_MOCK) {
     await simulateLatency()
     const entry = db.timeEntries.find((item) => item.id === entryId)
-    if (!entry) throw new ApiError(40401, '计时记录不存在')
+    if (!entry) throw new ApiError(40401, translate(getCurrentLocale(), 'timeEntry.notFound'))
     const endedAt = now()
     const durationSeconds = Math.max(
       1,
@@ -844,7 +878,7 @@ export async function stopTimer(entryId: string, note?: string): Promise<TimeEnt
         .reduce((sum, item) => sum + (item.durationSeconds ?? 0), 0)
       task.actualHours = Math.round((totalSeconds / 3600) * 10) / 10
       task.updatedAt = now()
-      pushAudit('time.stop', entry.userId, task.id, `结束「${task.title}」计时`)
+      pushAudit('time.stop', entry.userId, task.id, translate(getCurrentLocale(), 'audit.timeStop', { title: task.title }))
     }
     return { ...entry }
   }
@@ -930,7 +964,7 @@ export async function createTask(input: CreateTaskInput, actorId: string): Promi
   if (USE_MOCK) {
     await simulateLatency()
     const task = insertTask(input, actorId)
-    pushAudit('task.create', actorId, task.id, `创建了任务「${task.title}」`)
+    pushAudit('task.create', actorId, task.id, translate(getCurrentLocale(), 'audit.taskCreate', { title: task.title }))
     return { ...task }
   }
   // TODO(real-api): POST /tasks  body: { ...input }
@@ -1064,9 +1098,19 @@ export async function submitItem(
     if (actorRole === 'manager') {
       // 免审直接落地：立即通过并落地为正式事项（无待审中间态）
       landSubmissionRecord(record, actorId)
-      pushAudit('submission.publish', actorId, record.id, `直接创建了「${record.title}」`)
+      pushAudit(
+        'submission.publish',
+        actorId,
+        record.id,
+        translate(getCurrentLocale(), 'audit.submissionDirect', { title: record.title }),
+      )
     } else {
-      pushAudit('submission.create', actorId, record.id, `提报了「${record.title}」，等待审核`)
+      pushAudit(
+        'submission.create',
+        actorId,
+        record.id,
+        translate(getCurrentLocale(), 'audit.submissionCreate', { title: record.title }),
+      )
     }
     return { ...record }
   }
@@ -1096,18 +1140,18 @@ export async function withdrawSubmission(
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '提报不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'submission.notFound'))
     assertVersion(task, version)
     // 主体类型守卫（M6-P0-05 / ④）：本入口仅用于撤回**新事项提报记录**（`isSubmissionRecord`）。
     // 正式任务的「完成提报」必须走 `withdrawCompletion`；否则会把正式任务静默写成 cancelled（R6-5）。
     if (!isSubmissionRecord(task)) {
-      throw new ApiError(ERR_SUBMISSION_FORBIDDEN, '该入口仅用于撤回新事项提报')
+      throw new ApiError(ERR_SUBMISSION_FORBIDDEN, translate(getCurrentLocale(), 'submission.withdrawEntryOnly'))
     }
     if (task.createdBy !== actorId) {
-      throw new ApiError(ERR_SUBMISSION_FORBIDDEN, '只能撤回本人的提报')
+      throw new ApiError(ERR_SUBMISSION_FORBIDDEN, translate(getCurrentLocale(), 'submission.withdrawOwnOnly'))
     }
     if (task.submissionStatus !== 'pending') {
-      throw new ApiError(ERR_SUBMISSION_FORBIDDEN, '仅待审核的提报可撤回')
+      throw new ApiError(ERR_SUBMISSION_FORBIDDEN, translate(getCurrentLocale(), 'submission.withdrawPendingOnly'))
     }
     // 守卫（M6-P0-07 / K30）：pending → withdrawn（`:917` 门禁已保证 from === 'pending'）
     assertSubmissionTransition(task.submissionStatus, 'withdrawn')
@@ -1115,7 +1159,7 @@ export async function withdrawSubmission(
     task.status = 'cancelled' // 归档，移出待审列表
     task.version += 1
     task.updatedAt = now()
-    pushAudit('submission.withdraw', actorId, taskId, `撤回了「${task.title}」的提报`)
+    pushAudit('submission.withdraw', actorId, taskId, translate(getCurrentLocale(), 'audit.submissionWithdraw', { title: task.title }))
     return { ...task }
   }
   // TODO(real-api): POST /tasks/:taskId/submissions/withdraw  body: { version }
@@ -1155,16 +1199,16 @@ export async function withdrawCompletion(
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
     assertVersion(task, input.version) // ① 乐观锁 ⇒ 40901（AC-04）
 
     // ② 前置态：仍待审（精确提示；AC-05/06/07/08 均命中此处 ⇒ 40302）
     if (task.submissionStatus !== 'pending') {
-      throw new ApiError(ERR_SUBMISSION_FORBIDDEN, '仅待审核的完成提报可撤回')
+      throw new ApiError(ERR_SUBMISSION_FORBIDDEN, translate(getCurrentLocale(), 'submission.withdrawCompletionPendingOnly'))
     }
     // ③ 主体：唯一事实来源 = isWithdrawable（M5-P0-02；AC-02 命中 ⇒ 40302）
     if (!isWithdrawable(task, input.actorId)) {
-      throw new ApiError(ERR_SUBMISSION_FORBIDDEN, '只能撤回本人提交的完成提报')
+      throw new ApiError(ERR_SUBMISSION_FORBIDDEN, translate(getCurrentLocale(), 'submission.withdrawCompletionOwnOnly'))
     }
 
     // ④ 任务状态：完成态（done / pending_review）⇒ in_progress（先校验迁移合法，INV-1 放宽后保持）；
@@ -1188,12 +1232,17 @@ export async function withdrawCompletion(
 
     task.version += 1
     task.updatedAt = now()
-    const reasonSuffix = input.reason ? `（原因：${input.reason}）` : ''
+    const reasonSuffix = input.reason
+      ? translate(getCurrentLocale(), 'audit.reasonSuffix', { reason: input.reason })
+      : ''
     pushAudit(
       'submission.withdraw.completion',
       input.actorId,
       taskId,
-      `撤回了「${task.title}」的完成提报${reasonSuffix}`,
+      translate(getCurrentLocale(), 'audit.withdrawCompletion', {
+        title: task.title,
+        reason: reasonSuffix,
+      }),
     ) // M5-P1-01：写团队动态；**零通知**（K24）
     return { ...task }
   }
@@ -1225,7 +1274,7 @@ export async function reviewSubmission(
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
     assertVersion(task, version)
     const reviewerId = task.reviewerIds?.[0] ?? task.createdBy
     // B3 修正：操作人 = 真实发起人（缺省回落旧行为）
@@ -1242,33 +1291,48 @@ export async function reviewSubmission(
         task.completedAt = task.completedAt ?? now()
         task.reviewNote = null
         appendAuditLog(task, 'approve', opinion ?? 'agree', reason ?? '', operatorId)
-        pushAudit('task.approve', reviewerId, taskId, `通过了「${task.title}」的完成提报`)
+        pushAudit(
+          'task.approve',
+          reviewerId,
+          taskId,
+          translate(getCurrentLocale(), 'audit.approveCompletion', { title: task.title }),
+        )
         // 站内通知：结果回流给提报人（M2-P1-03）
         pushNotification({
           userId: task.createdBy,
           type: 'review.result',
-          title: '提报已通过',
-          body: `你提交的「${task.title}」已完成提报`,
+          title: translate(getCurrentLocale(), 'notif.resultApprovedTitle'),
+          body: translate(getCurrentLocale(), 'notif.completionApprovedBody', { title: task.title }),
           data: { taskId },
         })
       } else {
         // 新事项提报：落地为正式事项 + 归档提报记录
         landSubmissionRecord(task, reviewerId)
         appendAuditLog(task, 'approve', opinion ?? 'agree', reason ?? '', operatorId)
-        pushAudit('submission.approve', reviewerId, taskId, `通过了「${task.title}」的提报，已落地为正式事项`)
+        pushAudit(
+          'submission.approve',
+          reviewerId,
+          taskId,
+          translate(getCurrentLocale(), 'audit.approveSubmission', { title: task.title }),
+        )
         // 站内通知：结果回流给提报人（M2-P1-03）
         pushNotification({
           userId: task.createdBy,
           type: 'review.result',
-          title: '提报已通过',
-          body: `你的提报「${task.title}」已通过审核`,
+          title: translate(getCurrentLocale(), 'notif.resultApprovedTitle'),
+          body: translate(getCurrentLocale(), 'notif.submissionApprovedBody', { title: task.title }),
           data: { taskId },
         })
       }
     } else {
       // 驳回原因必填（≥4 字，PRD §6）
       if (!isValidReviewReason(reason)) {
-        throw new ApiError(ERR_SUBMISSION_INVALID, `驳回原因不少于 ${REVIEW_REASON_MIN_LENGTH} 字`)
+        throw new ApiError(
+          ERR_SUBMISSION_INVALID,
+          translate(getCurrentLocale(), 'submission.rejectReasonTooShort', {
+            min: REVIEW_REASON_MIN_LENGTH,
+          }),
+        )
       }
       // 守卫（M6-P0-07 / K30）：pending → rejected
       assertSubmissionTransition(task.submissionStatus, 'rejected')
@@ -1277,20 +1341,34 @@ export async function reviewSubmission(
       task.status = isSubmissionRecord(task) ? 'cancelled' : 'in_progress'
       // S3（增量 2）：完成提报驳回 ⇒ 清空 completedAt（INV-1 放宽：completedAt != null ⟺ status ∈ {done, pending_review}）
       if (resolveApproveBranch(task) === 'completion') task.completedAt = null
-      task.reviewNote = reason ?? '未填写驳回原因'
+      task.reviewNote = reason ?? translate(getCurrentLocale(), 'review.reasonFallback')
       // 文案分叉（仅文案）：opinion='rework' ⇒ 退回重改，否则驳回。状态机完全不动（用户拍板）。
       const isRework = opinion === 'rework'
       appendAuditLog(task, 'reject', opinion ?? 'reject', task.reviewNote, operatorId)
-      pushAudit('task.reject', reviewerId, taskId,
-        isRework ? `退回了「${task.title}」的提报` : `驳回了「${task.title}」的提报`)
+      pushAudit(
+        'task.reject',
+        reviewerId,
+        taskId,
+        isRework
+          ? translate(getCurrentLocale(), 'audit.rejectRework', { title: task.title })
+          : translate(getCurrentLocale(), 'audit.reject', { title: task.title }),
+      )
       // 站内通知：正文包含驳回原因，故必须在 reviewNote 赋值之后写入（M2-P1-03）
       pushNotification({
         userId: task.createdBy,
         type: 'review.result',
-        title: isRework ? '提报已退回重改' : '提报已驳回',
+        title: isRework
+          ? translate(getCurrentLocale(), 'notif.reworkedTitle')
+          : translate(getCurrentLocale(), 'notif.rejectedTitle'),
         body: isRework
-          ? `你的提报「${task.title}」被退回重改：${task.reviewNote}`
-          : `你的提报「${task.title}」被驳回：${task.reviewNote}`,
+          ? translate(getCurrentLocale(), 'notif.reworkedBody', {
+              title: task.title,
+              reason: task.reviewNote ?? '',
+            })
+          : translate(getCurrentLocale(), 'notif.rejectedBody', {
+              title: task.title,
+              reason: task.reviewNote ?? '',
+            }),
         data: { taskId },
       })
     }
@@ -1328,7 +1406,7 @@ export async function withdrawCompletionAndNotify(
   if (USE_MOCK) {
     await simulateLatency()
     const task = findTask(taskId)
-    if (!task) throw new ApiError(40401, '任务不存在或不可见')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'task.notFound'))
 
     // ① 快照：必须在 withdrawCompletion 的清理之前（K28 / K34）
     const reviewerIds = [...(task.reviewerIds ?? [])]
@@ -1345,8 +1423,8 @@ export async function withdrawCompletionAndNotify(
       pushNotificationOnce({
         userId: reviewerId,
         type: 'review.withdrawn',
-        title: '提报已撤回',
-        body: `「${task.title}」的完成提报已被提报人撤回，无需审核`,
+        title: translate(getCurrentLocale(), 'notif.withdrawnTitle'),
+        body: translate(getCurrentLocale(), 'notif.withdrawnBody', { title: task.title }),
         data: { taskId },
       })
     }
@@ -1404,7 +1482,7 @@ function appendAuditLog(
     opinion,
     reason,
     operatorId,
-    operatorName: findUser(operatorId)?.displayName ?? '系统',
+    operatorName: findUser(operatorId)?.displayName ?? translate(getCurrentLocale(), 'common.systemActor'),
     createdAt: now(),
   }
   task.auditLogs = [...(task.auditLogs ?? []), log]
@@ -1442,7 +1520,7 @@ function ensureReviewSubtask(mainTask: Task): Task {
     tenantId: mainTask.tenantId,
     projectId: mainTask.projectId,
     parentId: mainTask.id,
-    title: `项目评审 — ${mainTask.title}`,
+    title: translate(getCurrentLocale(), 'review.subtaskTitle', { title: mainTask.title }),
     description: null,
     status: 'todo',
     priority: 'high',
@@ -1478,8 +1556,8 @@ function ensureReviewSubtask(mainTask: Task): Task {
     pushNotificationOnce({
       userId: owner,
       type: 'task.review.pending',
-      title: '待你评审',
-      body: `「${mainTask.title}」已完成提报，请进行项目评审`,
+      title: translate(getCurrentLocale(), 'notif.reviewSubtaskTitle'),
+      body: translate(getCurrentLocale(), 'notif.reviewSubtaskBody', { title: mainTask.title }),
       data: { taskId: child.id },
     })
   }

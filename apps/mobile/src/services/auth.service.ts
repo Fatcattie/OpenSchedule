@@ -4,6 +4,8 @@
  */
 import { DEMO_USER_IDS, db, findUser } from '@/data'
 import { ApiError, type AuthTokens, type LoginInput, type MeResponse, type User } from '@/types'
+import { translate } from '@/i18n'
+import { getCurrentLocale } from '@/i18n/current'
 import { authenticateBiometric, getBiometricCapability, type BiometricCapability } from './platform/biometrics'
 import { httpClient, simulateLatency, delay } from './client'
 import { USE_MOCK } from './config'
@@ -63,7 +65,7 @@ export async function login(input: LoginInput): Promise<LoginResult> {
     const matched =
       email === DEMO_CREDENTIALS.email || db.users.some((user) => user.email.toLowerCase() === email)
     if (!matched || input.password !== DEMO_CREDENTIALS.password) {
-      throw new ApiError(40101, '账号或密码不正确，请重新输入')
+      throw new ApiError(40101, translate(getCurrentLocale(), 'auth.invalidCredentials'))
     }
     return { tokens: makeMockTokens(), me: buildMe() }
   }
@@ -107,12 +109,12 @@ export async function loginWithBiometrics(): Promise<LoginResult | null> {
   if (!capability.available) return null
 
   if (USE_MOCK) {
-    const passed = await authenticateBiometric('验证身份以解锁 OpenSchedule')
+    const passed = await authenticateBiometric(translate(getCurrentLocale(), 'auth.biometricPrompt'))
     if (!passed) return null
     return { tokens: makeMockTokens(), me: buildMe() }
   }
   // TODO(real-api): POST /auth/biometric/verify（携带设备凭证换取 access token）
-  const passed = await authenticateBiometric('验证身份以解锁 OpenSchedule')
+  const passed = await authenticateBiometric(translate(getCurrentLocale(), 'auth.biometricPrompt'))
   if (!passed) return null
   const tokens = await httpClient.post<AuthTokens>('/auth/biometric/verify', {}, { skipAuth: true })
   const context = await me()

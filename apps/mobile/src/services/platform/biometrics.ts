@@ -3,6 +3,8 @@
  * Web 端由同目录 `biometrics.web.ts` 覆盖，避免 Web 打包引入原生模块（ARCH §11 R1 / R4）。
  */
 import * as LocalAuthentication from 'expo-local-authentication'
+import { translate } from '@/i18n'
+import { getCurrentLocale } from '@/i18n/current'
 
 /** 生物识别能力描述 */
 export interface BiometricCapability {
@@ -16,16 +18,20 @@ export interface BiometricCapability {
 export async function getBiometricCapability(): Promise<BiometricCapability> {
   try {
     const hasHardware = await LocalAuthentication.hasHardwareAsync()
-    if (!hasHardware) return { available: false, label: '生物识别' }
+    if (!hasHardware) return { available: false, label: translate(getCurrentLocale(), 'biometric.generic') }
     const enrolled = await LocalAuthentication.isEnrolledAsync()
-    if (!enrolled) return { available: false, label: '生物识别' }
+    if (!enrolled) return { available: false, label: translate(getCurrentLocale(), 'biometric.generic') }
     const types = await LocalAuthentication.supportedAuthenticationTypesAsync()
     const hasFace = types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)
     const hasFingerprint = types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)
-    const label = hasFace ? '面容解锁' : hasFingerprint ? '指纹解锁' : '生物识别'
+    const label = hasFace
+      ? translate(getCurrentLocale(), 'biometric.face')
+      : hasFingerprint
+        ? translate(getCurrentLocale(), 'biometric.fingerprint')
+        : translate(getCurrentLocale(), 'biometric.generic')
     return { available: true, label }
   } catch {
-    return { available: false, label: '生物识别' }
+    return { available: false, label: translate(getCurrentLocale(), 'biometric.generic') }
   }
 }
 
@@ -34,7 +40,7 @@ export async function authenticateBiometric(promptMessage: string): Promise<bool
   try {
     const result = await LocalAuthentication.authenticateAsync({
       promptMessage,
-      cancelLabel: '改用密码',
+      cancelLabel: translate(getCurrentLocale(), 'biometric.cancel'),
       disableDeviceFallback: true,
     })
     return result.success

@@ -29,6 +29,7 @@ import {
 } from 'react'
 import { AppState } from 'react-native'
 import { translate, type Locale, type LocalePreference, type TParams, type TranslationKey } from '@/i18n'
+import { setCurrentLocale } from '@/i18n/current'
 import { resolveSystemLocale } from '@/i18n/systemLocale'
 import { PREFERENCE_KEYS } from '@/services/config'
 import { useOptionalAppContext } from '@/store/AppProvider'
@@ -148,6 +149,13 @@ export function I18nProvider({ children }: { children: ReactNode }): React.JSX.E
     // probeEpoch 仅用于在 AppState 回前台时强制重算（无其他依赖）
     [effectivePreference, probeEpoch],
   )
+
+  // ── 同步模块级 locale（增量 12 · L7 · T05）──────────────────────────────────
+  // 服务层 / 工具层是**非 React** 模块，不能调 `useT()`，取词统一走
+  // `translate(getCurrentLocale(), …)`。此处把已解析 `locale` 同步到 `@/i18n/current`。
+  // ⚠️ 必须在**渲染期**（而非 `useEffect`）同步：`resolveReviewItemView` / `opinionMeta`
+  //    等工具在**渲染期**取词，若延到 effect，切换语言后首帧仍为旧语言且不会再重渲染。
+  setCurrentLocale(locale)
 
   const t = useCallback(
     (key: TranslationKey, params?: TParams) => translate(locale, key, params),

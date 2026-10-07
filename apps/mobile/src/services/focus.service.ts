@@ -18,6 +18,8 @@ import {
 } from '@/types'
 import { addDays, minutesFromMidnight, startOfDay, toDateKey } from '@/utils/date'
 import { isSubmissionRecord } from '@/utils/submission'
+import { translate } from '@/i18n'
+import { getCurrentLocale } from '@/i18n/current'
 import { httpClient, simulateLatency } from './client'
 import { USE_MOCK } from './config'
 import { listDeadlineApproaching, listPendingReview, listTodayDue } from './task.service'
@@ -97,7 +99,7 @@ export async function getAiProposal(proposalId: string): Promise<AiProposal> {
   if (USE_MOCK) {
     await simulateLatency()
     const proposal = db.aiProposals.find((item) => item.id === proposalId)
-    if (!proposal) throw new ApiError(40401, 'AI 提议不存在或已过期')
+    if (!proposal) throw new ApiError(40401, translate(getCurrentLocale(), 'aiProposal.notFound'))
     return { ...proposal }
   }
   // TODO(real-api): GET /ai/proposals/:proposalId
@@ -109,9 +111,9 @@ export async function approveAiProposal(proposalId: string, approverId: string):
   if (USE_MOCK) {
     await simulateLatency()
     const proposal = db.aiProposals.find((item) => item.id === proposalId)
-    if (!proposal) throw new ApiError(40401, 'AI 提议不存在或已过期')
+    if (!proposal) throw new ApiError(40401, translate(getCurrentLocale(), 'aiProposal.notFound'))
     if (proposal.status !== 'pending') {
-      throw new ApiError(40901, '该提议已被处理，已为你刷新最新状态')
+      throw new ApiError(40901, translate(getCurrentLocale(), 'aiProposal.alreadyHandled'))
     }
     proposal.status = 'applied'
     proposal.approverId = approverId
@@ -132,9 +134,9 @@ export async function rejectAiProposal(
   if (USE_MOCK) {
     await simulateLatency()
     const proposal = db.aiProposals.find((item) => item.id === proposalId)
-    if (!proposal) throw new ApiError(40401, 'AI 提议不存在或已过期')
+    if (!proposal) throw new ApiError(40401, translate(getCurrentLocale(), 'aiProposal.notFound'))
     if (proposal.status !== 'pending') {
-      throw new ApiError(40901, '该提议已被处理，已为你刷新最新状态')
+      throw new ApiError(40901, translate(getCurrentLocale(), 'aiProposal.alreadyHandled'))
     }
     proposal.status = 'rejected'
     proposal.approverId = approverId
@@ -176,7 +178,7 @@ export async function markNotificationRead(notificationId: string): Promise<Noti
   if (USE_MOCK) {
     await simulateLatency()
     const notification = db.notifications.find((item) => item.id === notificationId)
-    if (!notification) throw new ApiError(40401, '通知不存在')
+    if (!notification) throw new ApiError(40401, translate(getCurrentLocale(), 'notification.notFound'))
     notification.readAt = notification.readAt ?? now()
     notification.status = 'read'
     return { ...notification }
@@ -223,7 +225,7 @@ export async function updateNotificationChannels(
   if (USE_MOCK) {
     await simulateLatency()
     const preference = db.notificationPreferences.find((item) => item.id === preferenceId)
-    if (!preference) throw new ApiError(40401, '通知偏好不存在')
+    if (!preference) throw new ApiError(40401, translate(getCurrentLocale(), 'notification.preferenceNotFound'))
     preference.channels = { ...channels }
     preference.updatedAt = now()
     return { ...preference }
@@ -308,7 +310,7 @@ export async function updatePersonalTask(
   if (USE_MOCK) {
     await simulateLatency()
     const task = db.personalTasks.find((item) => item.id === id)
-    if (!task) throw new ApiError(40401, '个人任务不存在')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'personalTask.notFound'))
     if (input.title !== undefined) task.title = input.title
     if (input.description !== undefined) task.description = input.description
     if (input.priority !== undefined) task.priority = input.priority
@@ -338,7 +340,7 @@ export async function deletePersonalTask(id: string): Promise<void> {
   if (USE_MOCK) {
     await simulateLatency()
     const index = db.personalTasks.findIndex((item) => item.id === id)
-    if (index === -1) throw new ApiError(40401, '个人任务不存在')
+    if (index === -1) throw new ApiError(40401, translate(getCurrentLocale(), 'personalTask.notFound'))
     db.personalTasks.splice(index, 1)
     return
   }
@@ -351,7 +353,7 @@ export async function completePersonalTask(id: string): Promise<PersonalTask> {
   if (USE_MOCK) {
     await simulateLatency()
     const task = db.personalTasks.find((item) => item.id === id)
-    if (!task) throw new ApiError(40401, '个人任务不存在')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'personalTask.notFound'))
     task.status = 'done'
     task.completedAt = now()
     task.actualHours = task.actualHours ?? task.estimatedHours ?? null
@@ -376,7 +378,7 @@ export async function schedulePersonalTask(
   if (USE_MOCK) {
     await simulateLatency()
     const task = db.personalTasks.find((item) => item.id === id)
-    if (!task) throw new ApiError(40401, '个人任务不存在')
+    if (!task) throw new ApiError(40401, translate(getCurrentLocale(), 'personalTask.notFound'))
     task.startAt = input.startAt
     task.endAt = input.endAt
     task.dueAt = input.endAt

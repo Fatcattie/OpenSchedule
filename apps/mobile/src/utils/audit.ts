@@ -7,6 +7,7 @@
  */
 import type { AuditAction, AuditLog, AuditOpinion, Task } from '@/types'
 import type { ThemeColors } from '@/theme'
+import { translateCurrent } from '@/i18n/current'
 
 /** web 语义的审核状态（四值，对齐 `apps/web/src/types/task.ts:172`） */
 export type ApprovalStatus = 'none' | 'pending' | 'approved' | 'rejected'
@@ -36,11 +37,12 @@ export const OPINION_OPTIONS: { value: AuditOpinion; label: string }[] = [
  * @param colors 当前生效色板（`ThemeColors`）
  */
 export function opinionMeta(colors: ThemeColors): Record<AuditOpinion, { label: string; color: string }> {
+  // 标签复用领域字典 `auditOpinion.*`（zh 值派生自 `OPINION_OPTIONS`，与改造前逐字一致）。
   return {
-    agree: { label: '同意', color: colors.success },
-    reject: { label: '不通过', color: colors.danger },
-    rework: { label: '退回重改', color: colors.warning },
-    other: { label: '其他', color: colors.text.secondary },
+    agree: { label: translateCurrent('auditOpinion.agree'), color: colors.success },
+    reject: { label: translateCurrent('auditOpinion.reject'), color: colors.danger },
+    rework: { label: translateCurrent('auditOpinion.rework'), color: colors.warning },
+    other: { label: translateCurrent('auditOpinion.other'), color: colors.text.secondary },
   }
 }
 

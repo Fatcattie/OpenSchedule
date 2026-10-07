@@ -3,6 +3,8 @@
  */
 import { db, findProject, findUser, nextId, now } from '@/data'
 import { ApiError, type Project, type ProjectStatus, type Task, type User } from '@/types'
+import { translate } from '@/i18n'
+import { getCurrentLocale } from '@/i18n/current'
 import { boardColumnOrder, getStatusStyle } from '@/theme'
 import { isSubmissionRecord } from '@/utils/submission'
 import { httpClient, simulateLatency } from './client'
@@ -73,7 +75,7 @@ export async function getProject(projectId: string): Promise<Project> {
   if (USE_MOCK) {
     await simulateLatency()
     const project = findProject(projectId)
-    if (!project) throw new ApiError(40401, '项目不存在或不可见')
+    if (!project) throw new ApiError(40401, translate(getCurrentLocale(), 'project.notFound'))
     return { ...project }
   }
   // TODO(real-api): GET /projects/:projectId
@@ -85,7 +87,7 @@ export async function getProjectStats(projectId: string): Promise<ProjectCardDat
   if (USE_MOCK) {
     await simulateLatency()
     const project = findProject(projectId)
-    if (!project) throw new ApiError(40401, '项目不存在或不可见')
+    if (!project) throw new ApiError(40401, translate(getCurrentLocale(), 'project.notFound'))
     const stats = computeProgress(projectId)
     return {
       project: { ...project },
@@ -104,7 +106,7 @@ export async function listBoardColumns(projectId: string): Promise<BoardColumn[]
   if (USE_MOCK) {
     await simulateLatency()
     const project = findProject(projectId)
-    if (!project) throw new ApiError(40401, '项目不存在或不可见')
+    if (!project) throw new ApiError(40401, translate(getCurrentLocale(), 'project.notFound'))
     const tasks = db.tasks.filter(
       (task) => task.projectId === projectId && !isSubmissionRecord(task),
     )

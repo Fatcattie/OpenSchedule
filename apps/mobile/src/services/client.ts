@@ -3,6 +3,8 @@
  * 注入 Bearer token、401 回调（刷新位）、mock 延迟模拟（对齐 Web 端 client.ts 风格）。
  */
 import { ApiError } from '@/types'
+import { translate, type TranslationKey } from '@/i18n'
+import { getCurrentLocale } from '@/i18n/current'
 import { API_BASE, MOCK_LATENCY } from './config'
 import { isSimulatedOffline, notifyNetworkFailure, notifyNetworkSuccess } from './connectivity'
 
@@ -22,17 +24,28 @@ export interface RequestOptions {
   skipAuth?: boolean
 }
 
-/** HTTP 状态码兜底文案（后端未返回信封时使用） */
-const HTTP_DEFAULT_MESSAGE: Record<number, string> = {
-  400: '请求参数有误',
-  401: '登录已过期，请重新登录',
-  403: '没有权限执行该操作',
-  404: '资源不存在或不可见',
-  409: '状态冲突，请刷新后重试',
-  429: '请求过于频繁，请稍后再试',
-  500: '服务器内部错误',
-  502: 'AI 服务暂不可用',
-  503: '服务暂不可用，请稍后再试',
+/**
+ * HTTP 状态码 → 服务层字典键（`http.*`，zh 值 = 改造前 `HTTP_DEFAULT_MESSAGE` 的 9 条兜底文案）。
+ *
+ * 原 `HTTP_DEFAULT_MESSAGE` 常量已改为**键映射**：取词统一走 `translate(getCurrentLocale(), key)`
+ * ⇒ 语言切换即时生效。zh 输出与改造前**逐字节一致**（`getCurrentLocale()` 默认 `'zh-CN'`）。
+ */
+const HTTP_STATUS_KEY: Record<number, TranslationKey> = {
+  400: 'http.400',
+  401: 'http.401',
+  403: 'http.403',
+  404: 'http.404',
+  409: 'http.409',
+  429: 'http.429',
+  500: 'http.500',
+  502: 'http.502',
+  503: 'http.503',
+}
+
+/** 取 HTTP 状态码兜底文案（未命中具体状态码时回落通用兜底） */
+function httpDefaultMessage(status: number): string {
+  const key = HTTP_STATUS_KEY[status]
+  return translate(getCurrentLocale(), key ?? 'http.default')
 }
 
 /** access token 提供者（由 AppProvider 注入，避免 client 反向依赖 store） */
@@ -80,7 +93,7 @@ export function delay(ms: number): Promise<void> {
 export function simulateLatency(): Promise<void> {
   if (isSimulatedOffline()) {
     notifyNetworkFailure('network')
-    return Promise.reject(new ApiError(0, '网络连接失败，请检查网络后重试'))
+    return Promise.reject(new ApiError(0, translate(getCurrentLocale(), 'network.failed')))
   }
   notifyNetworkSuccess()
   const span = MOCK_LATENCY.max - MOCK_LATENCY.min
@@ -118,8 +131,7 @@ async function parseEnvelope<T>(response: Response): Promise<T> {
 
   if (!response.ok) {
     const code = typeof envelope?.code === 'number' ? envelope.code : response.status
-    const message =
-      envelope?.message || HTTP_DEFAULT_MESSAGE[response.status] || '请求失败，请稍后重试'
+    const message = envelope?.message || httpDefaultMessage(response.status)
     // 服务端异常（5xx）→ 上报 server；4xx 业务错误不上报（非网络问题，见 A2）
     if (response.status >= 500) notifyNetworkFailure('server')
     throw new ApiError(code, message, envelope?.details)
@@ -127,7 +139,11 @@ async function parseEnvelope<T>(response: Response): Promise<T> {
 
   // 业务错误：HTTP 200 但 code != 0（不上报，非网络问题）
   if (envelope && typeof envelope.code === 'number' && envelope.code !== 0) {
-    throw new ApiError(envelope.code, envelope.message || '请求失败', envelope.details)
+    throw new ApiError(
+      envelope.code,
+      envelope.message || translate(getCurrentLocale(), 'http.businessFailed'),
+      envelope.details,
+    )
   }
 
   // 请求成功 → 上报在线（恢复判据）
@@ -163,7 +179,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     })
   } catch (error) {
     // 网络层异常（断网 / DNS 失败）
-    throw new ApiError(0, '网络连接失败，请检查网络后重试', error)
+    throw new ApiError(0, translate(getCurrentLocale(), 'network.failed'), error)
   }
 
   return parseEnvelope<T>(response)
@@ -202,7 +218,7 @@ export async function postMultipart<T>(
     })
   } catch (error) {
     // 网络层异常（断网 / DNS 失败）
-    throw new ApiError(0, '网络连接失败，请检查网络后重试', error)
+    throw new ApiError(0, translate(getCurrentLocale(), 'network.failed'), error)
   }
 
   return parseEnvelope<T>(response)

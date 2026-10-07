@@ -283,7 +283,10 @@ export function WorkspaceScreen(): React.JSX.Element {
             <Avatar name={user?.displayName ?? t('screens.core.workspace.userFallback')} uri={user?.avatarUrl} size={40} />
             <View style={styles.headerText}>
               <Text style={[typography.title, styles.greeting]}>
-                {t(greetingKey(hour))}，{user?.displayName ?? t('screens.core.workspace.colleagueFallback')}
+                {t('screens.core.workspace.greetingWithName', {
+                  greeting: t(greetingKey(hour)),
+                  name: user?.displayName ?? t('screens.core.workspace.colleagueFallback'),
+                })}
               </Text>
               <Text style={[typography.caption, styles.subGreeting]} numberOfLines={1}>
                 {tenant?.name ?? t('screens.core.workspace.noTeam')} · {formatTodayLabel()}

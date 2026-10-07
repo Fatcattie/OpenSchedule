@@ -33,6 +33,7 @@ export const screensCore = {
   'screens.core.workspace.greetingEvening': 'Good evening',
   'screens.core.workspace.userFallback': 'User',
   'screens.core.workspace.colleagueFallback': 'colleague',
+  'screens.core.workspace.greetingWithName': '{greeting}, {name}',
   'screens.core.workspace.noTeam': 'No team joined',
   'screens.core.workspace.switchRoleA11y': 'Switch role',
   'screens.core.workspace.notificationsA11y': 'Notifications',

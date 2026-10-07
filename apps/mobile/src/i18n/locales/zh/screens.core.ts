@@ -34,6 +34,8 @@ export const screensCore = {
   'screens.core.workspace.greetingEvening': '晚上好',
   'screens.core.workspace.userFallback': '用户',
   'screens.core.workspace.colleagueFallback': '同事',
+  // 问候语 + 姓名的整句：分隔符随语言（zh 全角逗号、en 半角逗号 + 空格）—— 修 QA-D1
+  'screens.core.workspace.greetingWithName': '{greeting}，{name}',
   'screens.core.workspace.noTeam': '未加入团队',
   'screens.core.workspace.switchRoleA11y': '切换角色',
   'screens.core.workspace.notificationsA11y': '通知',

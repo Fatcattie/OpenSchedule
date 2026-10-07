@@ -104,8 +104,17 @@
 | 新增测试 | ✅ 3 套件 / 47 用例（键一致性 18 / Provider 三态+持久化+兜底 19 / zh 冻结守卫 10） |
 | **`'system'` 类型约束** | ✅ `@ts-expect-error` 断言 `translate('system',…)` 为编译错误**生效** |
 | 残留中文复审 | ✅ 剩余**全部落在已登记允许类别**（见 §七） |
-| **真实浏览器端到端验收** | ❌ **未完成**（QA worker 429 配额失败） |
-| **核心机制 fresh-eyes 独立复核** | ❌ **未完成**（QA worker 429 配额失败） |
+| **真实浏览器端到端验收** | ⚠️ **已完成（有偏差）**：**IS_PASS = NO / 阻断项 0** —— 10 项走查 **8 项完全通过**，发现 3 个**非阻断**缺陷（见 §七）。报告：`docs/mobile-app/QA-mobile-increment-12-i18n-e2e.md`（含 4 张截图 + 原始命令输出） |
+| **核心机制 fresh-eyes 独立复核** | ❌ **未完成**（QA worker 429 配额失败，待 2026-10-08 09:50 重置后补跑） |
+
+**浏览器 E2E 关键实测**（`dist-i18n` + 系统 Chrome @ `127.0.0.1:4195`，`react`/`react-dom` 均 `19.2.3`）：
+- 默认中文：5 Tab 命中「工作台/今日/项目/时间/我的」✅
+- 「语言」区块位于「外观」正下方（y=368 < 472），三段 `中文/English/跟随系统` ✅
+- 切 English **不重载**（URL 仍 `/me`）：Tab→`Workspace…Me`、页头 `Profile`、正文 13/13 英文标签命中 ✅
+- 持久化：reload 后 `localStorage['os.locale']='en-US'`，仍英文 ✅
+- 跟随系统：`navigator.language='zh-CN'`→中文；覆写 `languages=['en-US']`→英文 ✅
+- 残留说明随语言切换（中「日期格式 / 演示数据 / 服务端提示仍为中文」↔ 英「Dates, demo data and server messages remain in Chinese.」）✅
+- **0 console error**（本次会话 11 个日志 error 计数全为 0）✅
 
 > ⚠️ **诚实边界**：实现层目前只有**单测自证**（58/1013 全绿 + tsc 0），**尚无真实浏览器功能证据**。端到端验收待配额恢复（2026-10-08 09:50 重置）后补跑。
 
@@ -150,7 +159,11 @@
 
 ## 七、遗留（非阻断）
 
-1. **⚠️ QA 端到端验收未完成**（浏览器 E2E + 核心机制独立复核）——两条 QA 线均因 429 配额失败，待 **2026-10-08 09:50** 重置后补跑。需验证：默认中文 → 切 English 即时生效（Tab/页头/正文）→ reload 持久化 → 跟随系统 → 残留边界说明 → 英文下无中文残留 → 0 console error → 320pt 窄屏不溢出。
+1. **QA 缺陷处置**（浏览器 E2E 走查发现 3 个**非阻断**缺陷，阻断项 0）：
+   - ✅ **D1 英文问候语用了全角中文逗号**（`Good afternoon，张伟`，`U+FF0C`）—— **已修**（`13f2622`）：新增整句词条 `screens.core.workspace.greetingWithName`（zh `'{greeting}，{name}'` / en `'{greeting}, {name}'`），分隔符随语言。
+   - ✅ **D2 英文态优先级徽标仍显示中文「高」** —— **已修**（`13f2622`）：`components/Tag.tsx` 的状态 / 优先级回退改为走 i18n 字典（`t('taskStatus.*')` / `t('priority.*')`），不再回退 `theme` 的硬编码中文 `priorityLabel`；zh 值同源派生 ⇒ 逐字不变。
+   - ⏳ **D3 320pt 窄屏 TabBar「Workspace」被截断为 `Works…`** —— **待定夺**：320/5 = 64px/项，而 `Workspace` 需 67px，**即使去掉 item padding 也不够**；PRD §6-D12 术语表已定 `Workspace` 并注明「须最短化」。候选：① 缩短为 `Work` 等更短词；② 接受 320pt 截断（390pt 及主流机型均正常）。
+   - ⏳ **核心机制 fresh-eyes 独立复核**未完成（429 配额失败），待 2026-10-08 09:50 后补跑。
 2. **英文模式下的显式允许残留**（PRD §6-D13，已在「语言」区块下方明示）：
    - **日期 / 星期 / 相对时间 / 字节 / 工时格式**（L8，`WorkspaceScreen` 的 `formatTodayLabel`/`weekdays`、`utils/date.ts`、`utils/format.ts`）；
    - **mock 种子业务数据**（任务标题 / 评论正文 / `AttachmentUploadSheet` 的演示文件名）—— `src/data/**` 刻意不译；
@@ -175,6 +188,8 @@
 | `fdc7169` | feat(mobile): 增量12 **T03b** 补译 ProfileScreen 正文 + 收口 3 处 L7 残留（离线提示/筛选标签/审核a11y） |
 | `a120467` | test(mobile): 增量12 **批次 3** i18n 纯函数/Provider/zh 冻结守卫 三套件 + ARCH 语言边界 |
 | `e4e28e1` | docs(mobile): 增量12 多语言 PRD v2.0 + 架构设计（含类图/时序图） |
+| `1172a1e` | docs(mobile): 增量12 多语言交付概览（实现/验证/裁决/遗留） |
+| `13f2622` | fix(mobile): 增量12 修 QA-D1 英文问候全角逗号 / D2 优先级徽标未本地化 |
 
 > **本增量对 `apps/web` 改动数为 0**（逐提交核实）；`apps/web` typecheck 仍 0 错误。
 > `services/api` 的既有 `tasks.service.ts` 类型错误（`SubtaskItemDto.assigneeId`）与本增量无关，未处理。

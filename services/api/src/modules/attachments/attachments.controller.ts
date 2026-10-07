@@ -15,7 +15,12 @@ export class AttachmentsController {
 
   /** POST /api/v1/attachments 上传（multipart；file=文件本体 + resource_type/resource_id 表单字段） */
   @Post('attachments')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_ATTACHMENT_BYTES + 1024 * 1024 /* 给 multer 1MB 余量，service 精确校验 20MB */ } }))
+  @UseInterceptors(FileInterceptor('file', {
+    // defParamCharset: busboy 默认用 latin1 解码 multipart 的 filename ⇒ 中文文件名乱码（如「现场照.heic」）。
+    // 浏览器 / RN 客户端均以 UTF-8 发送（RFC 7578 建议）⇒ 显式指定 utf8 解码。
+    defParamCharset: 'utf8',
+    limits: { fileSize: MAX_ATTACHMENT_BYTES + 1024 * 1024 /* 给 multer 1MB 余量，service 精确校验 20MB */ },
+  }))
   async upload(
     @CurrentUser() user: AuthUser,
     @Body() dto: UploadAttachmentDto,

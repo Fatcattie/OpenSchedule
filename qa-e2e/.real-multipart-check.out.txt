@@ -1,0 +1,41 @@
+=== [1] 解析器加载 ===
+  · D:\GLMclaw\workspace\openschedule\services\api\node_modules\busboy -> MODULE_NOT_FOUND
+  · D:\GLMclaw\workspace\openschedule\node_modules\.pnpm\busboy@1.6.0\node_modules\busboy -> OK
+  ✅ 使用 busboy：D:\GLMclaw\workspace\openschedule\node_modules\.pnpm\busboy@1.6.0\node_modules\busboy
+
+=== [2] 本地服务 ===
+  监听 http://127.0.0.1:53366（POST /api/v1/attachments）
+
+=== [3] 真实 HTTP 往返 ===
+  POST http://127.0.0.1:53366/api/v1/attachments
+  请求头（应用侧）：{"Accept":"application/json","Authorization":"Bearer test-token"}  ← 注意：无 Content-Type
+  发送文件：name=onsite-photo.heic mime=image/heic bytes=1024
+  响应状态：200
+  服务端收到 Content-Type：multipart/form-data; boundary=----formdata-undici-049874858016
+  服务端收到 Content-Length：1399
+  服务端收到 Authorization：Bearer test-token
+  响应体：{"code":0,"data":{"fields":{"resource_type":"task","resource_id":"task-1"},"fileName":"onsite-photo.heic","sizeBytes":1024,"mimeType":"image/heic"}}
+
+=== [4] 断言 ===
+[PASS] HTTP 200 — status=200
+[PASS] 服务端收到的 Content-Type 为 multipart/form-data 且**带 boundary** — multipart/form-data; boundary=----formdata-undici-049874858016
+[PASS] boundary 非空且出现在 body 中（真实 FormData 序列化证据） — boundary 存在
+[PASS] Authorization 头透传 — Bearer test-token
+[PASS] Accept 头透传 — application/json
+[PASS] 解析出全部 3 个字段（文本：resource_type / resource_id；文件：file） — textFields=["resource_id","resource_type"] file="onsite-photo.heic"
+[PASS] resource_type === 'task' — got="task"
+[PASS] resource_id === 'task-1' — got="task-1"
+[PASS] 服务端解析出 file 文件名 === 发送值 — got="onsite-photo.heic"
+[PASS] 服务端解析出 file 字节长度 === 发送值 — got=1024 expected=1024
+[PASS] 服务端解析出 file mimeType === 发送值 — got="image/heic"
+[PASS] 解析器类型 — busboy @ D:\GLMclaw\workspace\openschedule\node_modules\.pnpm\busboy@1.6.0\node_modules\busboy
+
+=== [5] 补充探针（中文文件名，INFO 不计分）===
+  发送文件名：现场照.heic
+  busboy 默认字符集(latin1，对齐 multer) 解析得到："ç°åºç§.heic"
+  是否与发送值逐字相等：否（潜在 mojibake —— 真实后端若未设 defParamCharset=utf8 需注意）
+
+=== 汇总 ===
+  12/12 通过，0 失败
+  解析器：busboy
+  退出码：0

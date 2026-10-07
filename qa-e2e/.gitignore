@@ -1,0 +1,2 @@
+# 浏览器运行时状态（playwright-cli 会话/快照），不入库
+.playwright-cli/

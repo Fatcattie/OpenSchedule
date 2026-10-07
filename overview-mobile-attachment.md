@@ -136,3 +136,40 @@ QA 真浏览器跑 `dist-v29` 时，`#root` 渲染为空、控制台报 **React 
 - `node_modules/` · `dist-*/` —— 已被 `.gitignore` 忽略，未入库。
 
 > 提交安全校验：暂存集 306 文件，误带检查对 `node_modules` / `.workbuddy-ai` / `.playwright-cli` / `dist` 均为空。
+
+## 九、真实分支 + 真机验证（增量 11 · 「尽量」, 2026-10-07）
+
+> 前提：完整后端需 **PostgreSQL 16+ / Redis**（`services/api/.env.example`），沙箱内不可行；**无真机设备**。故"真机"项不可达，改为两条可落地的**真实证据线** + 一份真机补测清单。
+
+### 9.1 真实 HTTP multipart 往返 ✅（`qa-real-http`，主理人已独立复跑确认）
+
+- 脚本 `qa-e2e/real-multipart-check.mjs`（零依赖）：起本地 `node:http` 服务，用 **busboy**（multer 的解析器，与真实 NestJS 后端同族）解析；用真实 `FormData`/`File`/`fetch` 构造与 `buildAttachmentFormData` **同形**的请求（字段 `file`/`resource_type`/`resource_id`，**不设 `Content-Type`**）。
+- 结果：**12/12 断言通过，退出码 0**（主理人独立重跑一致）。服务端收到 `multipart/form-data; boundary=----formdata-undici-…`，busboy 解析出全部 3 字段 + 文件字节数/文件名/MIME 与发送值逐字一致。
+- 证明：`postMultipart`（`client.ts:179`）**未手写 Content-Type** 的边界策略正确 —— 运行时自动附加 boundary，服务端可解析。
+
+### 9.2 真实分支浏览器 E2E ✅（`qa-real-browser`）
+
+- 构建：`EXPO_PUBLIC_USE_MOCK=false npx expo export --platform web --output-dir dist-real` 成功（2m46s / 722 modules）。
+- 同源桩服务 `qa-e2e/stub-api.mjs`（静态 + SPA 回退 + API + busboy multipart + 全量请求日志）。
+- 全链路真实 HTTP 跑通：`POST /auth/login` → `GET /auth/me` → `GET /tasks/task-001` → `POST /attachments`。
+- 断言 (a)：桩记录到**恰 1 次** multipart POST，`boundary=----WebKitFormBoundary…`（**自动附加**，佐证未手写 Content-Type），`textFields={resource_type:task, resource_id:task-001}`，`file={qa-sample.pdf, application/pdf, 218B}`（`previewHead` 为 PDF 魔数 `25504446`）。
+- 断言 (b)：UI 显示「附件 1 个」+「预览附件 qa-sample.pdf · 218 B · 点击预览」，且上传后 refetch 任务详情。
+- **真实分支佐证**：抽屉运行时**仅**「从相册选择 / 选择文件」两入口，**无「拍照」、无「演示文件」分组**（与 Web 能力过滤设计一致）。
+
+### 9.3 关键发现（非应用缺陷，但影响后续真实联调）
+
+1. **真实 API 面比预期大**：应用外壳首屏还会调 `/me/summaries`、`/notifications/unread-count`、`/audit-logs`，且**期望对象形状**（统一兜底 `{data:[]}` 会让 `WorkspaceScreen` 抛 `TypeError: …reading 'length'`）。⇒ 接真实后端时需覆盖这些端点。
+2. **中文文件名 mojibake 风险（INFO）**：后端 `attachments.controller.ts:18` 的 `FileInterceptor` **未设 `defParamCharset=utf8`**，busboy 默认 latin1（= multer 默认）下中文名会乱码。**注意**：本探针走 undici，与 RN native 编码器不同，**不能外推到移动端** ⇒ 列为真机补测项。
+
+### 9.4 盲区（如实）
+
+- **真机不可达**：HEIC 实拍取图、RN native `{uri,name,type}` FormData 真实序列化、相册/相机权限弹窗、手势、生物识别、首屏 TTI、中文名端到端 —— 均需真机硬件（`docs/mobile-app/QA-mobile-increment-11-real-branch.md` §7 有 7 步清单）。
+- 桩服务**不校验 token/租户/RBAC** ⇒ 验的是客户端接线，非后端策略。
+- 浏览器线仅测**合法小文件**（PDF 218B）；>20MB 超限 / 非法 MIME / 中文名 / 失败重试路径未端到端覆盖（部分已由 mock 单测覆盖）。
+
+### 9.5 新增文件
+
+- 脚本：`qa-e2e/real-multipart-check.mjs`、`qa-e2e/stub-api.mjs`、`qa-e2e/fixtures/qa-sample.pdf`
+- 报告：`docs/mobile-app/QA-mobile-increment-11-real-branch.md`、`docs/mobile-app/QA-mobile-increment-11-real-branch-e2e.md`
+- 证据：`qa-e2e/.real-multipart-check.out.txt`、`qa-e2e/.stub-uploads.json`、`qa-e2e/qa-e2e-evidence-task-detail.png`
+- （`apps/mobile/dist-real/**` 构建产物，已 gitignore）

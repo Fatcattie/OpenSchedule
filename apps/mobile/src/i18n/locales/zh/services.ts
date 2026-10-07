@@ -40,6 +40,7 @@ export const services = {
   // ── 认证（`services/auth.service.ts`）─────────────────────────────────────
   'auth.invalidCredentials': '账号或密码不正确，请重新输入',
   'auth.biometricPrompt': '验证身份以解锁 OpenSchedule',
+  'auth.biometricFailed': '生物识别未通过，请改用密码登录',
 
   // ── 生物识别（`services/platform/biometrics*.ts`）─────────────────────────
   'biometric.generic': '生物识别',

@@ -3,6 +3,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { useAppContext, type AppContextValue } from '@/store/AppProvider'
+import { useT } from '@/store/I18nProvider'
 import { authService } from '@/services'
 import type { BiometricCapability } from '@/services/platform/biometrics'
 import { getErrorMessage, type LoginInput } from '@/types'
@@ -28,11 +29,12 @@ export interface UseAuthResult extends AppContextValue {
 /** 会话 hook */
 export function useAuth(): UseAuthResult {
   const context = useAppContext()
+  const t = useT()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [biometrics, setBiometrics] = useState<BiometricCapability>({
     available: false,
-    label: '生物识别',
+    label: t('biometric.generic'),
   })
 
   // 查询设备生物识别能力（Web 端恒不可用）
@@ -70,7 +72,7 @@ export function useAuth(): UseAuthResult {
     try {
       const result = await authService.loginWithBiometrics()
       if (!result) {
-        setError('生物识别未通过，请改用密码登录')
+        setError(t('auth.biometricFailed'))
         return false
       }
       await context.signIn(result)
@@ -81,7 +83,7 @@ export function useAuth(): UseAuthResult {
     } finally {
       setSubmitting(false)
     }
-  }, [context])
+  }, [context, t])
 
   const signOutAsync = useCallback(async () => {
     await context.signOut()

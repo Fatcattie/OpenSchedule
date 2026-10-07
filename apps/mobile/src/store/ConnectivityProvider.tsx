@@ -23,6 +23,7 @@ import { AppState, type AppStateStatus } from 'react-native'
 import { RefreshToast } from '@/components/RefreshToast'
 import * as connectivity from '@/services/connectivity'
 import type { OfflineReason } from '@/services/connectivity'
+import { useT } from '@/store/I18nProvider'
 
 /** 连通性上下文取值 */
 export interface ConnectivityContextValue {
@@ -57,6 +58,8 @@ export function ConnectivityProvider({ children }: { children: ReactNode }): Rea
   const probeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 退避探测步进（复位时机：转在线 / 重新进入离线） */
   const probeStepRef = useRef(0)
+  /** 取词：「已刷新」轻提示随语言切换（增量 12 · 此前为硬编码中文，绕过 RefreshToast 的 i18n） */
+  const t = useT()
 
   /** 触发一次全屏刷新（1s 尾沿节流合并） */
   const scheduleRefresh = useCallback(() => {
@@ -151,7 +154,7 @@ export function ConnectivityProvider({ children }: { children: ReactNode }): Rea
       {children}
       <RefreshToast
         visible={toastVisible}
-        message="网络已恢复，已刷新"
+        message={t('component.refreshToast.message')}
         durationMs={REFRESH_TOAST_MS}
         onHide={() => setToastVisible(false)}
       />

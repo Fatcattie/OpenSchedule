@@ -30,6 +30,7 @@ export const services = {
   // ── Auth（`services/auth.service.ts`）─────────────────────────────────────
   'auth.invalidCredentials': 'Incorrect account or password, please try again',
   'auth.biometricPrompt': 'Verify your identity to unlock OpenSchedule',
+  'auth.biometricFailed': 'Biometric authentication failed. Please sign in with your password.',
 
   // ── Biometrics（`services/platform/biometrics*.ts`）───────────────────────
   'biometric.generic': 'Biometrics',

@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { BrandGradient, Button, FadeIn, PressableScale, TextField } from '@/components'
 import { useAuth } from '@/hooks'
 import { DEMO_CREDENTIALS } from '@/services/auth.service'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, motion, radius, spacing, typography, type ThemeColors } from '@/theme'
 
@@ -33,6 +34,7 @@ export function LoginScreen(): React.JSX.Element {
   const auth = useAuth()
   const { colors } = useTheme()
   const styles = useThemedStyles(makeStyles)
+  const t = useT()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -113,7 +115,7 @@ export function LoginScreen(): React.JSX.Element {
           </View>
           <Text style={[typography.display, styles.brandTitle]}>OpenSchedule</Text>
           <Text style={[typography.caption, styles.brandSlogan]}>
-            把「计划—执行—复盘」装进口袋
+            {t('screens.core.login.slogan')}
           </Text>
         </Animated.View>
       </BrandGradient>
@@ -129,12 +131,14 @@ export function LoginScreen(): React.JSX.Element {
         >
           <Animated.View style={[styles.formCard, { transform: [{ translateX: shakeX }] }]}>
             <FadeIn delay={motion.stagger}>
-              <Text style={[typography.title, styles.formTitle]}>登录你的工作台</Text>
+              <Text style={[typography.title, styles.formTitle]}>
+                {t('screens.core.login.formTitle')}
+              </Text>
             </FadeIn>
 
             <FadeIn delay={motion.stagger * 2} style={styles.field}>
               <TextField
-                label="账号"
+                label={t('screens.core.login.account')}
                 value={email}
                 onChangeText={(value) => {
                   setEmail(value)
@@ -147,7 +151,7 @@ export function LoginScreen(): React.JSX.Element {
 
             <FadeIn delay={motion.stagger * 3} style={styles.field}>
               <TextField
-                label="密码"
+                label={t('screens.core.login.password')}
                 value={password}
                 onChangeText={(value) => {
                   setPassword(value)
@@ -159,7 +163,11 @@ export function LoginScreen(): React.JSX.Element {
                 right={
                   <PressableScale
                     accessibilityRole="button"
-                    accessibilityLabel={showPassword ? '隐藏密码' : '显示密码'}
+                    accessibilityLabel={
+                      showPassword
+                        ? t('screens.core.login.hidePassword')
+                        : t('screens.core.login.showPassword')
+                    }
                     onPress={() => setShowPassword((previous) => !previous)}
                     hitSlop={spacing.xs}
                     scale={0.92}
@@ -188,15 +196,19 @@ export function LoginScreen(): React.JSX.Element {
                   size={layout.icon.md}
                   color={rememberMe ? colors.primary : colors.text.tertiary}
                 />
-                <Text style={[typography.caption, styles.rememberText]}>记住我</Text>
+                <Text style={[typography.caption, styles.rememberText]}>
+                  {t('screens.core.login.rememberMe')}
+                </Text>
               </PressableScale>
               <PressableScale
                 accessibilityRole="button"
-                onPress={() => setLocalError('请联系团队管理员重置密码（演示环境暂不支持）')}
+                onPress={() => setLocalError(t('screens.core.login.forgotPasswordHint'))}
                 hitSlop={spacing.xs}
                 scale={0.94}
               >
-                <Text style={[typography.caption, styles.link]}>忘记密码</Text>
+                <Text style={[typography.caption, styles.link]}>
+                  {t('screens.core.login.forgotPassword')}
+                </Text>
               </PressableScale>
             </FadeIn>
 
@@ -209,7 +221,7 @@ export function LoginScreen(): React.JSX.Element {
 
             <FadeIn delay={motion.stagger * 5} style={styles.submit}>
               <Button
-                label="登录"
+                label={t('screens.core.login.submit')}
                 size="lg"
                 fullWidth
                 loading={auth.submitting}
@@ -228,7 +240,7 @@ export function LoginScreen(): React.JSX.Element {
               >
                 <Feather name="smile" size={layout.icon.md} color={colors.primary} />
                 <Text style={[typography.caption, styles.biometricText]}>
-                  {auth.biometrics.label}快捷解锁
+                  {t('screens.core.login.quickUnlock', { method: auth.biometrics.label })}
                 </Text>
               </PressableScale>
             ) : null}
@@ -244,7 +256,10 @@ export function LoginScreen(): React.JSX.Element {
             >
               <Feather name="info" size={layout.icon.sm} color={colors.text.secondary} />
               <Text style={[typography.caption, styles.demoText]}>
-                演示账号：{DEMO_CREDENTIALS.email} / {DEMO_CREDENTIALS.password}（点击填入）
+                {t('screens.core.login.demoAccount', {
+                  email: DEMO_CREDENTIALS.email,
+                  password: DEMO_CREDENTIALS.password,
+                })}
               </Text>
             </PressableScale>
           </FadeIn>

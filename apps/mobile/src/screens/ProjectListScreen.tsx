@@ -21,6 +21,7 @@ import {
 } from '@/components'
 import { useAsync, useAuth } from '@/hooks'
 import { PROJECT_FILTER_OPTIONS, projectService, type ProjectCardData, type ProjectFilter } from '@/services'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp } from '@/types'
@@ -34,6 +35,7 @@ export function ProjectListScreen(): React.JSX.Element {
   const { user } = useAuth()
   const { colors } = useTheme()
   const styles = useThemedStyles(makeStyles)
+  const t = useT()
   const can = useCan()
   // 统一权限姿势（ARCH §7）：具备创建项目 / 任务任一权限即可进入创建页
   const canCreate = can('project:create') || can('task:create')
@@ -77,9 +79,9 @@ export function ProjectListScreen(): React.JSX.Element {
         }
       >
         <FadeIn>
-          <Text style={[typography.display, styles.title]}>项目看板</Text>
+          <Text style={[typography.display, styles.title]}>{t('screens.core.projectList.title')}</Text>
           <Text style={[typography.caption, styles.subtitle]}>
-            共 {list.length} 个项目 · 点击进入看板列视图
+            {t('screens.core.projectList.subtitle', { count: list.length })}
           </Text>
         </FadeIn>
 
@@ -102,13 +104,17 @@ export function ProjectListScreen(): React.JSX.Element {
             <Card>
               <EmptyState
                 icon="folder"
-                title={filter === 'archived' ? '暂无归档项目' : '暂无项目'}
+                title={
+                  filter === 'archived'
+                    ? t('screens.core.projectList.emptyArchivedTitle')
+                    : t('screens.core.projectList.emptyActiveTitle')
+                }
                 description={
                   filter === 'archived'
-                    ? '归档后的项目会显示在这里'
+                    ? t('screens.core.projectList.emptyArchivedDesc')
                     : canCreate
-                      ? '点击右下角 + 创建你的第一个项目'
-                      : '去 Web 端创建第一个项目，移动端会同步展示'
+                      ? t('screens.core.projectList.emptyCreateDesc')
+                      : t('screens.core.projectList.emptyWebDesc')
                 }
               />
             </Card>
@@ -133,7 +139,7 @@ export function ProjectListScreen(): React.JSX.Element {
       {canCreate ? (
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel="创建事项"
+          accessibilityLabel={t('screens.core.projectList.createA11y')}
           onPress={() => navigation.navigate('CreateItem')}
           scale={0.94}
           style={[styles.fab, { bottom: insets.bottom + spacing.lg }]}

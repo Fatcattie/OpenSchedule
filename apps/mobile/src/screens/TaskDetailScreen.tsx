@@ -36,7 +36,9 @@ import {
   staggerDelay,
 } from '@/components'
 import { useAsync, useAuth, useTimer } from '@/hooks'
+import type { TranslationKey } from '@/i18n'
 import { taskService } from '@/services'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import {
   getPriorityColorFor,
@@ -48,8 +50,8 @@ import {
   typography,
   type ThemeColors,
 } from '@/theme'
-import type { AppNavigationProp, AppRouteProp, Attachment, TransitionActionConfig } from '@/types'
-import { DEPENDENCY_TYPE_LABEL, TASK_TRANSITION_ACTIONS, getErrorMessage } from '@/types'
+import type { AppNavigationProp, AppRouteProp, Attachment, TaskStatus, TransitionActionConfig } from '@/types'
+import { TASK_TRANSITION_ACTIONS, getErrorMessage } from '@/types'
 import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
 import { formatDate, formatDateTime, formatTime } from '@/utils/date'
 import { EMPTY_PLACEHOLDER, formatBytes, formatHours, formatTimer } from '@/utils/format'
@@ -63,6 +65,23 @@ const BOTTOM_BAR_HEIGHT = 72
 /** 滚动方向判定阈值（px） */
 const SCROLL_HIDE_DELTA = 4
 
+/**
+ * 迁移动作 `(from, to)` → `taskAction.*` 键（语义与 `TASK_TRANSITION_ACTIONS` 一致）。
+ *
+ * 同一 `to` 在不同 `from` 下语义不同（如 `in_progress`：todo→开始执行 / blocked→解除阻塞 /
+ * done→重开为进行中），故必须由 `(from, to)` 共同决定键。
+ */
+function transitionActionKey(from: TaskStatus, to: TaskStatus): TranslationKey {
+  if (to === 'blocked') return 'taskAction.block'
+  if (to === 'cancelled') return 'taskAction.cancel'
+  if (to === 'done') return 'taskAction.complete'
+  if (to === 'todo') return from === 'done' ? 'taskAction.reopenTodo' : 'taskAction.returnTodo'
+  // to === 'in_progress'
+  if (from === 'blocked') return 'taskAction.unblock'
+  if (from === 'done') return 'taskAction.reopenInProgress'
+  return 'taskAction.start'
+}
+
 /** 任务详情 */
 export function TaskDetailScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets()
@@ -70,8 +89,9 @@ export function TaskDetailScreen(): React.JSX.Element {
   const route = useRoute<AppRouteProp<'TaskDetail'>>()
   const { taskId } = route.params
   const { user } = useAuth()
-  const { colors, statusColor, priorityColor } = useTheme()
+  const { colors, priorityColor } = useTheme()
   const styles = useThemedStyles(makeStyles)
+  const t = useT()
   const timezone = user?.timezone ?? 'Asia/Shanghai'
   const userId = user?.id ?? ''
   // 统一权限姿势（ARCH §7）：是否具备「撤回提报」权限（复用既有 submission:withdraw key，不新增）
@@ -239,10 +259,10 @@ export function TaskDetailScreen(): React.JSX.Element {
       if (Platform.OS === 'web') {
         await Linking.openURL(url)
       } else {
-        setPreviewHint('演示环境：已请求系统应用打开（mock）')
+        setPreviewHint(t('screens.core.taskDetail.previewHintMock'))
       }
     } catch {
-      setPreviewHint('打开失败，请稍后重试')
+      setPreviewHint(t('screens.core.taskDetail.previewHintFailed'))
     }
   }, [])
 
@@ -278,7 +298,7 @@ export function TaskDetailScreen(): React.JSX.Element {
         actorId: userId,
       })
       setWithdrawSheetVisible(false)
-      showToast('已撤回提报')
+      showToast(t('screens.core.taskDetail.withdrawToast'))
     } catch (error) {
       showToast(getErrorMessage(error))
     } finally {
@@ -290,7 +310,7 @@ export function TaskDetailScreen(): React.JSX.Element {
   if (detail.loading && !detail.data) {
     return (
       <View style={styles.root}>
-        <ScreenHeader title="任务详情" onBack={() => goBackOrHome(navigation)} />
+        <ScreenHeader title={t('screens.core.taskDetail.title')} onBack={() => goBackOrHome(navigation)} />
         <LoadingView variant="skeleton" skeletonCount={4} />
       </View>
     )
@@ -299,7 +319,7 @@ export function TaskDetailScreen(): React.JSX.Element {
   if (detail.error && !detail.data) {
     return (
       <View style={styles.root}>
-        <ScreenHeader title="任务详情" onBack={() => goBackOrHome(navigation)} />
+        <ScreenHeader title={t('screens.core.taskDetail.title')} onBack={() => goBackOrHome(navigation)} />
         <ErrorState
           message={isNetworkError(detail.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
           onRetry={() => void detail.retry()}
@@ -311,13 +331,17 @@ export function TaskDetailScreen(): React.JSX.Element {
   if (!task) {
     return (
       <View style={styles.root}>
-        <ScreenHeader title="任务详情" onBack={() => goBackOrHome(navigation)} />
-        <EmptyState icon="alert-circle" title="任务不存在" description="可能已被删除或你没有查看权限" />
+        <ScreenHeader title={t('screens.core.taskDetail.title')} onBack={() => goBackOrHome(navigation)} />
+        <EmptyState
+          icon="alert-circle"
+          title={t('screens.core.taskDetail.notFoundTitle')}
+          description={t('screens.core.taskDetail.notFoundDesc')}
+        />
       </View>
     )
   }
 
-  const status = statusColor[task.status]
+  const statusLabel = t(`taskStatus.${task.status}`)
   const assignee = detail.data?.assignee ?? null
   const project = detail.data?.project ?? null
   const comments = detail.data?.comments ?? []
@@ -338,13 +362,13 @@ export function TaskDetailScreen(): React.JSX.Element {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title="任务详情"
-        subtitle={project ? project.name : '无归属项目'}
+        title={t('screens.core.taskDetail.title')}
+        subtitle={project ? project.name : t('screens.core.taskDetail.noProject')}
         onBack={() => goBackOrHome(navigation)}
         right={
           <PressableScale
             accessibilityRole="button"
-            accessibilityLabel="查看依赖"
+            accessibilityLabel={t('screens.core.taskDetail.viewDependenciesA11y')}
             onPress={() => setDepsVisible(true)}
             scale={0.92}
             pressedBg={colors.bg.subtle}
@@ -375,19 +399,19 @@ export function TaskDetailScreen(): React.JSX.Element {
               <View style={styles.headBody}>
                 <Text style={[typography.display, styles.taskTitle]}>{task.title}</Text>
                 <View style={styles.tagRow}>
-                  <Tag tone="status" status={task.status} text={status.label} />
+                  <Tag tone="status" status={task.status} text={statusLabel} />
                   <View style={styles.tagSpacer} />
                   <Tag tone="priority" priority={task.priority} text="" />
                   {task.isAiGenerated ? (
                     <>
                       <View style={styles.tagSpacer} />
-                      <Tag text="AI 生成" tone="neutral" />
+                      <Tag text={t('screens.core.taskDetail.aiGenerated')} tone="neutral" />
                     </>
                   ) : null}
                   {task.submissionStatus === 'pending' ? (
                     <>
                       <View style={styles.tagSpacer} />
-                      <Tag text="待审核" tone="neutral" />
+                      <Tag text={t('screens.core.taskDetail.pendingReview')} tone="neutral" />
                     </>
                   ) : null}
                 </View>
@@ -401,34 +425,34 @@ export function TaskDetailScreen(): React.JSX.Element {
           <Card>
             <MetaRow
               icon="user"
-              label="负责人"
-              content={assignee ? assignee.displayName : '待领取'}
+              label={t('screens.core.taskDetail.assignee')}
+              content={assignee ? assignee.displayName : t('screens.core.taskDetail.unassigned')}
               leading={
                 assignee ? <Avatar name={assignee.displayName} uri={assignee.avatarUrl} size={32} /> : undefined
               }
             />
             <MetaRow
               icon="calendar"
-              label="起止时间"
+              label={t('screens.core.taskDetail.schedule')}
               content={`${task.startAt ? formatDate(task.startAt, timezone) : EMPTY_PLACEHOLDER} → ${
                 task.dueAt ? formatDate(task.dueAt, timezone) : EMPTY_PLACEHOLDER
               }`}
             />
             <MetaRow
               icon="clock"
-              label="截止时刻"
+              label={t('screens.core.taskDetail.dueAt')}
               content={task.dueAt ? `${formatDate(task.dueAt, timezone)} ${formatTime(task.dueAt, timezone)}` : EMPTY_PLACEHOLDER}
             />
             <MetaRow
               icon="target"
-              label="工时（预估 / 实际）"
+              label={t('screens.core.taskDetail.hours')}
               content={`${formatHours(task.estimatedHours)} / ${formatHours(task.actualHours)}`}
               mono
             />
             {task.tags.length > 0 ? (
               <MetaRow
                 icon="tag"
-                label="标签"
+                label={t('screens.core.taskDetail.tags')}
                 content={task.tags.join(' · ')}
               />
             ) : null}
@@ -437,7 +461,9 @@ export function TaskDetailScreen(): React.JSX.Element {
 
         {/* 状态操作区 */}
         <FadeIn delay={staggerDelay(2)} style={styles.section}>
-          <Text style={[typography.title, styles.sectionTitle]}>状态与执行</Text>
+          <Text style={[typography.title, styles.sectionTitle]}>
+            {t('screens.core.taskDetail.statusSection')}
+          </Text>
           <Card>
             {actionError ? (
               <View style={styles.actionError}>
@@ -448,7 +474,7 @@ export function TaskDetailScreen(): React.JSX.Element {
 
             {canClaim ? (
               <Button
-                label="承接任务"
+                label={t('screens.core.taskDetail.claimTask')}
                 icon="check"
                 fullWidth
                 loading={submitting}
@@ -456,16 +482,16 @@ export function TaskDetailScreen(): React.JSX.Element {
               />
             ) : availableActions.length === 0 ? (
               <Text style={[typography.caption, styles.noAction]}>
-                当前状态（{status.label}）无可执行操作
+                {t('screens.core.taskDetail.noActionForStatus', { status: statusLabel })}
               </Text>
             ) : (
               <View style={styles.actionGrid}>
                 {availableActions.map((action) => {
                   const isPrimary = primaryAction?.to === action.to
                   return (
-                    <View key={`${action.to}-${action.label}`} style={styles.actionButton}>
+                    <View key={`${action.to}-${transitionActionKey(task.status, action.to)}`} style={styles.actionButton}>
                       <Button
-                        label={action.label}
+                        label={t(transitionActionKey(task.status, action.to))}
                         variant={isPrimary ? 'primary' : 'secondary'}
                         fullWidth
                         disabled={submitting}
@@ -482,7 +508,7 @@ export function TaskDetailScreen(): React.JSX.Element {
             {withdrawable ? (
               <View style={styles.withdrawRow}>
                 <Button
-                  label="撤回提报"
+                  label={t('screens.core.taskDetail.withdraw')}
                   variant="danger"
                   fullWidth
                   disabled={submitting || withdrawing}
@@ -494,18 +520,20 @@ export function TaskDetailScreen(): React.JSX.Element {
             {/* 计时器 */}
             <View style={styles.timerRow}>
               <View style={styles.timerLeft}>
-                <Text style={[typography.label, styles.timerLabel]}>工时计时</Text>
+                <Text style={[typography.label, styles.timerLabel]}>
+                  {t('screens.core.taskDetail.timerLabel')}
+                </Text>
                 <Text style={[typography.mono, styles.timerValue]}>{formatTimer(timer.seconds)}</Text>
               </View>
               <View style={styles.timerActions}>
                 {timer.running ? (
                   <>
-                    <Button label="暂停" variant="secondary" icon="pause" onPress={() => void timer.pause()} />
+                    <Button label={t('screens.core.taskDetail.timerPause')} variant="secondary" icon="pause" onPress={() => void timer.pause()} />
                     <View style={styles.timerGap} />
-                    <Button label="结束" icon="square" onPress={() => void timer.stop()} />
+                    <Button label={t('screens.core.taskDetail.timerStop')} icon="square" onPress={() => void timer.stop()} />
                   </>
                 ) : (
-                  <Button label="开始计时" icon="play" loading={timer.busy} onPress={() => void timer.start()} />
+                  <Button label={t('screens.core.taskDetail.timerStart')} icon="play" loading={timer.busy} onPress={() => void timer.start()} />
                 )}
               </View>
             </View>
@@ -514,7 +542,9 @@ export function TaskDetailScreen(): React.JSX.Element {
 
         {/* 描述 */}
         <FadeIn delay={staggerDelay(3)} style={styles.section}>
-          <Text style={[typography.title, styles.sectionTitle]}>任务描述</Text>
+          <Text style={[typography.title, styles.sectionTitle]}>
+            {t('screens.core.taskDetail.descriptionSection')}
+          </Text>
           <Card>
             {task.description ? (
               <>
@@ -532,7 +562,9 @@ export function TaskDetailScreen(): React.JSX.Element {
                   style={styles.expandRow}
                 >
                   <Text style={[typography.caption, styles.expandText]}>
-                    {descriptionExpanded ? '收起' : '展开全文'}
+                    {descriptionExpanded
+                      ? t('screens.core.taskDetail.collapse')
+                      : t('screens.core.taskDetail.expand')}
                   </Text>
                   <Feather
                     name={descriptionExpanded ? 'chevron-up' : 'chevron-down'}
@@ -542,7 +574,9 @@ export function TaskDetailScreen(): React.JSX.Element {
                 </PressableScale>
               </>
             ) : (
-              <Text style={[typography.caption, styles.placeholder]}>暂无描述</Text>
+              <Text style={[typography.caption, styles.placeholder]}>
+                {t('screens.core.taskDetail.noDescription')}
+              </Text>
             )}
           </Card>
         </FadeIn>
@@ -550,12 +584,18 @@ export function TaskDetailScreen(): React.JSX.Element {
         {/* 评论区 */}
         <FadeIn delay={staggerDelay(4)} style={styles.section}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={[typography.title, styles.sectionTitle]}>评论</Text>
-            <Text style={[typography.caption, styles.sectionMeta]}>{comments.length} 条</Text>
+            <Text style={[typography.title, styles.sectionTitle]}>
+              {t('screens.core.taskDetail.commentsSection')}
+            </Text>
+            <Text style={[typography.caption, styles.sectionMeta]}>
+              {t('screens.core.taskDetail.commentsCount', { count: comments.length })}
+            </Text>
           </View>
           <Card padded={false} style={styles.commentCard}>
             {comments.length === 0 ? (
-              <Text style={[typography.caption, styles.placeholder]}>还没有评论，说点什么吧</Text>
+              <Text style={[typography.caption, styles.placeholder]}>
+                {t('screens.core.taskDetail.noComments')}
+              </Text>
             ) : (
               comments.map((comment, index) => (
                 <View
@@ -578,7 +618,7 @@ export function TaskDetailScreen(): React.JSX.Element {
           <View style={styles.commentInputRow}>
             <View style={styles.commentInput}>
               <TextField
-                label="写评论（支持 @提及）"
+                label={t('screens.core.taskDetail.commentPlaceholder')}
                 value={commentText}
                 onChangeText={setCommentText}
                 multiline
@@ -588,7 +628,7 @@ export function TaskDetailScreen(): React.JSX.Element {
             </View>
             <View style={styles.commentSend}>
               <Button
-                label="发送"
+                label={t('screens.core.taskDetail.send')}
                 icon="send"
                 loading={sending}
                 disabled={commentText.trim().length === 0}
@@ -601,12 +641,16 @@ export function TaskDetailScreen(): React.JSX.Element {
         {/* 附件 */}
         <FadeIn delay={staggerDelay(5)} style={styles.section}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={[typography.title, styles.sectionTitle]}>附件</Text>
+            <Text style={[typography.title, styles.sectionTitle]}>
+              {t('screens.core.taskDetail.attachmentsSection')}
+            </Text>
             <View style={styles.sectionHeaderRight}>
-              <Text style={[typography.caption, styles.sectionMeta]}>{attachments.length} 个</Text>
+              <Text style={[typography.caption, styles.sectionMeta]}>
+                {t('screens.core.taskDetail.attachmentsCount', { count: attachments.length })}
+              </Text>
               <PressableScale
                 accessibilityRole="button"
-                accessibilityLabel="添加附件"
+                accessibilityLabel={t('screens.core.taskDetail.addAttachment')}
                 onPress={handleOpenUpload}
                 hitSlop={spacing.xs}
                 scale={0.92}
@@ -614,19 +658,25 @@ export function TaskDetailScreen(): React.JSX.Element {
                 style={styles.addAttachment}
               >
                 <Feather name="plus" size={layout.icon.sm} color={colors.primary} />
-                <Text style={[typography.label, styles.addAttachmentText]}>添加附件</Text>
+                <Text style={[typography.label, styles.addAttachmentText]}>
+                  {t('screens.core.taskDetail.addAttachment')}
+                </Text>
               </PressableScale>
             </View>
           </View>
           <Card padded={false} style={styles.attachmentCard}>
             {attachments.length === 0 ? (
-              <Text style={[typography.caption, styles.placeholder]}>暂无附件</Text>
+              <Text style={[typography.caption, styles.placeholder]}>
+                {t('screens.core.taskDetail.noAttachments')}
+              </Text>
             ) : (
               attachments.map((attachment, index) => (
                 <PressableScale
                   key={attachment.id}
                   accessibilityRole="button"
-                  accessibilityLabel={`预览附件 ${attachment.fileName}`}
+                  accessibilityLabel={t('screens.core.taskDetail.previewAttachmentA11y', {
+                    name: attachment.fileName,
+                  })}
                   onPress={() => handleOpenAttachment(attachment)}
                   scale={1}
                   pressedBg={colors.bg.subtle}
@@ -643,7 +693,9 @@ export function TaskDetailScreen(): React.JSX.Element {
                       {attachment.fileName}
                     </Text>
                     <Text style={[typography.caption, styles.attachmentMeta]}>
-                      {formatBytes(attachment.sizeBytes)} · 点击预览
+                      {t('screens.core.taskDetail.clickPreview', {
+                        size: formatBytes(attachment.sizeBytes),
+                      })}
                     </Text>
                   </View>
                   <Feather name="chevron-right" size={layout.icon.md} color={colors.text.tertiary} />
@@ -665,17 +717,23 @@ export function TaskDetailScreen(): React.JSX.Element {
         ]}
       >
         <View style={styles.bottomBarInfo}>
-          <Text style={[typography.label, styles.bottomBarLabel]}>当前状态</Text>
+          <Text style={[typography.label, styles.bottomBarLabel]}>
+            {t('screens.core.taskDetail.currentStatus')}
+          </Text>
           <Text style={[typography.body, styles.bottomBarValue]} numberOfLines={1}>
-            {status.label}
+            {statusLabel}
           </Text>
         </View>
         {canClaim ? (
-          <Button label="承接任务" loading={submitting} onPress={() => void handleClaim()} />
+          <Button label={t('screens.core.taskDetail.claimTask')} loading={submitting} onPress={() => void handleClaim()} />
         ) : primaryAction ? (
-          <Button label={primaryAction.label} disabled={submitting} onPress={() => handleActionPress(primaryAction)} />
+          <Button
+            label={t(transitionActionKey(task.status, primaryAction.to))}
+            disabled={submitting}
+            onPress={() => handleActionPress(primaryAction)}
+          />
         ) : (
-          <Button label="无可执行操作" disabled onPress={() => undefined} />
+          <Button label={t('screens.core.taskDetail.noActionButton')} disabled onPress={() => undefined} />
         )}
       </Animated.View>
 
@@ -683,28 +741,34 @@ export function TaskDetailScreen(): React.JSX.Element {
       <BottomSheet
         visible={actionSheet !== null}
         onClose={() => setActionSheet(null)}
-        title={actionSheet?.label ?? ''}
+        title={actionSheet ? t(transitionActionKey(task.status, actionSheet.to)) : ''}
         heightRatio={0.44}
       >
         <Text style={[typography.caption, styles.sheetHint]}>
           {actionSheet?.requireActualHours
-            ? '完成任务需填写实际工时（小时）'
-            : '阻塞 / 取消 / 重开需填写原因（不少于 4 个字符）'}
+            ? t('screens.core.taskDetail.sheetHintHours')
+            : t('screens.core.taskDetail.sheetHintReason')}
         </Text>
         <View style={styles.sheetField}>
           {actionSheet?.requireActualHours ? (
             <TextField
-              label="实际工时（小时）"
+              label={t('screens.core.taskDetail.actualHoursLabel')}
               value={actualHours}
               onChangeText={setActualHours}
               keyboardType="decimal-pad"
             />
           ) : (
-            <TextField label="原因" value={reason} onChangeText={setReason} multiline maxLength={200} />
+            <TextField
+              label={t('screens.core.taskDetail.reasonLabel')}
+              value={reason}
+              onChangeText={setReason}
+              multiline
+              maxLength={200}
+            />
           )}
         </View>
         <Button
-          label="确认"
+          label={t('screens.core.taskDetail.confirm')}
           fullWidth
           loading={submitting}
           disabled={
@@ -722,12 +786,14 @@ export function TaskDetailScreen(): React.JSX.Element {
       <BottomSheet
         visible={depsVisible}
         onClose={() => setDepsVisible(false)}
-        title="任务依赖（只读）"
+        title={t('screens.core.taskDetail.depsTitle')}
         heightRatio={0.55}
       >
         <ScrollView showsVerticalScrollIndicator={false}>
           {dependencies.length === 0 ? (
-            <Text style={[typography.caption, styles.placeholder]}>该任务暂无依赖关系</Text>
+            <Text style={[typography.caption, styles.placeholder]}>
+              {t('screens.core.taskDetail.noDependencies')}
+            </Text>
           ) : (
             dependencies.map((dependency) => {
               const isPrev = dependency.nextTaskId === task.id
@@ -742,12 +808,16 @@ export function TaskDetailScreen(): React.JSX.Element {
                     />
                     <View style={styles.dependencyBody}>
                       <Text style={[typography.body, styles.dependencyTitle]} numberOfLines={1}>
-                        {counterpart?.title ?? '未知任务'}
+                        {counterpart?.title ?? t('screens.core.taskDetail.unknownTask')}
                       </Text>
                       <Text style={[typography.caption, styles.dependencyMeta]}>
-                        {isPrev ? '前置任务' : '后置任务'} · {DEPENDENCY_TYPE_LABEL[dependency.type]}
-                        {dependency.lagDays > 0 ? ` · 滞后 ${dependency.lagDays} 天` : ''}
-                        {dependency.isShared ? ' · 共享' : ''}
+                        {isPrev
+                          ? t('screens.core.taskDetail.prevTask')
+                          : t('screens.core.taskDetail.nextTask')} · {t(`dependencyType.${dependency.type}`)}
+                        {dependency.lagDays > 0
+                          ? t('screens.core.taskDetail.lagSuffix', { days: dependency.lagDays })
+                          : ''}
+                        {dependency.isShared ? t('screens.core.taskDetail.sharedSuffix') : ''}
                       </Text>
                     </View>
                     <Tag text={counterpart?.status ?? '—'} tone="neutral" />
@@ -775,7 +845,7 @@ export function TaskDetailScreen(): React.JSX.Element {
           setPreviewAttachment(null)
           setPreviewHint(null)
         }}
-        title="附件预览"
+        title={t('screens.core.taskDetail.previewTitle')}
         heightRatio={0.42}
       >
         {previewAttachment ? (
@@ -788,13 +858,17 @@ export function TaskDetailScreen(): React.JSX.Element {
             </View>
             <View style={styles.previewMeta}>
               <Text style={[typography.caption, styles.previewMetaText]}>
-                类型：{previewAttachment.mimeType}
+                {t('screens.core.taskDetail.previewType', { type: previewAttachment.mimeType })}
               </Text>
               <Text style={[typography.caption, styles.previewMetaText]}>
-                大小：{formatBytes(previewAttachment.sizeBytes)}
+                {t('screens.core.taskDetail.previewSize', {
+                  size: formatBytes(previewAttachment.sizeBytes),
+                })}
               </Text>
               <Text style={[typography.caption, styles.previewMetaText]}>
-                上传于：{formatDateTime(previewAttachment.createdAt, timezone)}
+                {t('screens.core.taskDetail.previewUploadedAt', {
+                  date: formatDateTime(previewAttachment.createdAt, timezone),
+                })}
               </Text>
             </View>
             {previewHint ? (
@@ -802,7 +876,7 @@ export function TaskDetailScreen(): React.JSX.Element {
             ) : null}
             <View style={styles.previewAction}>
               <Button
-                label="用系统应用打开"
+                label={t('screens.core.taskDetail.openWithSystem')}
                 icon="external-link"
                 fullWidth
                 onPress={() => void handleOpenWithSystem(previewAttachment)}
@@ -826,16 +900,16 @@ export function TaskDetailScreen(): React.JSX.Element {
           if (withdrawing) return
           setWithdrawSheetVisible(false)
         }}
-        title="撤回提报"
+        title={t('screens.core.taskDetail.withdraw')}
         heightRatio={0.42}
       >
         <Text style={[typography.caption, styles.sheetText]}>
-          撤回后该完成提报将退出审核列表，任务回到「进行中」继续推进，确定撤回吗？
+          {t('screens.core.taskDetail.withdrawSheetText')}
         </Text>
         <View style={styles.sheetActions}>
           <View style={styles.sheetButton}>
             <Button
-              label="取消"
+              label={t('screens.core.taskDetail.withdrawCancel')}
               variant="secondary"
               fullWidth
               onPress={() => setWithdrawSheetVisible(false)}
@@ -843,7 +917,7 @@ export function TaskDetailScreen(): React.JSX.Element {
           </View>
           <View style={styles.sheetButton}>
             <Button
-              label="确定撤回"
+              label={t('screens.core.taskDetail.withdrawConfirm')}
               variant="danger"
               fullWidth
               loading={withdrawing}

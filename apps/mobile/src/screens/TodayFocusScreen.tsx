@@ -29,13 +29,14 @@ import {
 } from '@/components'
 import { userMap as buildUserMap } from '@/data'
 import { useAsync, useAppContext, useAuth } from '@/hooks'
+import type { TranslationKey } from '@/i18n'
 import { focusService, taskService } from '@/services'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 import type { AiProposal, AppNavigationProp, AuditOpinion, Task, TaskStatus } from '@/types'
-import { AI_PROPOSAL_TYPE_LABEL, REASON_MIN_LENGTH, getErrorMessage } from '@/types'
+import { REASON_MIN_LENGTH, getErrorMessage } from '@/types'
 import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
-import { REVIEW_ACTION_A11Y, REVIEW_ACTION_LABEL } from '@/utils/audit'
 import { formatDate, formatWeekday } from '@/utils/date'
 import { countVisibleFocusTasks } from '@/utils/focus'
 import { useCan } from '@/utils/permission'
@@ -65,18 +66,27 @@ interface UndoState {
   kind: UndoKind
 }
 
-/** 分组选项（badge 数量在渲染时注入） */
-const TAB_OPTIONS: { value: FocusTab; label: string }[] = [
-  { value: 'due', label: '今日到期' },
-  { value: 'review', label: '待我审核' },
-  { value: 'approaching', label: '临期预警' },
+/** 分组选项（键；badge 数量与显示文案在渲染时注入） */
+const TAB_OPTIONS: { value: FocusTab; labelKey: TranslationKey }[] = [
+  { value: 'due', labelKey: 'screens.core.today.tabDue' },
+  { value: 'review', labelKey: 'screens.core.today.tabReview' },
+  { value: 'approaching', labelKey: 'screens.core.today.tabApproaching' },
 ]
 
-/** 各分组的空态文案 */
-const EMPTY_TEXT: Record<FocusTab, { title: string; description: string }> = {
-  due: { title: '今天没有到期任务', description: '可以去项目看板看看后续排期' },
-  review: { title: '没有待你审核的提报', description: '成员提交完成提报后会出现在这里' },
-  approaching: { title: '没有临期任务', description: '24 小时内没有到期任务，节奏健康' },
+/** 各分组的空态文案键 */
+const EMPTY_TEXT: Record<FocusTab, { titleKey: TranslationKey; descriptionKey: TranslationKey }> = {
+  due: {
+    titleKey: 'screens.core.today.emptyDueTitle',
+    descriptionKey: 'screens.core.today.emptyDueDesc',
+  },
+  review: {
+    titleKey: 'screens.core.today.emptyReviewTitle',
+    descriptionKey: 'screens.core.today.emptyReviewDesc',
+  },
+  approaching: {
+    titleKey: 'screens.core.today.emptyApproachingTitle',
+    descriptionKey: 'screens.core.today.emptyApproachingDesc',
+  },
 }
 
 /** 今日聚焦 */
@@ -86,6 +96,7 @@ export function TodayFocusScreen(): React.JSX.Element {
   const { user } = useAuth()
   const { colors } = useTheme()
   const styles = useThemedStyles(makeStyles)
+  const t = useT()
   const { pushOptimistic, rollbackOptimistic, commitOptimistic } = useAppContext()
   const can = useCan()
   // 统一权限姿势（ARCH §7）：是否具备「查看 / 处理待我审核」权限（PRD §3：仅 manager）
@@ -147,10 +158,11 @@ export function TodayFocusScreen(): React.JSX.Element {
         // 无 review:view_pending 权限时隐藏「待我审核」分组（隐藏而非置灰，ARCH §7）
         .filter((option) => option.value !== 'review' || canReview)
         .map((option) => ({
-          ...option,
+          value: option.value,
+          label: t(option.labelKey),
           badge: counts[option.value],
         })),
-    [canReview, counts],
+    [canReview, counts, t],
   )
 
   // 兜底：无权限时复位**所有**审批相关 UI 状态，防止角色切换后残留状态被利用越权（DEF-01 / DEF-04）
@@ -220,7 +232,7 @@ export function TodayFocusScreen(): React.JSX.Element {
       setUndo({
         optimisticId,
         taskId: task.id,
-        message: `已完成「${task.title}」`,
+        message: t('screens.core.today.undoComplete', { title: task.title }),
         prevVersion: task.version,
         prevStatus: task.status,
         kind: 'complete',
@@ -236,7 +248,7 @@ export function TodayFocusScreen(): React.JSX.Element {
         await focus.refetch()
       }
     },
-    [dropTask, focus, pushOptimistic, rollbackOptimistic],
+    [dropTask, focus, pushOptimistic, rollbackOptimistic, t],
   )
 
   /** 审核通过（乐观更新 + 可撤销） */
@@ -249,7 +261,7 @@ export function TodayFocusScreen(): React.JSX.Element {
       setUndo({
         optimisticId,
         taskId: task.id,
-        message: `已通过「${task.title}」的完成提报`,
+        message: t('screens.core.today.undoApprove', { title: task.title }),
         prevVersion: task.version,
         prevStatus: task.status,
         kind: 'approve',
@@ -262,7 +274,7 @@ export function TodayFocusScreen(): React.JSX.Element {
         await focus.refetch()
       }
     },
-    [canReview, dropTask, focus, pushOptimistic, rollbackOptimistic],
+    [canReview, dropTask, focus, pushOptimistic, rollbackOptimistic, t],
   )
 
   /** 撤销：按操作类型回滚到原状态；失败用中文 Toast 提示并刷新（建议 1 + 建议 2） */
@@ -287,11 +299,11 @@ export function TodayFocusScreen(): React.JSX.Element {
         reason: current.kind === 'complete' ? '用户撤销完成操作' : '用户撤销审核通过',
       })
     } catch {
-      showToast('撤销失败，已为你刷新')
+      showToast(t('screens.core.today.undoFailed'))
     } finally {
       await focus.refetch()
     }
-  }, [focus, rollbackOptimistic, showToast, undo])
+  }, [focus, rollbackOptimistic, showToast, t, undo])
 
   /** 超时未撤销：提交乐观登记 */
   const handleUndoExpire = useCallback(() => {
@@ -377,27 +389,27 @@ export function TodayFocusScreen(): React.JSX.Element {
         // （PRD §3 / M2-P0-01；即便因状态残留进入该分支也不泄露审批能力）
         if (!canReview) return []
         return [
-          { key: 'approve', label: '通过', tone: 'success', onPress: () => void handleApprove(task) },
+          { key: 'approve', label: t('screens.core.today.swipeApprove'), tone: 'success', onPress: () => void handleApprove(task) },
           {
             key: 'reject',
-            label: '驳回',
+            label: t('screens.core.today.swipeReject'),
             tone: 'danger',
             onPress: () => openRejectDrawer(task, 'reject'),
           },
           {
             key: 'rework',
-            label: '退回重改',
+            label: t('screens.core.today.swipeRework'),
             tone: 'warning',
             onPress: () => openRejectDrawer(task, 'rework'),
           },
         ]
       }
       if (task.status === 'todo') {
-        return [{ key: 'claim', label: '承接', tone: 'primary', onPress: () => void handleClaim(task) }]
+        return [{ key: 'claim', label: t('screens.core.swipe.claim'), tone: 'primary', onPress: () => void handleClaim(task) }]
       }
-      return [{ key: 'complete', label: '完成', tone: 'success', onPress: () => void handleComplete(task) }]
+      return [{ key: 'complete', label: t('screens.core.swipe.complete'), tone: 'success', onPress: () => void handleComplete(task) }]
     },
-    [canReview, handleApprove, handleClaim, handleComplete, openRejectDrawer, tab],
+    [canReview, handleApprove, handleClaim, handleComplete, openRejectDrawer, t, tab],
   )
 
   const pendingProposals = proposals.data ?? []
@@ -426,10 +438,12 @@ export function TodayFocusScreen(): React.JSX.Element {
       >
         {/* 日期头 */}
         <FadeIn>
-          <Text style={[typography.display, styles.title]}>今日聚焦</Text>
+          <Text style={[typography.display, styles.title]}>{t('screens.core.today.title')}</Text>
           <Text style={[typography.caption, styles.subtitle]}>
-            {formatDate(new Date(), timezone)} {formatWeekday(new Date(), timezone)} · 共{' '}
-            {visibleTotal} 项待处理
+            {t('screens.core.today.subtitle', {
+              date: `${formatDate(new Date(), timezone)} ${formatWeekday(new Date(), timezone)}`,
+              count: visibleTotal,
+            })}
           </Text>
         </FadeIn>
 
@@ -443,16 +457,22 @@ export function TodayFocusScreen(): React.JSX.Element {
           <FadeIn delay={staggerDelay(2)} style={styles.section}>
             <View style={styles.sectionHeader}>
               <Feather name="cpu" size={layout.icon.md} color={colors.primarySoft} />
-              <Text style={[typography.title, styles.sectionTitle]}>AI 提议</Text>
-              <Text style={[typography.caption, styles.sectionMeta]}>{pendingProposals.length} 条待确认</Text>
+              <Text style={[typography.title, styles.sectionTitle]}>
+                {t('screens.core.today.aiTitle')}
+              </Text>
+              <Text style={[typography.caption, styles.sectionMeta]}>
+                {t('screens.core.today.aiMeta', { count: pendingProposals.length })}
+              </Text>
             </View>
             {pendingProposals.map((proposal, index) => (
               <FadeIn key={proposal.id} delay={staggerDelay(index)} style={styles.cardGap}>
                 <Card>
                   <View style={styles.proposalHeader}>
-                    <Tag text={AI_PROPOSAL_TYPE_LABEL[proposal.type]} tone="neutral" />
+                    <Tag text={t(`aiProposalType.${proposal.type}`)} tone="neutral" />
                     <Text style={[typography.caption, styles.proposalMeta]}>
-                      生成于 {formatDate(proposal.createdAt, timezone)}
+                      {t('screens.core.today.aiGeneratedAt', {
+                        date: formatDate(proposal.createdAt, timezone),
+                      })}
                     </Text>
                   </View>
                   <Text style={[typography.body, styles.proposalSummary]}>
@@ -479,7 +499,7 @@ export function TodayFocusScreen(): React.JSX.Element {
                   <View style={styles.proposalActions}>
                     <View style={styles.proposalButton}>
                       <Button
-                        label="驳回"
+                        label={t('screens.core.today.aiReject')}
                         variant="secondary"
                         fullWidth
                         onPress={() => void handleProposal(proposal, 'reject')}
@@ -487,7 +507,7 @@ export function TodayFocusScreen(): React.JSX.Element {
                     </View>
                     <View style={styles.proposalButton}>
                       <Button
-                        label="确认落库"
+                        label={t('screens.core.today.aiApprove')}
                         fullWidth
                         onPress={() => void handleProposal(proposal, 'approve')}
                       />
@@ -515,9 +535,9 @@ export function TodayFocusScreen(): React.JSX.Element {
             <Card>
               <EmptyState
                 icon="check-circle"
-                title={empty.title}
-                description={empty.description}
-                actionLabel={tab === 'due' ? '去项目看板' : undefined}
+                title={t(empty.titleKey)}
+                description={t(empty.descriptionKey)}
+                actionLabel={tab === 'due' ? t('screens.core.today.goProjects') : undefined}
                 onAction={
                   tab === 'due' ? () => navigation.navigate('Tabs', { screen: 'Project' }) : undefined
                 }
@@ -555,7 +575,9 @@ export function TodayFocusScreen(): React.JSX.Element {
                         // `<button>` 嵌套（P1）；无审核权限时不渲染。
                         isReviewTab ? (
                           <View style={styles.detailHint}>
-                            <Text style={[typography.caption, styles.detailHintText]}>查看详情</Text>
+                            <Text style={[typography.caption, styles.detailHintText]}>
+                              {t('screens.core.today.viewDetail')}
+                            </Text>
                             <Feather
                               name="chevron-right"
                               size={layout.icon.sm}
@@ -574,10 +596,10 @@ export function TodayFocusScreen(): React.JSX.Element {
                         onPress={() => void handleApprove(task)}
                         pressedBg={colors.bg.subtle}
                         accessibilityRole="button"
-                        accessibilityLabel={REVIEW_ACTION_A11Y.approve}
+                        accessibilityLabel={t('screens.core.today.reviewA11yApprove')}
                       >
                         <Text style={[typography.label, styles.reviewApproveText]} numberOfLines={1}>
-                          {REVIEW_ACTION_LABEL.approve}
+                          {t('reviewAction.approve')}
                         </Text>
                       </PressableScale>
                       <PressableScale
@@ -585,10 +607,10 @@ export function TodayFocusScreen(): React.JSX.Element {
                         onPress={() => openRejectDrawer(task, 'reject')}
                         pressedBg={colors.bg.subtle}
                         accessibilityRole="button"
-                        accessibilityLabel={REVIEW_ACTION_A11Y.reject}
+                        accessibilityLabel={t('screens.core.today.reviewA11yReject')}
                       >
                         <Text style={[typography.label, styles.reviewRejectText]} numberOfLines={1}>
-                          {REVIEW_ACTION_LABEL.reject}
+                          {t('reviewAction.reject')}
                         </Text>
                       </PressableScale>
                       <PressableScale
@@ -596,10 +618,10 @@ export function TodayFocusScreen(): React.JSX.Element {
                         onPress={() => openRejectDrawer(task, 'rework')}
                         pressedBg={colors.bg.subtle}
                         accessibilityRole="button"
-                        accessibilityLabel={REVIEW_ACTION_A11Y.rework}
+                        accessibilityLabel={t('screens.core.today.reviewA11yRework')}
                       >
                         <Text style={[typography.label, styles.reviewReworkText]} numberOfLines={1}>
-                          {REVIEW_ACTION_LABEL.rework}
+                          {t('reviewAction.rework')}
                         </Text>
                       </PressableScale>
                     </View>
@@ -614,7 +636,9 @@ export function TodayFocusScreen(): React.JSX.Element {
         {currentTasks.length > 0 ? (
           <View style={styles.hintRow}>
             <Feather name="chevrons-right" size={layout.icon.sm} color={colors.text.tertiary} />
-            <Text style={[typography.caption, styles.hintText]}>向右滑动卡片可快速操作</Text>
+            <Text style={[typography.caption, styles.hintText]}>
+              {t('screens.core.today.swipeHint')}
+            </Text>
           </View>
         ) : null}
       </ScrollView>
@@ -638,15 +662,28 @@ export function TodayFocusScreen(): React.JSX.Element {
       <BottomSheet
         visible={rejectTarget !== null}
         onClose={() => setRejectTarget(null)}
-        title={isRework ? '退回重改' : '驳回完成提报'}
+        title={
+          isRework
+            ? t('screens.core.today.rejectSheetTitleRework')
+            : t('screens.core.today.rejectSheetTitleReject')
+        }
         heightRatio={0.42}
       >
         <Text style={[typography.caption, styles.rejectHint]}>
-          {isRework ? '退回原因' : '驳回原因'}将回流给提报人（{rejectTarget?.title ?? ''}）
+          {t('screens.core.today.rejectHintSuffix', {
+            label: isRework
+              ? t('screens.core.today.rejectReasonRework')
+              : t('screens.core.today.rejectReasonReject'),
+            title: rejectTarget?.title ?? '',
+          })}
         </Text>
         <View style={styles.rejectField}>
           <TextField
-            label={isRework ? '退回重改原因' : '驳回原因'}
+            label={
+              isRework
+                ? t('screens.core.today.rejectFieldRework')
+                : t('screens.core.today.rejectFieldReject')
+            }
             value={rejectReason}
             onChangeText={setRejectReason}
             multiline
@@ -654,7 +691,11 @@ export function TodayFocusScreen(): React.JSX.Element {
           />
         </View>
         <Button
-          label={isRework ? '确认退回' : '确认驳回'}
+          label={
+            isRework
+              ? t('screens.core.today.confirmRework')
+              : t('screens.core.today.confirmReject')
+          }
           variant={isRework ? 'warning' : 'danger'}
           fullWidth
           loading={rejecting}

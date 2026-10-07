@@ -23,7 +23,9 @@ import {
   staggerDelay,
 } from '@/components'
 import { useAsync, useAppContext, useAuth } from '@/hooks'
+import type { TranslationKey } from '@/i18n'
 import { projectService, taskService, type BoardColumn } from '@/services'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp, AppRouteProp, Task, TaskStatus, User } from '@/types'
@@ -47,6 +49,33 @@ interface UndoState {
   prevVersion: number
 }
 
+/** 看板列状态 → 字典键（`BOARD_COLUMNS` 仅 5 列；`cancelled` 不出现，兜底回落 taskStatus） */
+const BOARD_COLUMN_KEY: Record<TaskStatus, TranslationKey> = {
+  todo: 'boardColumn.todo',
+  in_progress: 'boardColumn.in_progress',
+  blocked: 'boardColumn.blocked',
+  pending_review: 'boardColumn.pending_review',
+  done: 'boardColumn.done',
+  cancelled: 'taskStatus.cancelled',
+}
+
+/**
+ * 迁移动作 `(from, to)` → `taskAction.*` 键（语义与 `TASK_TRANSITION_ACTIONS` 一致）。
+ *
+ * 同一 `to` 在不同 `from` 下语义不同（如 `in_progress`：todo→开始执行 / blocked→解除阻塞 /
+ * done→重开为进行中），故必须由 `(from, to)` 共同决定键。
+ */
+function transitionActionKey(from: TaskStatus, to: TaskStatus): TranslationKey {
+  if (to === 'blocked') return 'taskAction.block'
+  if (to === 'cancelled') return 'taskAction.cancel'
+  if (to === 'done') return 'taskAction.complete'
+  if (to === 'todo') return from === 'done' ? 'taskAction.reopenTodo' : 'taskAction.returnTodo'
+  // to === 'in_progress'
+  if (from === 'blocked') return 'taskAction.unblock'
+  if (from === 'done') return 'taskAction.reopenInProgress'
+  return 'taskAction.start'
+}
+
 /** 看板列视图 */
 export function BoardScreen(): React.JSX.Element {
   const navigation = useNavigation<AppNavigationProp>()
@@ -55,6 +84,7 @@ export function BoardScreen(): React.JSX.Element {
   const { user } = useAuth()
   const { colors, statusColor } = useTheme()
   const styles = useThemedStyles(makeStyles)
+  const t = useT()
   const { pushOptimistic, rollbackOptimistic, commitOptimistic } = useAppContext()
   const timezone = user?.timezone ?? 'Asia/Shanghai'
 
@@ -94,7 +124,10 @@ export function BoardScreen(): React.JSX.Element {
       setUndo({
         optimisticId,
         taskId: task.id,
-        message: `已将「${task.title}」移至「${statusColor[to].label}」`,
+        message: t('screens.core.board.movedTo', {
+          title: task.title,
+          status: t(`taskStatus.${to}`),
+        }),
         prevStatus: task.status,
         prevVersion: task.version,
       })
@@ -109,7 +142,7 @@ export function BoardScreen(): React.JSX.Element {
         await board.refetch()
       }
     },
-    [board, pushOptimistic, rollbackOptimistic, stats],
+    [board, pushOptimistic, rollbackOptimistic, stats, t],
   )
 
   /** 撤销流转 */
@@ -154,11 +187,15 @@ export function BoardScreen(): React.JSX.Element {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title={project?.name ?? '项目看板'}
+        title={project?.name ?? t('screens.core.board.title')}
         subtitle={
           stats.data
-            ? `完成 ${Math.round(stats.data.progress * 100)}% · ${stats.data.doneCount}/${stats.data.taskCount} 个任务`
-            : '加载中…'
+            ? t('screens.core.board.subtitle', {
+                percent: Math.round(stats.data.progress * 100),
+                done: stats.data.doneCount,
+                total: stats.data.taskCount,
+              })
+            : t('screens.core.board.loading')
         }
         onBack={() => navigation.goBack()}
       />
@@ -176,7 +213,9 @@ export function BoardScreen(): React.JSX.Element {
           <Text style={[typography.caption, styles.conflictText]} numberOfLines={2}>
             {conflict}
           </Text>
-          <Text style={[typography.caption, styles.conflictClose]}>知道了</Text>
+          <Text style={[typography.caption, styles.conflictClose]}>
+            {t('screens.core.board.dismissConflict')}
+          </Text>
         </PressableScale>
       ) : null}
 
@@ -189,7 +228,11 @@ export function BoardScreen(): React.JSX.Element {
         />
       ) : columns.length === 0 ? (
         <Card>
-          <EmptyState icon="columns" title="暂无看板列" description="该项目还没有可展示的任务" />
+          <EmptyState
+            icon="columns"
+            title={t('screens.core.board.emptyColumnsTitle')}
+            description={t('screens.core.board.emptyColumnsDesc')}
+          />
         </Card>
       ) : (
         <>
@@ -203,17 +246,17 @@ export function BoardScreen(): React.JSX.Element {
               <TextInput
                 value={keyword}
                 onChangeText={setKeyword}
-                placeholder="搜索任务"
+                placeholder={t('screens.core.board.searchPlaceholder')}
                 placeholderTextColor={colors.text.tertiary}
                 selectionColor={colors.primary}
                 returnKeyType="search"
-                accessibilityLabel="搜索任务"
+                accessibilityLabel={t('screens.core.board.searchPlaceholder')}
                 style={styles.searchInput}
               />
               {hasKeyword ? (
                 <PressableScale
                   accessibilityRole="button"
-                  accessibilityLabel="清空搜索"
+                  accessibilityLabel={t('screens.core.board.clearSearchA11y')}
                   onPress={() => setKeyword('')}
                   scale={0.9}
                   pressedBg={colors.bg.subtle}
@@ -230,8 +273,8 @@ export function BoardScreen(): React.JSX.Element {
             <Card>
               <EmptyState
                 icon="search"
-                title="没有匹配的任务"
-                description={`未找到包含「${keyword.trim()}」的任务，换个关键词试试`}
+                title={t('screens.core.board.noMatchTitle')}
+                description={t('screens.core.board.noMatchDesc', { keyword: keyword.trim() })}
               />
             </Card>
           ) : (
@@ -245,7 +288,9 @@ export function BoardScreen(): React.JSX.Element {
                 <FadeIn key={column.status} delay={staggerDelay(columnIndex)} style={styles.column}>
                   <View style={styles.columnHeader}>
                     <View style={[styles.columnDot, { backgroundColor: statusColor[column.status].color }]} />
-                    <Text style={[typography.title, styles.columnTitle]}>{column.label}</Text>
+                    <Text style={[typography.title, styles.columnTitle]}>
+                      {t(BOARD_COLUMN_KEY[column.status])}
+                    </Text>
                     <Text style={[typography.caption, styles.columnCount]}>{column.tasks.length}</Text>
                   </View>
 
@@ -256,7 +301,9 @@ export function BoardScreen(): React.JSX.Element {
                     {column.tasks.length === 0 ? (
                       <View style={styles.emptyColumn}>
                         <Text style={[typography.caption, styles.emptyColumnText]}>
-                          {hasKeyword ? '无匹配任务' : '暂无任务'}
+                          {hasKeyword
+                            ? t('screens.core.board.emptyColumnNoMatch')
+                            : t('screens.core.board.emptyColumn')}
                         </Text>
                       </View>
                     ) : (
@@ -273,7 +320,7 @@ export function BoardScreen(): React.JSX.Element {
                           <View style={styles.cardMenuRow}>
                             <PressableScale
                               accessibilityRole="button"
-                              accessibilityLabel="切换状态"
+                              accessibilityLabel={t('screens.core.board.switchStatusA11y')}
                               onPress={() => setMenuTask(task)}
                               hitSlop={spacing.xs}
                               scale={0.92}
@@ -298,17 +345,20 @@ export function BoardScreen(): React.JSX.Element {
       <BottomSheet
         visible={menuTask !== null}
         onClose={() => setMenuTask(null)}
-        title={menuTask ? `切换状态：${menuTask.title}` : ''}
+        title={menuTask ? t('screens.core.board.menuTitle', { title: menuTask.title }) : ''}
         heightRatio={0.42}
       >
         {menuTask ? (
           <ScrollView showsVerticalScrollIndicator={false}>
             <Text style={[typography.caption, styles.menuHint]}>
-              当前状态：{statusColor[menuTask.status].label} · 版本 v{menuTask.version}
+              {t('screens.core.board.menuCurrent', {
+                status: t(`taskStatus.${menuTask.status}`),
+                version: menuTask.version,
+              })}
             </Text>
             {(TASK_TRANSITION_ACTIONS[menuTask.status] ?? []).map((action) => (
               <PressableScale
-                key={`${action.to}-${action.label}`}
+                key={`${action.to}-${transitionActionKey(menuTask.status, action.to)}`}
                 accessibilityRole="button"
                 onPress={() => void handleMove(menuTask, action.to)}
                 scale={1}
@@ -316,15 +366,19 @@ export function BoardScreen(): React.JSX.Element {
                 style={styles.menuItem}
               >
                 <View style={[styles.menuDot, { backgroundColor: statusColor[action.to].color }]} />
-                <Text style={[typography.body, styles.menuLabel]}>{action.label}</Text>
+                <Text style={[typography.body, styles.menuLabel]}>
+                  {t(transitionActionKey(menuTask.status, action.to))}
+                </Text>
                 <Text style={[typography.caption, styles.menuMeta]}>
-                  变为「{statusColor[action.to].label}」
+                  {t('screens.core.board.menuBecomes', { status: t(`taskStatus.${action.to}`) })}
                 </Text>
                 <Feather name="chevron-right" size={layout.icon.md} color={colors.text.tertiary} />
               </PressableScale>
             ))}
             {(TASK_TRANSITION_ACTIONS[menuTask.status] ?? []).length === 0 ? (
-              <Text style={[typography.caption, styles.menuHint]}>当前状态无可执行的流转</Text>
+              <Text style={[typography.caption, styles.menuHint]}>
+                {t('screens.core.board.menuNoTransition')}
+              </Text>
             ) : null}
           </ScrollView>
         ) : null}

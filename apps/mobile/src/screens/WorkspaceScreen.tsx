@@ -22,12 +22,13 @@ import {
   staggerDelay,
   type SwipeAction,
 } from '@/components'
+import type { TranslationKey } from '@/i18n'
 import { useAsync, useAuth } from '@/hooks'
 import { focusService, summaryService, taskService } from '@/services'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp, AuditFeedItem, PeriodSummary, Task } from '@/types'
-import { ROLE_LABEL } from '@/types'
 import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
 import { getZonedParts } from '@/utils/date'
 import { formatHours, formatRelativeTime } from '@/utils/format'
@@ -54,25 +55,25 @@ type QuickEntryTarget =
 /** 快捷入口定义 */
 type QuickEntry = {
   key: string
-  label: string
+  labelKey: TranslationKey
   icon: keyof typeof Feather.glyphMap
   target: QuickEntryTarget
 }
 
 /** 基础快捷入口（所有角色可见，保持原有 3 项不变） */
 const BASE_QUICK_ENTRIES: QuickEntry[] = [
-  { key: 'today', label: '今日聚焦', icon: 'target', target: { type: 'tab', tab: 'Today' } },
-  { key: 'time', label: '时间容器', icon: 'clock', target: { type: 'tab', tab: 'Time' } },
-  { key: 'project', label: '项目看板', icon: 'grid', target: { type: 'tab', tab: 'Project' } },
+  { key: 'today', labelKey: 'screens.core.workspace.quickToday', icon: 'target', target: { type: 'tab', tab: 'Today' } },
+  { key: 'time', labelKey: 'screens.core.workspace.quickTime', icon: 'clock', target: { type: 'tab', tab: 'Time' } },
+  { key: 'project', labelKey: 'screens.core.workspace.quickProject', icon: 'grid', target: { type: 'tab', tab: 'Project' } },
 ]
 
-/** 按小时给出问候语 */
-function buildGreeting(hour: number): string {
-  if (hour < 6) return '夜深了'
-  if (hour < 12) return '早上好'
-  if (hour < 14) return '中午好'
-  if (hour < 18) return '下午好'
-  return '晚上好'
+/** 按小时给出问候语键 */
+function greetingKey(hour: number): TranslationKey {
+  if (hour < 6) return 'screens.core.workspace.greetingLateNight'
+  if (hour < 12) return 'screens.core.workspace.greetingMorning'
+  if (hour < 14) return 'screens.core.workspace.greetingNoon'
+  if (hour < 18) return 'screens.core.workspace.greetingAfternoon'
+  return 'screens.core.workspace.greetingEvening'
 }
 
 /** 工作台 */
@@ -82,6 +83,7 @@ export function WorkspaceScreen(): React.JSX.Element {
   const { user, role, setRole, tenant } = useAuth()
   const { colors } = useTheme()
   const styles = useThemedStyles(makeStyles)
+  const t = useT()
   const timezone = user?.timezone ?? 'Asia/Shanghai'
   const userId = user?.id ?? ''
 
@@ -96,7 +98,7 @@ export function WorkspaceScreen(): React.JSX.Element {
     if (can('submission:create')) {
       entries.push({
         key: 'submission',
-        label: '提报事项',
+        labelKey: 'screens.core.workspace.quickSubmission',
         icon: 'send',
         target: { type: 'screen', screen: 'Submission' },
       })
@@ -104,7 +106,7 @@ export function WorkspaceScreen(): React.JSX.Element {
     if (can('project:create') || can('task:create')) {
       entries.push({
         key: 'create',
-        label: '创建事项',
+        labelKey: 'screens.core.workspace.quickCreate',
         icon: 'plus-square',
         target: { type: 'screen', screen: 'CreateItem' },
       })
@@ -112,7 +114,7 @@ export function WorkspaceScreen(): React.JSX.Element {
     if (can('personal:manage')) {
       entries.push({
         key: 'personal',
-        label: '个人计划',
+        labelKey: 'screens.core.workspace.quickPersonal',
         icon: 'calendar',
         target: { type: 'screen', screen: 'PersonalPlan' },
       })
@@ -222,14 +224,14 @@ export function WorkspaceScreen(): React.JSX.Element {
     (task: Task): SwipeAction[] => {
       const actions: SwipeAction[] = []
       if (task.status === 'todo') {
-        actions.push({ key: 'claim', label: '承接', tone: 'primary', onPress: () => void handleClaim(task) })
+        actions.push({ key: 'claim', label: t('screens.core.swipe.claim'), tone: 'primary', onPress: () => void handleClaim(task) })
       }
       if (task.status === 'in_progress' || task.status === 'blocked') {
-        actions.push({ key: 'complete', label: '完成', tone: 'success', onPress: () => void handleComplete(task) })
+        actions.push({ key: 'complete', label: t('screens.core.swipe.complete'), tone: 'success', onPress: () => void handleComplete(task) })
       }
       return actions
     },
-    [handleClaim, handleComplete],
+    [handleClaim, handleComplete, t],
   )
 
   const openTask = useCallback(
@@ -278,28 +280,28 @@ export function WorkspaceScreen(): React.JSX.Element {
         {/* 顶部栏 */}
         <FadeIn>
           <View style={styles.header}>
-            <Avatar name={user?.displayName ?? '用户'} uri={user?.avatarUrl} size={40} />
+            <Avatar name={user?.displayName ?? t('screens.core.workspace.userFallback')} uri={user?.avatarUrl} size={40} />
             <View style={styles.headerText}>
               <Text style={[typography.title, styles.greeting]}>
-                {buildGreeting(hour)}，{user?.displayName ?? '同事'}
+                {t(greetingKey(hour))}，{user?.displayName ?? t('screens.core.workspace.colleagueFallback')}
               </Text>
               <Text style={[typography.caption, styles.subGreeting]} numberOfLines={1}>
-                {tenant?.name ?? '未加入团队'} · {formatTodayLabel()}
+                {tenant?.name ?? t('screens.core.workspace.noTeam')} · {formatTodayLabel()}
               </Text>
             </View>
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel="切换角色"
+              accessibilityLabel={t('screens.core.workspace.switchRoleA11y')}
               onPress={() => void setRole(role === 'manager' ? 'member' : 'manager')}
               scale={0.96}
               style={styles.roleChip}
             >
               <Feather name="user-check" size={layout.icon.sm} color={colors.primary} />
-              <Text style={[typography.label, styles.roleText]}>{ROLE_LABEL[role]}</Text>
+              <Text style={[typography.label, styles.roleText]}>{t(`role.${role}`)}</Text>
             </PressableScale>
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel="通知"
+              accessibilityLabel={t('screens.core.workspace.notificationsA11y')}
               onPress={() => navigation.navigate('Notifications')}
               scale={0.96}
               style={styles.bell}
@@ -317,11 +319,11 @@ export function WorkspaceScreen(): React.JSX.Element {
               <View style={styles.warningRow}>
                 <Feather name="alert-triangle" size={layout.icon.md} color={colors.warning} />
                 <Text style={[typography.body, styles.warningTitle]}>
-                  有 {approachingList.length} 个任务将在 24 小时内到期
+                  {t('screens.core.workspace.approachingWarning', { count: approachingList.length })}
                 </Text>
               </View>
               <Text style={[typography.caption, styles.warningDesc]} numberOfLines={2}>
-                最紧急：{approachingList[0].title}
+                {t('screens.core.workspace.approachingMostUrgent', { title: approachingList[0].title })}
               </Text>
             </Card>
           </FadeIn>
@@ -345,7 +347,7 @@ export function WorkspaceScreen(): React.JSX.Element {
                   <View style={styles.quickIcon}>
                     <Feather name={entry.icon} size={layout.icon.md} color={colors.primary} />
                   </View>
-                  <Text style={[typography.caption, styles.quickLabel]}>{entry.label}</Text>
+                  <Text style={[typography.caption, styles.quickLabel]}>{t(entry.labelKey)}</Text>
                 </PressableScale>
               ))}
             </View>
@@ -355,8 +357,12 @@ export function WorkspaceScreen(): React.JSX.Element {
         {/* 本周完成（M-P2-04 数据卡片；口径对齐 Web GET /me/summaries?period=week） */}
         <FadeIn delay={staggerDelay(3)} style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={[typography.title, styles.sectionTitle]}>本周完成</Text>
-            <Text style={[typography.caption, styles.sectionMeta]}>近 7 天</Text>
+            <Text style={[typography.title, styles.sectionTitle]}>
+              {t('screens.core.workspace.weekDoneTitle')}
+            </Text>
+            <Text style={[typography.caption, styles.sectionMeta]}>
+              {t('screens.core.workspace.weekDoneRange')}
+            </Text>
           </View>
 
           {summary.isStale && summary.updatedAt !== null && !summary.error ? (
@@ -377,17 +383,21 @@ export function WorkspaceScreen(): React.JSX.Element {
               <View style={styles.summaryErrorRow}>
                 <Feather name="alert-circle" size={layout.icon.md} color={colors.danger} />
                 <Text style={[typography.caption, styles.summaryErrorText]} numberOfLines={2}>
-                  {isNetworkError(summary.error) ? NETWORK_OFFLINE_MESSAGE : '数据加载失败'}
+                  {isNetworkError(summary.error)
+                    ? NETWORK_OFFLINE_MESSAGE
+                    : t('screens.core.workspace.summaryLoadFailed')}
                 </Text>
                 <PressableScale
                   accessibilityRole="button"
-                  accessibilityLabel="重试"
+                  accessibilityLabel={t('screens.core.workspace.retry')}
                   onPress={() => void summary.retry()}
                   scale={0.96}
                   style={styles.summaryRetry}
                 >
                   <Feather name="refresh-cw" size={layout.icon.sm} color={colors.primary} />
-                  <Text style={[typography.caption, styles.summaryRetryText]}>重试</Text>
+                  <Text style={[typography.caption, styles.summaryRetryText]}>
+                    {t('screens.core.workspace.retry')}
+                  </Text>
                 </PressableScale>
               </View>
             </Card>
@@ -396,14 +406,18 @@ export function WorkspaceScreen(): React.JSX.Element {
               <View style={styles.summaryRow}>
                 <View style={styles.summaryMetric}>
                   <Text style={[typography.mono, styles.summaryValue]}>{completedCount}</Text>
-                  <Text style={[typography.caption, styles.summaryLabel]}>完成数（项）</Text>
+                  <Text style={[typography.caption, styles.summaryLabel]}>
+                    {t('screens.core.workspace.completedCountLabel')}
+                  </Text>
                 </View>
                 <View style={styles.summaryDivider} />
                 <View style={styles.summaryMetric}>
                   <Text style={[typography.mono, styles.summaryValue]}>
                     {formatHours(actualHoursTotal)}
                   </Text>
-                  <Text style={[typography.caption, styles.summaryLabel]}>实际工时</Text>
+                  <Text style={[typography.caption, styles.summaryLabel]}>
+                    {t('screens.core.workspace.actualHoursLabel')}
+                  </Text>
                 </View>
               </View>
             </Card>
@@ -413,9 +427,11 @@ export function WorkspaceScreen(): React.JSX.Element {
         {/* 我的待办 */}
         <FadeIn delay={staggerDelay(4)} style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={[typography.title, styles.sectionTitle]}>我的待办</Text>
+            <Text style={[typography.title, styles.sectionTitle]}>
+              {t('screens.core.workspace.myTodosTitle')}
+            </Text>
             <Text style={[typography.caption, styles.sectionMeta]}>
-              共 {(todos.data ?? []).length} 条
+              {t('screens.core.workspace.todosCount', { count: (todos.data ?? []).length })}
             </Text>
           </View>
 
@@ -433,9 +449,9 @@ export function WorkspaceScreen(): React.JSX.Element {
             <Card>
               <EmptyState
                 icon="check-circle"
-                title="今天没有待办"
-                description="去今日聚焦看看有什么可以推进的"
-                actionLabel="去今日聚焦"
+                title={t('screens.core.workspace.todosEmptyTitle')}
+                description={t('screens.core.workspace.todosEmptyDesc')}
+                actionLabel={t('screens.core.workspace.todosEmptyAction')}
                 onAction={() => navigation.navigate('Tabs', { screen: 'Today' })}
               />
             </Card>
@@ -457,7 +473,9 @@ export function WorkspaceScreen(): React.JSX.Element {
         {/* 团队动态 */}
         <FadeIn delay={staggerDelay(5)} style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={[typography.title, styles.sectionTitle]}>团队动态</Text>
+            <Text style={[typography.title, styles.sectionTitle]}>
+              {t('screens.core.workspace.feedTitle')}
+            </Text>
           </View>
 
           {feedLoading ? (
@@ -466,7 +484,11 @@ export function WorkspaceScreen(): React.JSX.Element {
             <ErrorState onRetry={() => void loadFeed(1)} />
           ) : feedItems.length === 0 ? (
             <Card>
-              <EmptyState icon="activity" title="暂无动态" description="团队有操作后会显示在这里" />
+              <EmptyState
+                icon="activity"
+                title={t('screens.core.workspace.feedEmptyTitle')}
+                description={t('screens.core.workspace.feedEmptyDesc')}
+              />
             </Card>
           ) : (
             <Card padded={false} style={styles.feedCard}>
@@ -512,7 +534,9 @@ export function WorkspaceScreen(): React.JSX.Element {
               style={styles.loadMore}
             >
               <Text style={[typography.caption, styles.loadMoreText]}>
-                {feedLoadingMore ? '加载中…' : '加载更多动态'}
+                {feedLoadingMore
+                  ? t('screens.core.workspace.feedLoadingMore')
+                  : t('screens.core.workspace.feedLoadMore')}
               </Text>
               <Feather name="chevron-down" size={layout.icon.sm} color={colors.text.secondary} />
             </PressableScale>

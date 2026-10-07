@@ -5,29 +5,36 @@ import { Feather } from '@expo/vector-icons'
 import { useNavigation } from '@react-navigation/native'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { BrandGradient, Card, FadeIn, ScreenHeader, Tag, staggerDelay } from '@/components'
+import type { TranslationKey } from '@/i18n'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp } from '@/types'
 
-/** 首版核心能力 */
-const FEATURES = [
-  '登录与会话持久化（含生物识别快捷解锁）',
-  '工作台：我的待办 / 团队动态 / 临期预警',
-  '今日聚焦：三分组 + 右滑快操作 + 撤销',
-  '项目看板：看板列视图 + 状态流转（乐观锁）',
-  '任务详情：状态机 / 计时 / 评论 / 附件 / 依赖',
-  '时间容器：日 / 周视图 + 空闲时段识别',
+/** 首版核心能力（键；zh 输出与改造前逐字一致） */
+const FEATURES: TranslationKey[] = [
+  'screens.core.about.feature1',
+  'screens.core.about.feature2',
+  'screens.core.about.feature3',
+  'screens.core.about.feature4',
+  'screens.core.about.feature5',
+  'screens.core.about.feature6',
 ]
 
-/** 技术栈 */
-const STACK = ['React Native + Expo', 'TypeScript（严格模式）', 'React Navigation 7', 'React Context + useAsync']
+/** 技术栈（键） */
+const STACK: TranslationKey[] = [
+  'screens.core.about.stack1',
+  'screens.core.about.stack2',
+  'screens.core.about.stack3',
+  'screens.core.about.stack4',
+]
 
-/** 已知限制 */
-const LIMITS = [
-  '写接口当前走本地 mock 成功路径，接后端时只需将 EXPO_PUBLIC_USE_MOCK 置为 false',
-  '推送通道首版仅站内通知 + 轮询，未接入真推送',
-  '看板暂不支持拖拽流转，改用卡片菜单切换状态',
-  'Web 端生物识别不可用，自动回落密码登录',
+/** 已知限制（键） */
+const LIMITS: TranslationKey[] = [
+  'screens.core.about.limit1',
+  'screens.core.about.limit2',
+  'screens.core.about.limit3',
+  'screens.core.about.limit4',
 ]
 
 /** 关于页 */
@@ -35,10 +42,11 @@ export function AboutScreen(): React.JSX.Element {
   const navigation = useNavigation<AppNavigationProp>()
   const { colors } = useTheme()
   const styles = useThemedStyles(makeStyles)
+  const t = useT()
 
   return (
     <View style={styles.root}>
-      <ScreenHeader title="关于" onBack={() => navigation.goBack()} />
+      <ScreenHeader title={t('screens.core.about.title')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <FadeIn>
           <BrandGradient direction="vertical" style={styles.banner}>
@@ -47,54 +55,69 @@ export function AboutScreen(): React.JSX.Element {
             </View>
             <Text style={[typography.display, styles.brandName]}>OpenSchedule</Text>
             <Text style={[typography.caption, styles.brandSlogan]}>
-              把「计划—执行—复盘」闭环装进口袋
+              {t('screens.core.about.slogan')}
             </Text>
             <View style={styles.versionRow}>
               <Tag text="v1.0.0" tone="neutral" />
               <View style={styles.versionGap} />
-              <Tag text="首版" tone="neutral" />
+              <Tag text={t('screens.core.about.version')} tone="neutral" />
             </View>
           </BrandGradient>
         </FadeIn>
 
         <FadeIn delay={staggerDelay(1)} style={styles.section}>
-          <Text style={[typography.title, styles.sectionTitle]}>首版核心能力</Text>
+          <Text style={[typography.title, styles.sectionTitle]}>
+            {t('screens.core.about.featuresTitle')}
+          </Text>
           <Card>
-            {FEATURES.map((feature, index) => (
-              <View key={feature} style={[styles.listRow, index < FEATURES.length - 1 ? styles.listDivider : null]}>
+            {FEATURES.map((featureKey, index) => (
+              <View
+                key={featureKey}
+                style={[styles.listRow, index < FEATURES.length - 1 ? styles.listDivider : null]}
+              >
                 <Feather name="check" size={layout.icon.sm} color={colors.success} />
-                <Text style={[typography.body, styles.listText]}>{feature}</Text>
+                <Text style={[typography.body, styles.listText]}>{t(featureKey)}</Text>
               </View>
             ))}
           </Card>
         </FadeIn>
 
         <FadeIn delay={staggerDelay(2)} style={styles.section}>
-          <Text style={[typography.title, styles.sectionTitle]}>技术栈</Text>
+          <Text style={[typography.title, styles.sectionTitle]}>
+            {t('screens.core.about.stackTitle')}
+          </Text>
           <Card>
-            {STACK.map((item, index) => (
-              <View key={item} style={[styles.listRow, index < STACK.length - 1 ? styles.listDivider : null]}>
+            {STACK.map((stackKey, index) => (
+              <View
+                key={stackKey}
+                style={[styles.listRow, index < STACK.length - 1 ? styles.listDivider : null]}
+              >
                 <Feather name="cpu" size={layout.icon.sm} color={colors.text.secondary} />
-                <Text style={[typography.body, styles.listText]}>{item}</Text>
+                <Text style={[typography.body, styles.listText]}>{t(stackKey)}</Text>
               </View>
             ))}
           </Card>
         </FadeIn>
 
         <FadeIn delay={staggerDelay(3)} style={styles.section}>
-          <Text style={[typography.title, styles.sectionTitle]}>已知限制</Text>
+          <Text style={[typography.title, styles.sectionTitle]}>
+            {t('screens.core.about.limitsTitle')}
+          </Text>
           <Card>
-            {LIMITS.map((item, index) => (
-              <View key={item} style={[styles.listRow, index < LIMITS.length - 1 ? styles.listDivider : null]}>
+            {LIMITS.map((limitKey, index) => (
+              <View
+                key={limitKey}
+                style={[styles.listRow, index < LIMITS.length - 1 ? styles.listDivider : null]}
+              >
                 <Feather name="info" size={layout.icon.sm} color={colors.warning} />
-                <Text style={[typography.caption, styles.listText]}>{item}</Text>
+                <Text style={[typography.caption, styles.listText]}>{t(limitKey)}</Text>
               </View>
             ))}
           </Card>
         </FadeIn>
 
         <Text style={[typography.caption, styles.footer]}>
-          © 2026 OpenSchedule · 本页面为移动端首版演示，数据来自本地 mock 服务层
+          {t('screens.core.about.footer')}
         </Text>
       </ScrollView>
     </View>

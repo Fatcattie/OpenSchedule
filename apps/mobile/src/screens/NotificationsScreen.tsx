@@ -22,7 +22,7 @@ import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp, NotificationItem } from '@/types'
-import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
+import { isNetworkError } from '@/types'
 import { formatRelativeTime } from '@/utils/format'
 import { goBackOrHome } from '@/utils/navigation'
 
@@ -130,7 +130,7 @@ export function NotificationsScreen(): React.JSX.Element {
           <LoadingView variant="skeleton" skeletonCount={4} />
         ) : notifications.error ? (
           <ErrorState
-            message={isNetworkError(notifications.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
+            message={isNetworkError(notifications.error) ? t('networkOffline') : undefined}
             onRetry={() => void notifications.retry()}
           />
         ) : list.length === 0 ? (

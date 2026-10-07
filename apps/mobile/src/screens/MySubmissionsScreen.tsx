@@ -25,7 +25,7 @@ import { taskService } from '@/services'
 import type { TranslationKey } from '@/i18n'
 import { useT } from '@/store/I18nProvider'
 import { useThemedStyles } from '@/store/ThemeProvider'
-import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
+import { isNetworkError } from '@/types'
 import { layout, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 import type {
   AppNavigationProp,
@@ -191,7 +191,7 @@ export function MySubmissionsScreen(): React.JSX.Element {
           <LoadingView variant="skeleton" skeletonCount={3} />
         ) : submissions.error ? (
           <ErrorState
-            message={isNetworkError(submissions.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
+            message={isNetworkError(submissions.error) ? t('networkOffline') : undefined}
             onRetry={() => void submissions.retry()}
           />
         ) : list.length === 0 ? (

@@ -4,7 +4,7 @@
  */
 import { Feather } from '@expo/vector-icons'
 import { useNavigation } from '@react-navigation/native'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
@@ -25,7 +25,7 @@ import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp } from '@/types'
-import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
+import { isNetworkError } from '@/types'
 import { useCan } from '@/utils/permission'
 
 /** 项目看板 - 列表页 */
@@ -43,6 +43,12 @@ export function ProjectListScreen(): React.JSX.Element {
 
   const [filter, setFilter] = useState<ProjectFilter>('active')
   const [refreshing, setRefreshing] = useState(false)
+
+  // 筛选分段选项：value 单一事实来源仍是 `PROJECT_FILTER_OPTIONS`，label 走字典（语言切换即时生效）
+  const filterOptions = useMemo(
+    () => PROJECT_FILTER_OPTIONS.map((option) => ({ value: option.value, label: t(`screens.core.projectList.filter.${option.value}`) })),
+    [t],
+  )
 
   const projects = useAsync<ProjectCardData[]>(() => projectService.listProjectCards(filter), [filter], {
     cache: { key: `projects:${filter}` },
@@ -86,7 +92,7 @@ export function ProjectListScreen(): React.JSX.Element {
         </FadeIn>
 
         <FadeIn delay={staggerDelay(1)} style={styles.segmentedWrapper}>
-          <SegmentedControl options={PROJECT_FILTER_OPTIONS} value={filter} onChange={setFilter} />
+          <SegmentedControl options={filterOptions} value={filter} onChange={setFilter} />
         </FadeIn>
 
         <View style={styles.list}>
@@ -97,7 +103,7 @@ export function ProjectListScreen(): React.JSX.Element {
             <LoadingView variant="skeleton" skeletonCount={3} />
           ) : projects.error ? (
             <ErrorState
-              message={isNetworkError(projects.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
+              message={isNetworkError(projects.error) ? t('networkOffline') : undefined}
               onRetry={() => void projects.retry()}
             />
           ) : list.length === 0 ? (

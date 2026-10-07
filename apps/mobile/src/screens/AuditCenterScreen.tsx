@@ -45,7 +45,7 @@ import { userMap as buildUserMap } from '@/data'
 import { useAsync, useAuth } from '@/hooks'
 import { auditService, type SubmitAuditAction } from '@/services'
 import type { TranslationKey } from '@/i18n'
-import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
+import { isNetworkError } from '@/types'
 import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
@@ -58,7 +58,6 @@ import {
 } from '@/types'
 import {
   OPINION_OPTIONS,
-  REVIEW_ACTION_A11Y,
   canApproveMainTask,
   filterApproved,
   filterPendingAudit,
@@ -133,10 +132,15 @@ const TOAST_DURATION = 2200
 /**
  * 「待审核」栏卡片三枚动作的 **accessibilityLabel**（带「审核」前缀，与显示文案分离）。
  *
- * 单一事实来源：取自审核域共用常量 `REVIEW_ACTION_A11Y`（今日聚焦「待我审核」卡片内联三枚按钮
- * 共用同一份），避免两处分叉。显示文案经 `t(REVIEW_KEY.*)` 求值（详见 `utils/audit.ts` 注释）。
+ * 取词走服务层字典 `reviewA11y.{approve,reject,rework}`（zh 值逐字等于 `utils/audit.ts`
+ * 的 `REVIEW_ACTION_A11Y`）；今日聚焦「待我审核」卡片内联三枚按钮共用同一份文案，避免两处分叉。
+ * 显示文案经 `t(REVIEW_KEY.*)` 求值（详见 `utils/audit.ts` 注释）。
  */
-const { approve: APPROVE_A11Y, reject: REJECT_A11Y, rework: REWORK_A11Y } = REVIEW_ACTION_A11Y
+const REVIEW_A11Y_KEY: Record<'approve' | 'reject' | 'rework', TranslationKey> = {
+  approve: 'reviewA11y.approve',
+  reject: 'reviewA11y.reject',
+  rework: 'reviewA11y.rework',
+}
 
 /** 提交审核的入参（抽屉提交入口使用） */
 interface SubmitParams {
@@ -420,7 +424,7 @@ export function AuditCenterScreen(): React.JSX.Element {
             <LoadingView variant="skeleton" skeletonCount={3} />
           ) : audit.error ? (
             <ErrorState
-              message={isNetworkError(audit.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
+              message={isNetworkError(audit.error) ? t('networkOffline') : undefined}
               onRetry={() => void audit.retry()}
             />
           ) : tab === 'withdrawn' ? (
@@ -468,7 +472,7 @@ export function AuditCenterScreen(): React.JSX.Element {
                         onPress={() => openAuditWith(task, 'approve', 'agree')}
                         pressedBg={colors.bg.subtle}
                         accessibilityRole="button"
-                        accessibilityLabel={APPROVE_A11Y}
+                        accessibilityLabel={t(REVIEW_A11Y_KEY.approve)}
                       >
                         <Text style={[typography.label, styles.auditApproveText]} numberOfLines={1}>
                           {t(REVIEW_KEY.approve)}
@@ -479,7 +483,7 @@ export function AuditCenterScreen(): React.JSX.Element {
                         onPress={() => openAuditWith(task, 'reject', 'reject')}
                         pressedBg={colors.bg.subtle}
                         accessibilityRole="button"
-                        accessibilityLabel={REJECT_A11Y}
+                        accessibilityLabel={t(REVIEW_A11Y_KEY.reject)}
                       >
                         <Text style={[typography.label, styles.auditRejectText]} numberOfLines={1}>
                           {t(REVIEW_KEY.reject)}
@@ -490,7 +494,7 @@ export function AuditCenterScreen(): React.JSX.Element {
                         onPress={() => openAuditWith(task, 'reject', 'rework')}
                         pressedBg={colors.bg.subtle}
                         accessibilityRole="button"
-                        accessibilityLabel={REWORK_A11Y}
+                        accessibilityLabel={t(REVIEW_A11Y_KEY.rework)}
                       >
                         <Text style={[typography.label, styles.auditReworkText]} numberOfLines={1}>
                           {t(REVIEW_KEY.rework)}

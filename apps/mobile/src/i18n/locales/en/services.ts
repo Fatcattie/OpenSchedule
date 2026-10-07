@@ -22,6 +22,7 @@ export const services = {
 
   // ── Network layer（`services/client.ts`）──────────────────────────────────
   'network.failed': 'Network connection failed, please check your network and retry',
+  'networkOffline': 'No network connection currently, please check your network and retry',
 
   // ── Generic error message（`types/api.ts`）────────────────────────────────
   'error.failedWithCode': 'Request failed ({code})',
@@ -62,6 +63,9 @@ export const services = {
   'attachment.readFailed': 'Could not read the selected file, please choose again',
   'review.reasonFallback': 'No rejection reason provided',
   'review.subtaskTitle': 'Project review — {title}',
+  'reviewA11y.approve': 'Approve',
+  'reviewA11y.reject': 'Reject',
+  'reviewA11y.rework': 'Return for rework',
   'common.systemActor': 'System',
   'common.someone': 'Someone',
 

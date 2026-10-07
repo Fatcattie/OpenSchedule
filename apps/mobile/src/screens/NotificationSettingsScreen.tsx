@@ -22,7 +22,7 @@ import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp, NotificationPreference } from '@/types'
-import { NETWORK_OFFLINE_MESSAGE, NOTIFICATION_EVENT_LABEL, isNetworkError } from '@/types'
+import { NOTIFICATION_EVENT_LABEL, isNetworkError } from '@/types'
 
 /** 渠道配置（文案键在渲染期经 `t()` 求值，随语言切换） */
 const CHANNELS: { key: keyof NotificationPreference['channels']; labelKey: TranslationKey }[] = [
@@ -105,7 +105,7 @@ export function NotificationSettingsScreen(): React.JSX.Element {
           <LoadingView variant="skeleton" skeletonCount={3} />
         ) : preferences.error ? (
           <ErrorState
-            message={isNetworkError(preferences.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
+            message={isNetworkError(preferences.error) ? t('networkOffline') : undefined}
             onRetry={() => void preferences.retry()}
           />
         ) : list.length === 0 ? (

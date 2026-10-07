@@ -30,7 +30,7 @@ import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp, AppRouteProp, Task, TaskStatus, User } from '@/types'
 import { TASK_TRANSITION_ACTIONS, getErrorMessage } from '@/types'
-import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
+import { isNetworkError } from '@/types'
 import { filterBoardColumns } from '@/utils/search'
 import { userMap as buildUserMap } from '@/data'
 
@@ -223,7 +223,7 @@ export function BoardScreen(): React.JSX.Element {
         <LoadingView variant="skeleton" skeletonCount={3} />
       ) : board.error ? (
         <ErrorState
-          message={isNetworkError(board.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
+          message={isNetworkError(board.error) ? t('networkOffline') : undefined}
           onRetry={() => void board.retry()}
         />
       ) : columns.length === 0 ? (

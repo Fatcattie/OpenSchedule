@@ -31,6 +31,8 @@ export const services = {
 
   // ── 网络层（`services/client.ts`）──────────────────────────────────────────
   'network.failed': '网络连接失败，请检查网络后重试',
+  /** 离线整屏错误态文案（原 `NETWORK_OFFLINE_MESSAGE`，`types/api.ts`；增量 12 · T03b 收口） */
+  'networkOffline': '当前无网络连接，请检查网络后重试',
 
   // ── 通用错误文案（`types/api.ts`）─────────────────────────────────────────
   'error.failedWithCode': '请求失败（{code}）',
@@ -71,6 +73,10 @@ export const services = {
   'attachment.readFailed': '未能读取所选文件内容，请重新选择',
   'review.reasonFallback': '未填写驳回原因',
   'review.subtaskTitle': '项目评审 — {title}',
+  /** 卡片三枚审批动作的 accessibilityLabel（原 `REVIEW_ACTION_A11Y`，`utils/audit.ts`；T03b 收口） */
+  'reviewA11y.approve': '审核通过',
+  'reviewA11y.reject': '审核不通过',
+  'reviewA11y.rework': '审核退回重改',
   /** 审计 / 留痕的「系统」操作人兜底名 */
   'common.systemActor': '系统',
   /** 评论作者缺失时的兜底名 */

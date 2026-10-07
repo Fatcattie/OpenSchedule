@@ -29,7 +29,7 @@ import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp, AuditFeedItem, PeriodSummary, Task } from '@/types'
-import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
+import { isNetworkError } from '@/types'
 import { getZonedParts } from '@/utils/date'
 import { formatHours, formatRelativeTime } from '@/utils/format'
 import { useCan } from '@/utils/permission'
@@ -384,7 +384,7 @@ export function WorkspaceScreen(): React.JSX.Element {
                 <Feather name="alert-circle" size={layout.icon.md} color={colors.danger} />
                 <Text style={[typography.caption, styles.summaryErrorText]} numberOfLines={2}>
                   {isNetworkError(summary.error)
-                    ? NETWORK_OFFLINE_MESSAGE
+                    ? t('networkOffline')
                     : t('screens.core.workspace.summaryLoadFailed')}
                 </Text>
                 <PressableScale
@@ -442,7 +442,7 @@ export function WorkspaceScreen(): React.JSX.Element {
             <LoadingView variant="skeleton" skeletonCount={3} />
           ) : todos.error ? (
             <ErrorState
-              message={isNetworkError(todos.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
+              message={isNetworkError(todos.error) ? t('networkOffline') : undefined}
               onRetry={() => void todos.retry()}
             />
           ) : visibleTodos.length === 0 ? (

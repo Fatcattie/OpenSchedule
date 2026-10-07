@@ -44,7 +44,7 @@ import { focusService, taskService } from '@/services'
 import type { TranslationKey } from '@/i18n'
 import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
-import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
+import { isNetworkError } from '@/types'
 import {
   getPriorityColorFor,
   layout,
@@ -680,7 +680,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
   ) : personalTasks.error ? (
     <View style={styles.section}>
       <ErrorState
-        message={isNetworkError(personalTasks.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
+        message={isNetworkError(personalTasks.error) ? t('networkOffline') : undefined}
         onRetry={handleRetry}
       />
     </View>
@@ -765,7 +765,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
         <LoadingView variant="skeleton" skeletonCount={3} />
       ) : personalTasks.error || scheduledTasks.error ? (
         <ErrorState
-        message={isNetworkError(personalTasks.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
+        message={isNetworkError(personalTasks.error) ? t('networkOffline') : undefined}
         onRetry={handleRetry}
       />
       ) : (

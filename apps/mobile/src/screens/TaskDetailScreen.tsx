@@ -52,7 +52,7 @@ import {
 } from '@/theme'
 import type { AppNavigationProp, AppRouteProp, Attachment, TaskStatus, TransitionActionConfig } from '@/types'
 import { TASK_TRANSITION_ACTIONS, getErrorMessage } from '@/types'
-import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
+import { isNetworkError } from '@/types'
 import { formatDate, formatDateTime, formatTime } from '@/utils/date'
 import { EMPTY_PLACEHOLDER, formatBytes, formatHours, formatTimer } from '@/utils/format'
 import { mockAttachmentUrl } from '@/utils/attachment'
@@ -321,7 +321,7 @@ export function TaskDetailScreen(): React.JSX.Element {
       <View style={styles.root}>
         <ScreenHeader title={t('screens.core.taskDetail.title')} onBack={() => goBackOrHome(navigation)} />
         <ErrorState
-          message={isNetworkError(detail.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
+          message={isNetworkError(detail.error) ? t('networkOffline') : undefined}
           onRetry={() => void detail.retry()}
         />
       </View>

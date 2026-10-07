@@ -36,7 +36,7 @@ import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 import type { AiProposal, AppNavigationProp, AuditOpinion, Task, TaskStatus } from '@/types'
 import { REASON_MIN_LENGTH, getErrorMessage } from '@/types'
-import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
+import { isNetworkError } from '@/types'
 import { formatDate, formatWeekday } from '@/utils/date'
 import { countVisibleFocusTasks } from '@/utils/focus'
 import { useCan } from '@/utils/permission'
@@ -528,7 +528,7 @@ export function TodayFocusScreen(): React.JSX.Element {
             <LoadingView variant="skeleton" skeletonCount={3} />
           ) : focus.error ? (
             <ErrorState
-              message={isNetworkError(focus.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
+              message={isNetworkError(focus.error) ? t('networkOffline') : undefined}
               onRetry={() => void focus.retry()}
             />
           ) : currentTasks.length === 0 ? (

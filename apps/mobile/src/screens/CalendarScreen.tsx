@@ -42,7 +42,7 @@ import {
 } from '@/services'
 import { layout, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp } from '@/types'
-import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
+import { isNetworkError } from '@/types'
 import { addMinutes, formatDate, formatWeekday, minutesFromMidnight, startOfDay, todayKey } from '@/utils/date'
 import { assignLanes } from '@/utils/lane'
 import { computeOverviewColumnWidth, formatCompactDate, resolveDayOffset } from '@/utils/overview'
@@ -356,7 +356,7 @@ export function CalendarScreen(): React.JSX.Element {
               <LoadingView variant="skeleton" skeletonCount={3} />
             ) : day.error ? (
               <ErrorState
-                message={isNetworkError(day.error) ? NETWORK_OFFLINE_MESSAGE : undefined}
+                message={isNetworkError(day.error) ? t('networkOffline') : undefined}
                 onRetry={() => void day.retry()}
               />
             ) : (

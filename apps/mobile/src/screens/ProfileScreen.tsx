@@ -19,27 +19,26 @@ import {
   staggerDelay,
 } from '@/components'
 import { useAsync, useAuth } from '@/hooks'
-import type { LocalePreference } from '@/i18n'
+import type { LocalePreference, TranslationKey } from '@/i18n'
 import { USE_MOCK, focusService } from '@/services'
 import { useConnectivity } from '@/store/ConnectivityProvider'
 import { useI18n } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles, type ThemeMode } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp, AppRole, NotificationPreference } from '@/types'
-import { ROLE_LABEL } from '@/types'
 import { useCan } from '@/utils/permission'
 
-/** 角色分段选项 */
-const ROLE_OPTIONS: { value: AppRole; label: string }[] = [
-  { value: 'manager', label: ROLE_LABEL.manager },
-  { value: 'member', label: ROLE_LABEL.member },
+/** 角色分段选项（`labelKey` 走字典 `role.*`，渲染期由 `t()` 取词） */
+const ROLE_OPTIONS: { value: AppRole; labelKey: TranslationKey }[] = [
+  { value: 'manager', labelKey: 'role.manager' },
+  { value: 'member', labelKey: 'role.member' },
 ]
 
 /** 外观分段选项（D3：浅色 / 深色 / 跟随系统；Q14 切换即时生效、无需二次确认） */
-const APPEARANCE_OPTIONS: { value: ThemeMode; label: string }[] = [
-  { value: 'light', label: '浅色' },
-  { value: 'dark', label: '深色' },
-  { value: 'system', label: '跟随系统' },
+const APPEARANCE_OPTIONS: { value: ThemeMode; labelKey: TranslationKey }[] = [
+  { value: 'light', labelKey: 'screens.core.profile.appearanceLight' },
+  { value: 'dark', labelKey: 'screens.core.profile.appearanceDark' },
+  { value: 'system', labelKey: 'screens.core.profile.appearanceSystem' },
 ]
 
 /**
@@ -94,14 +93,21 @@ export function ProfileScreen(): React.JSX.Element {
     return sum + (email ? 1 : 0) + (push ? 1 : 0) + (im ? 1 : 0)
   }, 0)
 
+  /** 角色 / 外观分段选项（渲染期取词，语言切换即时生效） */
+  const roleOptions = ROLE_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))
+  const appearanceOptions = APPEARANCE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(option.labelKey),
+  }))
+
   const handleRoleChange = useCallback(
     async (next: AppRole) => {
       await setRole(next)
-      setRoleHint(`已切换为「${ROLE_LABEL[next]}」视角`)
+      setRoleHint(t('screens.core.profile.roleSwitchedHint', { role: t(`role.${next}`) }))
       if (roleHintTimer.current) clearTimeout(roleHintTimer.current)
       roleHintTimer.current = setTimeout(() => setRoleHint(null), ROLE_HINT_DURATION_MS)
     },
-    [setRole],
+    [setRole, t],
   )
 
   const handleSignOut = useCallback(async () => {
@@ -120,16 +126,16 @@ export function ProfileScreen(): React.JSX.Element {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <ScreenHeader title="我的" subtitle="身份、偏好与退出" large />
+        <ScreenHeader title={t('screens.core.profile.title')} subtitle={t('screens.core.profile.subtitle')} large />
 
         {/* 用户信息卡 */}
         <FadeIn>
           <Card>
             <View style={styles.userRow}>
-              <Avatar name={user?.displayName ?? '用户'} uri={user?.avatarUrl} size={56} ring />
+              <Avatar name={user?.displayName ?? t('screens.core.profile.userFallback')} uri={user?.avatarUrl} size={56} ring />
               <View style={styles.userInfo}>
                 <Text style={[typography.display, styles.userName]} numberOfLines={1}>
-                  {user?.displayName ?? '未登录'}
+                  {user?.displayName ?? t('screens.core.profile.notSignedIn')}
                 </Text>
                 <Text style={[typography.caption, styles.userEmail]} numberOfLines={1}>
                   {user?.email ?? '—'}
@@ -137,7 +143,7 @@ export function ProfileScreen(): React.JSX.Element {
                 <View style={styles.tenantRow}>
                   <Feather name="briefcase" size={layout.icon.sm} color={colors.text.tertiary} />
                   <Text style={[typography.caption, styles.tenantText]} numberOfLines={1}>
-                    {tenant?.name ?? '未加入团队'}
+                    {tenant?.name ?? t('screens.core.profile.noTeam')}
                     {tenant ? ` · ${tenant.plan.toUpperCase()}` : ''}
                   </Text>
                 </View>
@@ -153,12 +159,14 @@ export function ProfileScreen(): React.JSX.Element {
 
         {/* 角色切换 */}
         <FadeIn delay={staggerDelay(1)} style={styles.section}>
-          <Text style={[typography.title, styles.sectionTitle]}>角色切换</Text>
+          <Text style={[typography.title, styles.sectionTitle]}>{t('screens.core.profile.roleSectionTitle')}</Text>
           <Text style={[typography.caption, styles.sectionDesc]}>
-            演示用视角切换（后端角色：{roles.length > 0 ? roles.join(' / ') : '未返回'}）
+            {t('screens.core.profile.roleSectionDesc', {
+              roles: roles.length > 0 ? roles.join(' / ') : t('screens.core.profile.rolesNone'),
+            })}
           </Text>
           <View style={styles.segmentedWrapper}>
-            <SegmentedControl options={ROLE_OPTIONS} value={role} onChange={(next) => void handleRoleChange(next)} />
+            <SegmentedControl options={roleOptions} value={role} onChange={(next) => void handleRoleChange(next)} />
           </View>
           {roleHint ? (
             <View style={styles.roleHint}>
@@ -170,10 +178,10 @@ export function ProfileScreen(): React.JSX.Element {
 
         {/* 外观（D3）：浅色 / 深色 / 跟随系统，切换即时生效、无需二次确认（Q14） */}
         <FadeIn delay={staggerDelay(2)} style={styles.section}>
-          <Text style={[typography.title, styles.sectionTitle]}>外观</Text>
+          <Text style={[typography.title, styles.sectionTitle]}>{t('screens.core.profile.appearanceTitle')}</Text>
           <View style={styles.segmentedWrapper}>
             <SegmentedControl
-              options={APPEARANCE_OPTIONS}
+              options={appearanceOptions}
               value={mode}
               onChange={(next) => void setMode(next)}
             />
@@ -198,17 +206,17 @@ export function ProfileScreen(): React.JSX.Element {
 
         {/* 设置列表 */}
         <FadeIn delay={staggerDelay(4)} style={styles.section}>
-          <Text style={[typography.title, styles.sectionTitle]}>设置</Text>
+          <Text style={[typography.title, styles.sectionTitle]}>{t('screens.core.profile.settingsTitle')}</Text>
           <Card padded={false} style={styles.settingsCard}>
             <SettingRow
               icon="bell"
-              label="通知偏好"
+              label={t('screens.core.profile.notificationPrefs')}
               value={
                 preferences.loading
-                  ? '加载中…'
+                  ? t('screens.core.profile.loading')
                   : preferences.error
-                    ? '加载失败'
-                    : `已开启 ${enabledChannelCount} 个通道`
+                    ? t('screens.core.profile.loadFailed')
+                    : t('screens.core.profile.channelsEnabled', { count: enabledChannelCount })
               }
               onPress={() => navigation.navigate('NotificationSettings')}
               isFirst
@@ -216,13 +224,13 @@ export function ProfileScreen(): React.JSX.Element {
             {/* 增量 1：个人计划 / 我的提报（两角色均可访问，无需权限门禁） */}
             <SettingRow
               icon="calendar"
-              label="个人计划"
+              label={t('screens.core.profile.personalPlan')}
               value=""
               onPress={() => navigation.navigate('PersonalPlan')}
             />
             <SettingRow
               icon="send"
-              label="我的提报"
+              label={t('screens.core.profile.mySubmissions')}
               value=""
               onPress={() => navigation.navigate('MySubmissions')}
             />
@@ -230,7 +238,7 @@ export function ProfileScreen(): React.JSX.Element {
             {can('review:view_pending') ? (
               <SettingRow
                 icon="clipboard"
-                label="审核中心"
+                label={t('screens.core.profile.auditCenter')}
                 value=""
                 onPress={() => navigation.navigate('AuditCenter')}
               />
@@ -239,7 +247,7 @@ export function ProfileScreen(): React.JSX.Element {
             {USE_MOCK ? (
               <SettingRow
                 icon="wifi-off"
-                label="模拟离线"
+                label={t('screens.core.profile.simulatedOffline')}
                 value=""
                 showChevron={false}
                 trailing={
@@ -258,13 +266,13 @@ export function ProfileScreen(): React.JSX.Element {
             ) : null}
             <SettingRow
               icon="globe"
-              label="时区"
+              label={t('screens.core.profile.timezone')}
               value={user?.timezone ?? 'Asia/Shanghai'}
               showChevron={false}
             />
             <SettingRow
               icon="info"
-              label="关于 OpenSchedule"
+              label={t('screens.core.profile.about')}
               value="v1.0.0"
               onPress={() => navigation.navigate('About')}
               isLast
@@ -279,7 +287,7 @@ export function ProfileScreen(): React.JSX.Element {
         {/* 退出登录 */}
         <FadeIn delay={staggerDelay(5)} style={styles.section}>
           <Button
-            label="退出登录"
+            label={t('screens.core.profile.signOut')}
             variant="danger"
             icon="log-out"
             fullWidth
@@ -292,16 +300,16 @@ export function ProfileScreen(): React.JSX.Element {
       <BottomSheet
         visible={confirmVisible}
         onClose={() => setConfirmVisible(false)}
-        title="确认退出登录？"
+        title={t('screens.core.profile.signOutConfirmTitle')}
         heightRatio={0.32}
       >
         <Text style={[typography.body, styles.confirmText]}>
-          退出后需要重新输入账号密码才能进入工作台，本地计时数据会保留。
+          {t('screens.core.profile.signOutConfirmText')}
         </Text>
         <View style={styles.confirmActions}>
           <View style={styles.confirmButton}>
             <Button
-              label="取消"
+              label={t('screens.core.profile.cancel')}
               variant="secondary"
               fullWidth
               onPress={() => setConfirmVisible(false)}
@@ -309,7 +317,7 @@ export function ProfileScreen(): React.JSX.Element {
           </View>
           <View style={styles.confirmButton}>
             <Button
-              label="退出登录"
+              label={t('screens.core.profile.signOut')}
               variant="danger"
               fullWidth
               loading={signingOut}

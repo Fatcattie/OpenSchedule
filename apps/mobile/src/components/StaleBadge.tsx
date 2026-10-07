@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { Tag } from './Tag'
+import { useT } from '@/store/I18nProvider'
 import { useThemedStyles } from '@/store/ThemeProvider'
 import { spacing, typography, type ThemeColors } from '@/theme'
 import { formatRelativeTime } from '@/utils/date'
@@ -23,6 +24,7 @@ const RELATIVE_REFRESH_MS = 60_000
 
 /** 缓存标记 */
 export function StaleBadge({ updatedAt }: StaleBadgeProps): React.JSX.Element {
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   // 仅用于触发重渲染以刷新相对时间（值本身不参与渲染）
   const [, setTick] = useState(0)
@@ -34,9 +36,9 @@ export function StaleBadge({ updatedAt }: StaleBadgeProps): React.JSX.Element {
 
   return (
     <View style={styles.container}>
-      <Tag text="缓存" tone="warning" />
+      <Tag text={t('component.stale.badge')} tone="warning" />
       <Text style={[typography.caption, styles.caption]} numberOfLines={1}>
-        上次更新 {formatRelativeTime(updatedAt)}
+        {t('component.stale.updatedAt', { time: formatRelativeTime(updatedAt) })}
       </Text>
     </View>
   )

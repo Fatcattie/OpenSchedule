@@ -12,6 +12,7 @@ import { Animated, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { PressableScale } from './PressableScale'
 import { useConnectivity } from '@/store/ConnectivityProvider'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, motion, radius, spacing, typography, type ThemeColors } from '@/theme'
 
@@ -19,6 +20,7 @@ import { layout, motion, radius, spacing, typography, type ThemeColors } from '@
 export function OfflineBanner(): React.JSX.Element | null {
   const { isOffline, reason, retryNow } = useConnectivity()
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const insets = useSafeAreaInsets()
   const opacity = useRef(new Animated.Value(isOffline ? 1 : 0)).current
@@ -47,7 +49,8 @@ export function OfflineBanner(): React.JSX.Element | null {
 
   if (!rendered) return null
 
-  const title = reason === 'network' ? '当前无网络连接' : '服务暂时不可用'
+  const title =
+    reason === 'network' ? t('component.offline.title.network') : t('component.offline.title.server')
 
   return (
     <Animated.View style={[styles.container, { opacity, paddingTop: insets.top + spacing.xs }]}>
@@ -57,18 +60,18 @@ export function OfflineBanner(): React.JSX.Element | null {
           {title}
         </Text>
         <Text style={[typography.caption, styles.subtitle]} numberOfLines={1}>
-          正在显示上次缓存内容
+          {t('component.offline.subtitle')}
         </Text>
       </View>
       <PressableScale
         accessibilityRole="button"
-        accessibilityLabel="重试"
+        accessibilityLabel={t('common.retry')}
         onPress={retryNow}
         scale={0.94}
         hitSlop={spacing.xs}
         style={styles.retry}
       >
-        <Text style={[typography.label, styles.retryText]}>重试</Text>
+        <Text style={[typography.label, styles.retryText]}>{t('common.retry')}</Text>
       </PressableScale>
     </Animated.View>
   )

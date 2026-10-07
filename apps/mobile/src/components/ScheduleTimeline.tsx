@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native'
+import { useT } from '@/store/I18nProvider'
 import { useThemedStyles } from '@/store/ThemeProvider'
 import { radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 import type { TaskStatus } from '@/types'
@@ -112,6 +113,7 @@ function DraggableBlock({
   onGhostChange,
 }: DraggableBlockProps): React.JSX.Element {
   const styles = useThemedStyles(makeStyles)
+  const t = useT()
   const draggable = block.kind === 'personal'
 
   const handleDrop = useCallback(
@@ -157,7 +159,7 @@ function DraggableBlock({
     <Animated.View
       accessible={dragging}
       accessibilityRole={dragging ? 'button' : undefined}
-      accessibilityLabel={dragging ? `${block.title} 拖动中` : undefined}
+      accessibilityLabel={dragging ? t('component.schedule.dragging', { title: block.title }) : undefined}
       style={[
         styles.blockLayer,
         { top: `${topRatio * 100}%`, height: `${heightRatio * 100}%` },

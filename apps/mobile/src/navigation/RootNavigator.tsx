@@ -11,6 +11,7 @@ import { useMemo } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { BrandGradient } from '@/components'
 import { useAppContext } from '@/store/AppProvider'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import { linking } from './linking'
@@ -51,6 +52,7 @@ export function RootNavigator(): React.JSX.Element {
 /** 冷启动品牌态 */
 function BootSplash(): React.JSX.Element {
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   return (
     <BrandGradient direction="vertical" style={styles.splash}>
@@ -58,7 +60,7 @@ function BootSplash(): React.JSX.Element {
         <Feather name="calendar" size={layout.icon.lg + spacing.xxs} color={colors.text.inverse} />
       </View>
       <Text style={[typography.display, styles.title]}>OpenSchedule</Text>
-      <Text style={[typography.caption, styles.subtitle]}>正在恢复会话…</Text>
+      <Text style={[typography.caption, styles.subtitle]}>{t('nav.boot.restoring')}</Text>
       <ActivityIndicator color={colors.text.inverse} style={styles.spinner} />
     </BrandGradient>
   )

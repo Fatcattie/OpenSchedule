@@ -19,8 +19,10 @@ import {
   staggerDelay,
 } from '@/components'
 import { useAsync, useAuth } from '@/hooks'
+import type { LocalePreference } from '@/i18n'
 import { USE_MOCK, focusService } from '@/services'
 import { useConnectivity } from '@/store/ConnectivityProvider'
+import { useI18n } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles, type ThemeMode } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp, AppRole, NotificationPreference } from '@/types'
@@ -40,6 +42,21 @@ const APPEARANCE_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'system', label: '跟随系统' },
 ]
 
+/**
+ * 语言分段选项（L1，与「外观」同构）。
+ *
+ * - 两个语言名用**自身语言**书写（`中文` / `English`），**不随界面语言变化**——切到看不懂的语言后
+ *   仍能找到切回来的入口（US-12-08）；
+ * - 第三态是**功能项**而非语言名（`跟随系统` / `System`），故**随界面语言变化**，由调用方传入已取词的 `systemLabel`。
+ */
+function buildLanguageOptions(systemLabel: string): { value: LocalePreference; label: string }[] {
+  return [
+    { value: 'zh-CN', label: '中文' },
+    { value: 'en-US', label: 'English' },
+    { value: 'system', label: systemLabel },
+  ]
+}
+
 /** 角色切换提示自动消失时长（毫秒） */
 const ROLE_HINT_DURATION_MS = 1800
 
@@ -48,6 +65,8 @@ export function ProfileScreen(): React.JSX.Element {
   const navigation = useNavigation<AppNavigationProp>()
   const { user, tenant, role, setRole, signOutAsync, roles } = useAuth()
   const { colors, mode, setMode } = useTheme()
+  // 语言态（L1）：无 Provider 时回退 zh-CN（既有渲染套件不包 Provider）
+  const { preference, setPreference, t } = useI18n()
   const styles = useThemedStyles(makeStyles)
   const can = useCan()
   // 增量 8 · Q2：「模拟离线」开关（仅 USE_MOCK === true 可见；仅会话内，不落盘）
@@ -161,8 +180,24 @@ export function ProfileScreen(): React.JSX.Element {
           </View>
         </FadeIn>
 
-        {/* 设置列表 */}
+        {/* 语言（L1）：中文 / English / 跟随系统，切换即时生效、无需二次确认（M-P2-05-07 / -13，与「外观」同构） */}
         <FadeIn delay={staggerDelay(3)} style={styles.section}>
+          <Text style={[typography.title, styles.sectionTitle]}>{t('profile.language.title')}</Text>
+          <View style={styles.segmentedWrapper}>
+            <SegmentedControl
+              options={buildLanguageOptions(t('profile.language.system'))}
+              value={preference}
+              onChange={(next) => void setPreference(next)}
+            />
+          </View>
+          {/* 残留范围说明（M-P2-05-13）：随语言切换，明示「日期格式 / 演示数据 / 服务端提示仍为中文」 */}
+          <Text style={[typography.caption, styles.sectionDesc]}>
+            {t('profile.language.residual')}
+          </Text>
+        </FadeIn>
+
+        {/* 设置列表 */}
+        <FadeIn delay={staggerDelay(4)} style={styles.section}>
           <Text style={[typography.title, styles.sectionTitle]}>设置</Text>
           <Card padded={false} style={styles.settingsCard}>
             <SettingRow
@@ -242,7 +277,7 @@ export function ProfileScreen(): React.JSX.Element {
         </FadeIn>
 
         {/* 退出登录 */}
-        <FadeIn delay={staggerDelay(4)} style={styles.section}>
+        <FadeIn delay={staggerDelay(5)} style={styles.section}>
           <Button
             label="退出登录"
             variant="danger"

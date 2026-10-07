@@ -7,6 +7,7 @@
 import { Feather } from '@expo/vector-icons'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { StyleSheet, View } from 'react-native'
+import { useI18n } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 import type { TabParamList } from '@/types'
@@ -29,7 +30,12 @@ const TAB_ICON: Record<keyof TabParamList, keyof typeof Feather.glyphMap> = {
   Me: 'user',
 }
 
-/** Tab 中文标题 */
+/**
+ * Tab 中文标题（★ 硬边界 F10）。
+ *
+ * `tests/increment-ui-polish.test.tsx:358-365` 对本文件**源码文本**断言 5 个中文 Tab 字面串，
+ * 故本表（含字面串）**必须原样保留**，不得"抽出即删"（§0.2-Q10）。
+ */
 const TAB_LABEL: Record<keyof TabParamList, string> = {
   Workspace: '工作台',
   Today: '今日',
@@ -38,10 +44,22 @@ const TAB_LABEL: Record<keyof TabParamList, string> = {
   Me: '我的',
 }
 
+/** Tab 英文标题（术语表见 PRD §6-D12；最短化防 320pt 截断） */
+const TAB_LABEL_EN: Record<keyof TabParamList, string> = {
+  Workspace: 'Workspace',
+  Today: 'Today',
+  Project: 'Projects',
+  Time: 'Time',
+  Me: 'Me',
+}
+
 /** 底部 Tab 导航 */
 export function MainTabs(): React.JSX.Element {
   const { colors } = useTheme()
+  const { locale } = useI18n()
   const styles = useThemedStyles(makeStyles)
+  // 渲染期按语言选表（不得是模块级常量）：切英文即时生效，不重载、不 remount
+  const tabLabel = locale === 'en-US' ? TAB_LABEL_EN : TAB_LABEL
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -75,12 +93,12 @@ export function MainTabs(): React.JSX.Element {
       <Tab.Screen
         name="Workspace"
         component={WorkspaceStackNavigator}
-        options={{ title: TAB_LABEL.Workspace }}
+        options={{ title: tabLabel.Workspace }}
       />
-      <Tab.Screen name="Today" component={TodayStackNavigator} options={{ title: TAB_LABEL.Today }} />
-      <Tab.Screen name="Project" component={ProjectStackNavigator} options={{ title: TAB_LABEL.Project }} />
-      <Tab.Screen name="Time" component={TimeStackNavigator} options={{ title: TAB_LABEL.Time }} />
-      <Tab.Screen name="Me" component={MeStackNavigator} options={{ title: TAB_LABEL.Me }} />
+      <Tab.Screen name="Today" component={TodayStackNavigator} options={{ title: tabLabel.Today }} />
+      <Tab.Screen name="Project" component={ProjectStackNavigator} options={{ title: tabLabel.Project }} />
+      <Tab.Screen name="Time" component={TimeStackNavigator} options={{ title: tabLabel.Time }} />
+      <Tab.Screen name="Me" component={MeStackNavigator} options={{ title: tabLabel.Me }} />
     </Tab.Navigator>
   )
 }

@@ -16,6 +16,7 @@ import {
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useT } from '@/store/I18nProvider'
 import { useThemedStyles } from '@/store/ThemeProvider'
 import { layout, motion, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 
@@ -42,6 +43,7 @@ export function BottomSheet({
   heightRatio = 0.6,
 }: BottomSheetProps): React.JSX.Element {
   const styles = useThemedStyles(makeStyles)
+  const t = useT()
   const { height } = useWindowDimensions()
   const insets = useSafeAreaInsets()
   const sheetHeight = Math.round(height * Math.min(0.92, Math.max(0.2, heightRatio)))
@@ -89,7 +91,7 @@ export function BottomSheet({
           <Pressable
             style={StyleSheet.absoluteFill}
             accessibilityRole="button"
-            accessibilityLabel="关闭"
+            accessibilityLabel={t('common.close')}
             onPress={handleClose}
           />
         </Animated.View>

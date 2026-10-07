@@ -8,6 +8,7 @@ import type { ReactNode } from 'react'
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { usePressScale } from '@/hooks/usePressScale'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 /** ScreenHeader 入参 */
@@ -28,6 +29,7 @@ const BACK_PRESS_SCALE = 0.92
 /** 页头组件 */
 export function ScreenHeader({ title, subtitle, onBack, right, large = false }: ScreenHeaderProps): React.JSX.Element {
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const insets = useSafeAreaInsets()
   const backPress = usePressScale(BACK_PRESS_SCALE)
@@ -39,7 +41,7 @@ export function ScreenHeader({ title, subtitle, onBack, right, large = false }: 
           <Animated.View style={[styles.backWrap, backPress.animatedStyle]}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="返回"
+              accessibilityLabel={t('common.back')}
               onPress={onBack}
               onPressIn={backPress.onPressIn}
               onPressOut={backPress.onPressOut}

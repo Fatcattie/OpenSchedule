@@ -6,6 +6,7 @@ import { Feather } from '@expo/vector-icons'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { Button, type IconName } from './Button'
 import { Skeleton } from './Skeleton'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 
@@ -96,18 +97,19 @@ export interface ErrorStateProps {
 /** 错误态 */
 export function ErrorState({ message, onRetry }: ErrorStateProps): React.JSX.Element {
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   return (
     <View style={styles.center}>
       <View style={[styles.iconCircle, styles.iconCircleDanger]}>
         <Feather name="alert-circle" size={layout.icon.lg} color={colors.danger} />
       </View>
-      <Text style={[typography.title, styles.title]}>加载失败</Text>
+      <Text style={[typography.title, styles.title]}>{t('component.error.title')}</Text>
       <Text style={[typography.caption, styles.description]}>
-        {message ?? '网络异常，请检查网络后重试'}
+        {message ?? t('component.error.description')}
       </Text>
       <View style={styles.action}>
-        <Button label="重试" variant="secondary" icon="refresh-cw" onPress={onRetry} />
+        <Button label={t('common.retry')} variant="secondary" icon="refresh-cw" onPress={onRetry} />
       </View>
     </View>
   )

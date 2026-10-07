@@ -8,6 +8,7 @@
 import { Feather } from '@expo/vector-icons'
 import { useEffect, useRef } from 'react'
 import { Animated, StyleSheet, Text, View } from 'react-native'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, motion, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 
@@ -15,7 +16,7 @@ import { layout, motion, radius, shadow, spacing, typography, type ThemeColors }
 export interface RefreshToastProps {
   /** 是否展示 */
   visible: boolean
-  /** 文案（默认「网络已恢复，已刷新」） */
+  /** 文案（缺省时按当前语言取「网络已恢复，已刷新」） */
   message?: string
   /** 自动消失时长（毫秒，默认 2000） */
   durationMs?: number
@@ -31,11 +32,12 @@ const ENTER_OFFSET = 24
 /** 「已刷新」轻提示 */
 export function RefreshToast({
   visible,
-  message = '网络已恢复，已刷新',
+  message,
   durationMs = DEFAULT_DURATION_MS,
   onHide,
 }: RefreshToastProps): React.JSX.Element | null {
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const translateY = useRef(new Animated.Value(ENTER_OFFSET)).current
   const opacity = useRef(new Animated.Value(0)).current
@@ -93,6 +95,8 @@ export function RefreshToast({
 
   if (!visible) return null
 
+  const text = message ?? t('component.refreshToast.message')
+
   return (
     <Animated.View
       style={[styles.container, { opacity, transform: [{ translateY }] }]}
@@ -101,7 +105,7 @@ export function RefreshToast({
       <View style={styles.toast}>
         <Feather name="check-circle" size={layout.icon.sm} color={colors.text.inverse} />
         <Text style={[typography.caption, styles.message]} numberOfLines={2}>
-          {message}
+          {text}
         </Text>
       </View>
     </Animated.View>

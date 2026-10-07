@@ -14,6 +14,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { BottomSheet, Button, EmptyState, LoadingView, Tag } from '@/components'
 import { focusService } from '@/services'
 import { useAppContext } from '@/store/AppProvider'
+import { useT } from '@/store/I18nProvider'
 import { useThemeColors, useThemedStyles } from '@/store/ThemeProvider'
 import { motion, spacing, typography, type ThemeColors } from '@/theme'
 import type {
@@ -169,6 +170,7 @@ function AiProposalSheetScreen(): React.JSX.Element {
   const navigation = useNavigation<AppNavigationProp>()
   const route = useRoute<AppRouteProp<'AiProposalSheet'>>()
   const { user } = useAppContext()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const { proposalId } = route.params
   const approverId = user?.id ?? ''
@@ -212,23 +214,23 @@ function AiProposalSheetScreen(): React.JSX.Element {
     if (!proposal) return
     setSubmitting(true)
     try {
-      await focusService.rejectAiProposal(proposal.id, '演示环境驳回', approverId)
+      await focusService.rejectAiProposal(proposal.id, t('nav.proposal.demoReason'), approverId)
       close()
     } finally {
       setSubmitting(false)
     }
-  }, [approverId, close, proposal])
+  }, [approverId, close, proposal, t])
 
   return (
-    <BottomSheet visible onClose={close} title="AI 提议" heightRatio={0.62}>
+    <BottomSheet visible onClose={close} title={t('nav.proposal.title')} heightRatio={0.62}>
       {loading ? (
         <LoadingView variant="spinner" />
       ) : error || !proposal ? (
         <EmptyState
           icon="alert-circle"
-          title="提议不存在或已过期"
-          description="可能已被处理，请返回刷新"
-          actionLabel="关闭"
+          title={t('nav.proposal.missingTitle')}
+          description={t('nav.proposal.missingDescription')}
+          actionLabel={t('common.close')}
           onAction={close}
         />
       ) : (
@@ -237,7 +239,7 @@ function AiProposalSheetScreen(): React.JSX.Element {
             <View style={styles.proposalHeader}>
               <Tag text={AI_PROPOSAL_TYPE_LABEL[proposal.type]} tone="neutral" />
               <Text style={[typography.caption, styles.proposalStatus]}>
-                状态：{proposal.status}
+                {t('nav.proposal.status', { status: proposal.status })}
               </Text>
             </View>
             <Text style={[typography.body, styles.proposalSummary]}>{proposal.payload.summary}</Text>
@@ -254,10 +256,10 @@ function AiProposalSheetScreen(): React.JSX.Element {
           </ScrollView>
           <View style={styles.proposalActions}>
             <View style={styles.proposalButton}>
-              <Button label="驳回" variant="secondary" fullWidth loading={submitting} onPress={() => void handleReject()} />
+              <Button label={t('nav.proposal.reject')} variant="secondary" fullWidth loading={submitting} onPress={() => void handleReject()} />
             </View>
             <View style={styles.proposalButton}>
-              <Button label="确认落库" fullWidth loading={submitting} onPress={() => void handleApprove()} />
+              <Button label={t('nav.proposal.confirm')} fullWidth loading={submitting} onPress={() => void handleApprove()} />
             </View>
           </View>
         </>

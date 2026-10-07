@@ -5,6 +5,7 @@
 import { useEffect, useRef } from 'react'
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native'
 import { PressableScale } from './PressableScale'
+import { useT } from '@/store/I18nProvider'
 import { useThemedStyles } from '@/store/ThemeProvider'
 import { layout, motion, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 
@@ -32,6 +33,7 @@ export function UndoToast({
   durationMs = DEFAULT_DURATION_MS,
   onExpire,
 }: UndoToastProps): React.JSX.Element | null {
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const translateY = useRef(new Animated.Value(24)).current
   const opacity = useRef(new Animated.Value(0)).current
@@ -110,13 +112,13 @@ export function UndoToast({
         </Text>
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel="撤销"
+          accessibilityLabel={t('component.undoToast.undo')}
           onPress={onUndo}
           hitSlop={spacing.xs}
           scale={0.94}
           style={styles.action}
         >
-          <Text style={[typography.label, styles.actionText]}>撤销</Text>
+          <Text style={[typography.label, styles.actionText]}>{t('component.undoToast.undo')}</Text>
         </PressableScale>
       </View>
       <View style={styles.progressTrack}>

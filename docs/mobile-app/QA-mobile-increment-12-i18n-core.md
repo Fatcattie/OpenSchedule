@@ -130,6 +130,29 @@ services:     IDENTICAL
 
 ---
 
+### ⑦ `probeEpoch`：AppState 回前台重探测（唯一此前未验证的代码路径）
+
+**方法**：临时探针 `tests/__probe-i18n-epoch.test.tsx`，`jest.spyOn(AppState, 'addEventListener')` 捕获监听、`jest.mock('expo-localization', …)` 固定设备语言；验证后已删除。
+
+**实测输出**：
+
+```
+PASS tests/__probe-i18n-epoch.test.tsx
+Tests: 5 passed, 5 total
+```
+
+| 场景 | 断言 | 结论 |
+| --- | --- | --- |
+| 偏好 ≠ system（默认 zh-CN） | `addEventListener` 调用 **0** 次 | ✅ 默认路径零订阅（与 ② 零加载一致） |
+| 切到 system | `addEventListener` 调用 **1** 次，`locale='en-US'` | ✅ 仅 system 注册 |
+| 设备语言改 `zh-CN` 后触发 `active` | `locale` 从 `en-US` → `zh-CN` | ✅ 回前台重探测生效 |
+| 触发 `background`（非 active） | `locale` 保持 `en-US` | ✅ 仅 active 触发，避免无效重算 |
+| 卸载 | `subscription.remove()` 被调用 | ✅ 无监听泄漏 |
+
+⇒ `probeEpoch` 自增 → `locale` `useMemo` 重算（`I18nProvider.tsx:147-151`）链路完整、正确；此前浏览器 E2E 报告里"随系统切换"已覆盖冷启动路径，本项补齐**运行时回前台**路径。
+
+---
+
 ## 结论
 
 | 项 | 结论 |
@@ -140,11 +163,11 @@ services:     IDENTICAL
 | zh 逐字节不变 | ✅ 58 套件 / 1013 用例全绿 |
 | 全 `src/` 残留审计 | ✅ 潜在缺口 0（2 处已修） |
 | 键集合对称 | ✅ 8 域逐域 IDENTICAL，645 键 |
+| `probeEpoch` 回前台重探测 | ✅ 5/5 |
 
 **IS_PASS: YES** · **阻断项：0**
 
 ### 未能覆盖 / 存疑
 
-1. **真机原生能力**：`expo-localization` 在真机（iOS/Android）的实际返回值形状未实测，本验证基于 mock 的 `getLocales()` 契约（Web 实测已通过，见 E2E 报告）。
-2. **AppState 回前台重探测**：`probeEpoch` 触发的重算路径（`I18nProvider.tsx:133-139`）未单独探针验证（依赖 `AppState` 事件，需 mock AppState；既有单测未覆盖此分支）。
-3. **服务端文案**：跨包，需 `Accept-Language`，本期明确不做（PRD §6-D13 已明示为允许残留）。
+1. **真机原生能力**：`expo-localization` 在真机（iOS/Android）的实际返回值形状、以及原生手势 / 生物识别 / 首屏性能未实测 —— 本验证基于 mock 的 `getLocales()` 契约（Web 实测已通过，见 E2E 报告）；原生能力沿用 `DELIVERY-mobile.md` 已知限制 #6，需真机 Expo Go 扫码。
+2. **服务端文案**：跨包，需 `Accept-Language`，本期明确不做（PRD §6-D13 已明示为允许残留）。

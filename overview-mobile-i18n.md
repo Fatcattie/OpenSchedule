@@ -124,7 +124,7 @@
 
 **验证完整性（截至收尾）**：浏览器 E2E（**IS_PASS NO / 阻断 0**，10 项走查 8 项全通过）与核心机制独立复核（**IS_PASS YES / 阻断 0**）**均已完成并落报告**。发现的 5 个缺陷**全部闭环**：D1/D2 已修（`13f2622`）、D3 已裁决接受（无需改码）、独立审计新发现的 G1/G2 已修（`8e405f5`）。
 
-> ⚠️ **诚实边界（未覆盖项）**：① `expo-localization` 的**真机**返回形状未实测（Web 已实测通过，mock 矩阵已覆盖契约）；② `probeEpoch`（AppState 回前台重探测）分支未单独验证；③ 服务端文案需 `Accept-Language`，本期明确不做（PRD §6-D13 已列为允许残留）；④ **原生能力**（真机手势 / 生物识别 / 首屏性能）沿用 `DELIVERY-mobile.md` 已知限制 #6，需真机 Expo Go 扫码。
+> ⚠️ **诚实边界（未覆盖项）**：① `expo-localization` 的**真机**返回形状未实测（Web 已实测通过，mock 矩阵已覆盖契约）；③ 服务端文案需 `Accept-Language`，本期明确不做（PRD §6-D13 已列为允许残留）；③ **原生能力**（真机手势 / 生物识别 / 首屏性能 / 真机 AppState 事件）沿用 `DELIVERY-mobile.md` 已知限制 #6，需真机 Expo Go 扫码。
 
 ---
 
@@ -173,7 +173,7 @@
    - ✅ **D3 320pt 窄屏 TabBar「Workspace」被截断为 `Works…`** —— **用户裁决：接受（方案 A，不改代码）**，Tab 术语维持 PRD §6-D12 的 `Workspace`。依据：320/5 = 64px/项而 `Workspace` 需 67px，**去掉 item padding 也不够**，属数学上无解而非实现缺陷；390pt 及所有主流机型均完整显示，320pt 为 iPhone 5/SE1 级极限窄屏；截断仅为标签省略号，**图标与可点区域完整、功能无损**。
    - ✅ **独立审计新发现 2 处 `hooks/store` 层硬编码中文**（实现者与 QA 双方均漏）—— **已修**（`8e405f5`）：`useAuth.ts:73` 生物识别失败提示（新增键 `auth.biometricFailed`）→ `t()`；`ConnectivityProvider.tsx:154` 硬编码 `message="网络已恢复，已刷新"` **绕过了 `RefreshToast` 已接入的 i18n** → 改为 `t('component.refreshToast.message')`。两处 zh 值逐字不变（有测试断言佐证）。
    - ✅ **D3 已裁决**：接受 320pt 截断（方案 A），**无需改码**。
-6. **核心机制验证的存疑 / 未覆盖**（详见 QA 报告末节）：① `expo-localization` **真机**返回值形状未实测（Web 已实测通过）；② `probeEpoch`（AppState 回前台重探测）分支未单独验证；③ 服务端文案需 `Accept-Language`，本期不做。
+6. **核心机制验证的存疑 / 未覆盖**（详见 QA 报告末节）：① `expo-localization` **真机**返回值形状 + 真机 AppState 事件未实测（Web 已实测通过，逻辑已单测）；② 服务端文案需 `Accept-Language`，本期不做。
 2. **英文模式下的显式允许残留**（PRD §6-D13，已在「语言」区块下方明示）：
    - **日期 / 星期 / 相对时间 / 字节 / 工时格式**（L8，`WorkspaceScreen` 的 `formatTodayLabel`/`weekdays`、`utils/date.ts`、`utils/format.ts`）；
    - **mock 种子业务数据**（任务标题 / 评论正文 / `AttachmentUploadSheet` 的演示文件名）—— `src/data/**` 刻意不译；

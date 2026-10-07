@@ -103,9 +103,9 @@
 | 静态红线 | ✅ 新增 i18n 文件满足 4 条（`increment-ui-polish` / `increment-card-lift` 绿） |
 | 新增测试 | ✅ 3 套件 / 47 用例（键一致性 18 / Provider 三态+持久化+兜底 19 / zh 冻结守卫 10） |
 | **`'system'` 类型约束** | ✅ `@ts-expect-error` 断言 `translate('system',…)` 为编译错误**生效** |
-| 残留中文复审 | ✅ 剩余**全部落在已登记允许类别**（见 §七） |
+| 残留中文复审（**覆盖全 `src/`**） | ✅ **主理人独立扫描**：含中文行按 6 类归类，`(g) 待判定` 共 **31 行** ⇒ 逐条判定后确认 **2 处真缺口**（`useAuth.ts:73` 生物识别失败提示、`ConnectivityProvider.tsx:154` 已刷新 Toast）——**均已修并提交 `8e405f5`**；其余 29 行为行内注释 / `console.warn` / 开发者 `throw` / **硬边界 F10**（`MainTabs` 5 个中文 Tab 被 `increment-ui-polish` 源码断言钉死）/ 已登记允许项 |
 | **真实浏览器端到端验收** | ⚠️ **已完成（有偏差）**：**IS_PASS = NO / 阻断项 0** —— 10 项走查 **8 项完全通过**，发现 3 个**非阻断**缺陷（见 §七）。报告：`docs/mobile-app/QA-mobile-increment-12-i18n-e2e.md`（含 4 张截图 + 原始命令输出） |
-| **核心机制 fresh-eyes 独立复核** | ❌ **未完成**（QA worker 429 配额失败，待 2026-10-08 09:50 重置后补跑） |
+| **核心机制 fresh-eyes 独立复核** | ⚠️ **部分完成**：残留审计 + zh 冻结核对**已由主理人亲自完成**（见 §四附）；**三态解析矩阵**与**默认路径零加载 `expo-localization`** 仍待 worker 补跑（429 配额，2026-10-08 09:50 重置）——其等价覆盖已由 `i18n-provider.test.tsx` 19 用例提供（三态 / 持久化 / hydrate / 非法值 / 无 Provider 兜底 / 探测失败 / seed 优先级） |
 
 **浏览器 E2E 关键实测**（`dist-i18n` + 系统 Chrome @ `127.0.0.1:4195`，`react`/`react-dom` 均 `19.2.3`）：
 - 默认中文：5 Tab 命中「工作台/今日/项目/时间/我的」✅
@@ -116,7 +116,13 @@
 - 残留说明随语言切换（中「日期格式 / 演示数据 / 服务端提示仍为中文」↔ 英「Dates, demo data and server messages remain in Chinese.」）✅
 - **0 console error**（本次会话 11 个日志 error 计数全为 0）✅
 
-> ⚠️ **诚实边界**：实现层目前只有**单测自证**（58/1013 全绿 + tsc 0），**尚无真实浏览器功能证据**。端到端验收待配额恢复（2026-10-08 09:50 重置）后补跑。
+**附：主理人亲自完成的独立复核（不依赖实现者自证）**
+
+1. **zh/en 键集合对称**：逐域 `grep` 提取键名后 `sort + diff`，8 个域文件**全部 IDENTICAL**，合计 645 键。
+2. **全 `src/` 残留中文审计**（脚本分类，非人工抽查）：`(a) 字典 783` / `(b) 冻结常量与取数 672` / `(c) 注释 2048` / `(d) mock 种子 259` / `(g) 待判定 31` ⇒ 逐条判定后 `(g)` 中 **2 处真缺口已修**，其余合法。
+3. **zh 输出逐字不变（最强证据）**：修复后 `offline-provider.test.tsx:246` 断言 `toasts[0].props.message === '网络已恢复，已刷新'` **仍绿** —— 即把硬编码换成 `t('component.refreshToast.message')` 后，zh 侧输出**逐字节未变**。
+
+> ⚠️ **诚实边界**：E2E 已完成并落报告（**IS_PASS = NO / 阻断项 0**），3 个非阻断缺陷中 **D1 / D2 已修**（`13f2622`）、**D3 待用户定夺**（默认按方案 A 接受 320pt 截断）；另经独立审计**新发现并修复 2 处** `hooks/store` 层硬编码中文（`8e405f5`）。**尚未独立验证**的仅剩：三态解析矩阵全矩阵、默认路径零加载 `expo-localization` 的运行时计数（二者均有单测等价覆盖）。
 
 ---
 
@@ -163,7 +169,8 @@
    - ✅ **D1 英文问候语用了全角中文逗号**（`Good afternoon，张伟`，`U+FF0C`）—— **已修**（`13f2622`）：新增整句词条 `screens.core.workspace.greetingWithName`（zh `'{greeting}，{name}'` / en `'{greeting}, {name}'`），分隔符随语言。
    - ✅ **D2 英文态优先级徽标仍显示中文「高」** —— **已修**（`13f2622`）：`components/Tag.tsx` 的状态 / 优先级回退改为走 i18n 字典（`t('taskStatus.*')` / `t('priority.*')`），不再回退 `theme` 的硬编码中文 `priorityLabel`；zh 值同源派生 ⇒ 逐字不变。
    - ⏳ **D3 320pt 窄屏 TabBar「Workspace」被截断为 `Works…`** —— **待定夺**：320/5 = 64px/项，而 `Workspace` 需 67px，**即使去掉 item padding 也不够**；PRD §6-D12 术语表已定 `Workspace` 并注明「须最短化」。候选：① 缩短为 `Work` 等更短词；② 接受 320pt 截断（390pt 及主流机型均正常）。
-   - ⏳ **核心机制 fresh-eyes 独立复核**未完成（429 配额失败），待 2026-10-08 09:50 后补跑。
+   - ✅ **独立审计新发现 2 处 `hooks/store` 层硬编码中文**（实现者与 QA 双方均漏）—— **已修**（`8e405f5`）：`useAuth.ts:73` 生物识别失败提示（新增键 `auth.biometricFailed`）→ `t()`；`ConnectivityProvider.tsx:154` 硬编码 `message="网络已恢复，已刷新"` **绕过了 `RefreshToast` 已接入的 i18n** → 改为 `t('component.refreshToast.message')`。两处 zh 值逐字不变（有测试断言佐证）。
+   - ⏳ **三态解析矩阵全矩阵**与**默认路径零加载 `expo-localization` 的运行时计数**仍未独立验证（worker 429 配额失败，待 2026-10-08 09:50 后补跑）—— 二者已有单测等价覆盖（`i18n-provider.test.tsx` 19 用例）。
 2. **英文模式下的显式允许残留**（PRD §6-D13，已在「语言」区块下方明示）：
    - **日期 / 星期 / 相对时间 / 字节 / 工时格式**（L8，`WorkspaceScreen` 的 `formatTodayLabel`/`weekdays`、`utils/date.ts`、`utils/format.ts`）；
    - **mock 种子业务数据**（任务标题 / 评论正文 / `AttachmentUploadSheet` 的演示文件名）—— `src/data/**` 刻意不译；
@@ -190,6 +197,8 @@
 | `e4e28e1` | docs(mobile): 增量12 多语言 PRD v2.0 + 架构设计（含类图/时序图） |
 | `1172a1e` | docs(mobile): 增量12 多语言交付概览（实现/验证/裁决/遗留） |
 | `13f2622` | fix(mobile): 增量12 修 QA-D1 英文问候全角逗号 / D2 优先级徽标未本地化 |
+| `bd8b031` | test(qa): 增量12 浏览器端到端验收报告 + 4 张截图（IS_PASS NO / 阻断 0）；概览补 E2E 结论与缺陷处置 |
+| `8e405f5` | fix(mobile): 增量12 收口 `hooks/store` 层两处硬编码中文（生物识别失败提示 / 已刷新 Toast），新增 `auth.biometricFailed` 键 |
 
 > **本增量对 `apps/web` 改动数为 0**（逐提交核实）；`apps/web` typecheck 仍 0 错误。
 > `services/api` 的既有 `tasks.service.ts` 类型错误（`SubtaskItemDto.assigneeId`）与本增量无关，未处理。

@@ -341,3 +341,13 @@ export function useAppContext(): AppContextValue {
   }
   return context
 }
+
+/**
+ * 非抛错访问器（增量 12 · T01）：无 `<AppProvider>` 时返回 `null`，**不抛错**。
+ *
+ * 供可独立渲染的 `I18nProvider` 读取 `user.locale` seed 用（`useAppContext()` 在无
+ * Provider 时抛错，不适合作为 seed 读取路径）。
+ */
+export function useOptionalAppContext(): AppContextValue | null {
+  return useContext(AppContext)
+}

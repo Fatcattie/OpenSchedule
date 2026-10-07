@@ -27,6 +27,8 @@ export const PREFERENCE_KEYS = {
   lastEmail: 'os.last_email',
   /** 主题三态偏好（`'system' | 'light' | 'dark'`，独立单值键，增量 10） */
   themeMode: 'os.theme_mode',
+  /** 语言三态偏好（`'zh-CN' | 'en-US' | 'system'`，独立单值键，增量 12） */
+  locale: 'os.locale',
 } as const
 
 /** 草稿持久化 key（AsyncStorage，M2-P2-02） */

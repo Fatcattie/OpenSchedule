@@ -159,7 +159,7 @@ QA 真浏览器跑 `dist-v29` 时，`#root` 渲染为空、控制台报 **React 
 ### 9.3 关键发现（非应用缺陷，但影响后续真实联调）
 
 1. **真实 API 面比预期大**：应用外壳首屏还会调 `/me/summaries`、`/notifications/unread-count`、`/audit-logs`，且**期望对象形状**（统一兜底 `{data:[]}` 会让 `WorkspaceScreen` 抛 `TypeError: …reading 'length'`）。⇒ 接真实后端时需覆盖这些端点。
-2. **中文文件名 mojibake 风险（INFO）**：后端 `attachments.controller.ts:18` 的 `FileInterceptor` **未设 `defParamCharset=utf8`**，busboy 默认 latin1（= multer 默认）下中文名会乱码。**注意**：本探针走 undici，与 RN native 编码器不同，**不能外推到移动端** ⇒ 列为真机补测项。
+2. **中文文件名 mojibake（INFO → 已修复 `471f2ad`）**：后端 `attachments.controller.ts:18` 的 `FileInterceptor` 原**未设 `defParamCharset`**，multer 2.2.0 把它以 undefined 透传给 busboy、默认 latin1 解码 ⇒ 中文名乱码。**已加 `defParamCharset: 'utf8'`**（浏览器/RN 均发 UTF-8，RFC 7578），并新增控制器级 spec `attachments-charset.spec.ts`（控制实验双向验证 + 后端全量 21/243 绿）。原 QA 备注"探针走 undici、与 RN native 编码器不同、不能外推"仍成立 —— 故真机中文名端到端仍列补测项。
 
 ### 9.4 盲区（如实）
 

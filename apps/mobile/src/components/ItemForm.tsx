@@ -15,12 +15,14 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Button } from './Button'
-import { SegmentedControl, type SegmentedControlOption } from './SegmentedControl'
+import { SegmentedControl } from './SegmentedControl'
 import { TextField } from './TextField'
 import { PressableScale } from './PressableScale'
 import { PickerSheet, type PickerOption } from './PickerSheet'
 import { DateTimeField } from './DateTimeField'
 import { runLayoutAnimation } from './FadeIn'
+import type { TranslationKey } from '@/i18n'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppRole, SubmissionKind, TaskPriority } from '@/types'
@@ -61,19 +63,25 @@ export interface ItemFormProps {
   allowedKinds?: SubmissionKind[]
 }
 
-/** 优先级全量 4 项（低 / 中 / 高 / 紧急） */
-const PRIORITY_OPTIONS: PickerOption<TaskPriority>[] = [
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' },
-  { value: 'urgent', label: '紧急' },
-]
+/** 优先级全量 4 项顺序（低 / 中 / 高 / 紧急），文案取自领域字典 `priority.*` */
+const PRIORITY_ORDER: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
 
-/** 类型分段选项（项目 / 任务） */
-const KIND_OPTIONS: SegmentedControlOption<SubmissionKind>[] = [
-  { value: 'project', label: '项目' },
-  { value: 'task', label: '任务' },
-]
+/** 优先级 → 领域字典键（`domain.ts` 同源派生，与 `theme.priorityLabel` 逐字一致） */
+const PRIORITY_KEY: Record<TaskPriority, TranslationKey> = {
+  low: 'priority.low',
+  medium: 'priority.medium',
+  high: 'priority.high',
+  urgent: 'priority.urgent',
+}
+
+/** 类型分段顺序（项目 / 任务） */
+const KIND_ORDER: SubmissionKind[] = ['project', 'task']
+
+/** 类型 → 业务字典键 */
+const KIND_KEY: Record<SubmissionKind, TranslationKey> = {
+  project: 'business.itemForm.kind.project',
+  task: 'business.itemForm.kind.task',
+}
 
 /** 内部选择字段（外观对齐 TextField：浮动标签 + 描边 + 错误红字 + 右侧箭头） */
 interface SelectFieldProps {
@@ -150,10 +158,18 @@ export function ItemForm({
 }: ItemFormProps): React.JSX.Element {
   const styles = useThemedStyles(makeStyles)
   const insets = useSafeAreaInsets()
+  const t = useT()
   const [openPicker, setOpenPicker] = useState<'priority' | 'project' | 'owner' | null>(null)
   const locked = submitting
 
-  const kindOptions = KIND_OPTIONS.filter((option) => allowedKinds.includes(option.value))
+  const priorityOptions: PickerOption<TaskPriority>[] = PRIORITY_ORDER.map((item) => ({
+    value: item,
+    label: t(PRIORITY_KEY[item]),
+  }))
+  const kindOptions = KIND_ORDER.filter((option) => allowedKinds.includes(option)).map((item) => ({
+    value: item,
+    label: t(KIND_KEY[item]),
+  }))
   const showKindControl = allowedKinds.length > 1
 
   // 调用方显式传 banner（含 null）时以其为准；未传时提报页 manager 分支给默认提示
@@ -161,13 +177,17 @@ export function ItemForm({
     banner !== undefined
       ? banner
       : mode === 'submission' && role === 'manager'
-        ? '将直接创建，无需审核'
+        ? t('business.itemForm.banner.manager')
         : null
 
   const submitLabel =
-    mode === 'create' ? '创建' : role === 'manager' ? '直接创建' : '提交提报'
+    mode === 'create'
+      ? t('business.itemForm.submit.create')
+      : role === 'manager'
+        ? t('business.itemForm.submit.directCreate')
+        : t('business.itemForm.submit.submit')
 
-  const priorityText = PRIORITY_OPTIONS.find((option) => option.value === value.priority)?.label ?? null
+  const priorityText = priorityOptions.find((option) => option.value === value.priority)?.label ?? null
   const projectText = value.projectId
     ? projects.find((option) => option.value === value.projectId)?.label ?? null
     : null
@@ -215,7 +235,7 @@ export function ItemForm({
 
         <View style={styles.fieldWrapper}>
           <TextField
-            label="标题"
+            label={t('business.itemForm.field.title')}
             value={value.title}
             onChangeText={(next) => patch({ title: next })}
             error={errors.title}
@@ -225,7 +245,7 @@ export function ItemForm({
 
         <View style={styles.fieldWrapper}>
           <TextField
-            label="描述"
+            label={t('business.itemForm.field.description')}
             value={value.description}
             onChangeText={(next) => patch({ description: next })}
             error={errors.description}
@@ -235,9 +255,9 @@ export function ItemForm({
         </View>
 
         <SelectField
-          label="优先级"
+          label={t('business.itemForm.field.priority')}
           value={priorityText}
-          placeholder="请选择优先级"
+          placeholder={t('business.itemForm.field.priorityPlaceholder')}
           onPress={() => setOpenPicker('priority')}
           disabled={locked}
           error={errors.priority}
@@ -245,18 +265,18 @@ export function ItemForm({
 
         {value.kind === 'task' ? (
           <SelectField
-            label="目标项目"
+            label={t('business.itemForm.field.project')}
             value={projectText}
-            placeholder="请选择目标项目"
+            placeholder={t('business.itemForm.field.projectPlaceholder')}
             onPress={() => setOpenPicker('project')}
             disabled={locked}
             error={errors.projectId}
           />
         ) : (
           <SelectField
-            label="负责人"
+            label={t('business.itemForm.field.owner')}
             value={ownerText}
-            placeholder="请选择负责人"
+            placeholder={t('business.itemForm.field.ownerPlaceholder')}
             onPress={() => setOpenPicker('owner')}
             disabled={locked}
             error={errors.ownerId}
@@ -265,7 +285,7 @@ export function ItemForm({
 
         <View style={styles.fieldWrapper}>
           <DateTimeField
-            label="截止时间"
+            label={t('business.itemForm.field.dueAt')}
             value={value.dueAt}
             onChange={(next) => patch({ dueAt: next })}
             error={errors.dueAt}
@@ -275,7 +295,7 @@ export function ItemForm({
 
         <View style={styles.fieldWrapper}>
           <TextField
-            label="预估工时"
+            label={t('business.itemForm.field.estimatedHours')}
             value={value.estimatedHours}
             onChangeText={(next) => patch({ estimatedHours: next })}
             error={errors.estimatedHours}
@@ -286,7 +306,7 @@ export function ItemForm({
 
         <View style={styles.fieldWrapper}>
           <TextField
-            label="说明"
+            label={t('business.itemForm.field.note')}
             value={value.note}
             onChangeText={(next) => patch({ note: next })}
             error={errors.note}
@@ -310,8 +330,8 @@ export function ItemForm({
 
       <PickerSheet
         visible={openPicker === 'priority'}
-        title="优先级"
-        options={PRIORITY_OPTIONS}
+        title={t('business.itemForm.field.priority')}
+        options={priorityOptions}
         value={value.priority}
         onSelect={(next) => patch({ priority: next })}
         onClose={() => setOpenPicker(null)}
@@ -319,7 +339,7 @@ export function ItemForm({
 
       <PickerSheet
         visible={openPicker === 'project'}
-        title="目标项目"
+        title={t('business.itemForm.field.project')}
         options={projects}
         value={value.projectId}
         onSelect={(next) => patch({ projectId: next })}
@@ -328,7 +348,7 @@ export function ItemForm({
 
       <PickerSheet
         visible={openPicker === 'owner'}
-        title="负责人"
+        title={t('business.itemForm.field.owner')}
         options={members}
         value={value.ownerId}
         onSelect={(next) => patch({ ownerId: next })}

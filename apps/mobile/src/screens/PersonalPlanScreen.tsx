@@ -37,15 +37,17 @@ import {
   staggerDelay,
   type PickerOption,
   type ScheduleBlock,
+  type SegmentedControlOption,
 } from '@/components'
 import { useAsync, useAuth } from '@/hooks'
 import { focusService, taskService } from '@/services'
+import type { TranslationKey } from '@/i18n'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
 import {
   getPriorityColorFor,
   layout,
-  priorityLabel,
   radius,
   shadow,
   spacing,
@@ -81,26 +83,28 @@ type PlanView = 'list' | 'schedule'
 /** 排期子视图：日 / 周 */
 type ScheduleView = 'day' | 'week'
 
-/** 一级分段选项 */
-const VIEW_OPTIONS: { value: PlanView; label: string }[] = [
-  { value: 'list', label: '列表' },
-  { value: 'schedule', label: '排期' },
+/** 一级分段选项（文案键在渲染期经 `t()` 求值） */
+const VIEW_OPTIONS: { value: PlanView; labelKey: TranslationKey }[] = [
+  { value: 'list', labelKey: 'screen.plan.view.list' },
+  { value: 'schedule', labelKey: 'screen.plan.view.schedule' },
 ]
 
-/** 排期子分段选项 */
-const SCHEDULE_VIEW_OPTIONS: { value: ScheduleView; label: string }[] = [
-  { value: 'day', label: '日' },
-  { value: 'week', label: '周' },
+/** 排期子分段选项（文案键在渲染期经 `t()` 求值） */
+const SCHEDULE_VIEW_OPTIONS: { value: ScheduleView; labelKey: TranslationKey }[] = [
+  { value: 'day', labelKey: 'screen.plan.schedule.day' },
+  { value: 'week', labelKey: 'screen.plan.schedule.week' },
 ]
 
 /** 优先级可选值（与 theme.priorityLabel 同源，禁止硬编码中文） */
 const PRIORITY_ORDER: TaskPriority[] = ['urgent', 'high', 'medium', 'low']
 
-/** 优先级选择项 */
-const PRIORITY_OPTIONS: PickerOption<TaskPriority>[] = PRIORITY_ORDER.map((value) => ({
-  value,
-  label: priorityLabel[value],
-}))
+/** 优先级 → 领域字典键（`domain.ts` 同源派生，与 `theme.priorityLabel` 逐字一致） */
+const PRIORITY_KEY: Record<TaskPriority, TranslationKey> = {
+  urgent: 'priority.urgent',
+  high: 'priority.high',
+  medium: 'priority.medium',
+  low: 'priority.low',
+}
 
 /** 日期可前后浏览的天数范围（与时间容器页一致，避免越界） */
 const DAY_NAV_RANGE = 7
@@ -152,6 +156,7 @@ function PersonalTaskCard({
   onComplete,
 }: PersonalTaskCardProps): React.JSX.Element {
   const { colors, statusColor, priorityColor } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const status = statusColor[task.status]
   const finished = task.status === 'done' || task.status === 'cancelled'
@@ -160,7 +165,7 @@ function PersonalTaskCard({
       ? `${formatTime(task.startAt, timezone)}–${formatTime(task.endAt, timezone)}`
       : task.startAt
         ? `${formatTime(task.startAt, timezone)}–`
-        : '未排期'
+        : t('screen.plan.unscheduled')
 
   return (
     <Card onPress={onPress} padded={false}>
@@ -173,7 +178,7 @@ function PersonalTaskCard({
             {onComplete ? (
               <PressableScale
                 accessibilityRole="button"
-                accessibilityLabel={`完成「${task.title}」`}
+                accessibilityLabel={t('screen.plan.completeA11y', { title: task.title })}
                 onPress={onComplete}
                 hitSlop={spacing.xs}
                 scale={0.96}
@@ -199,7 +204,7 @@ function PersonalTaskCard({
             {onMore ? (
               <PressableScale
                 accessibilityRole="button"
-                accessibilityLabel="更多操作"
+                accessibilityLabel={t('screen.plan.more')}
                 onPress={onMore}
                 hitSlop={spacing.xs}
                 scale={0.96}
@@ -211,7 +216,7 @@ function PersonalTaskCard({
           </View>
 
           <View style={styles.cardMetaRow}>
-            <Tag tone="status" status={task.status} text={status.label} />
+            <Tag tone="status" status={task.status} text={t(`taskStatus.${task.status}`)} />
             <View style={styles.cardTimeItem}>
               <Feather name="clock" size={layout.icon.sm} color={colors.text.secondary} />
               <Text style={[typography.caption, styles.cardTimeText]} numberOfLines={1}>
@@ -237,9 +242,27 @@ export function PersonalPlanScreen(): React.JSX.Element {
   const navigation = useNavigation<AppNavigationProp>()
   const { user } = useAuth()
   const { colors, priorityColor } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const timezone = user?.timezone ?? 'Asia/Shanghai'
   const userId = user?.id ?? ''
+
+  /** 优先级选择项（文案经 `t()` 求值，随语言切换） */
+  const priorityOptions: PickerOption<TaskPriority>[] = PRIORITY_ORDER.map((value) => ({
+    value,
+    label: t(PRIORITY_KEY[value]),
+  }))
+
+  /** 一级分段选项（文案经 `t()` 求值，随语言切换） */
+  const viewOptions: SegmentedControlOption<PlanView>[] = VIEW_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(option.labelKey),
+  }))
+
+  /** 排期子分段选项（文案经 `t()` 求值，随语言切换） */
+  const scheduleViewOptions: SegmentedControlOption<ScheduleView>[] = SCHEDULE_VIEW_OPTIONS.map(
+    (option) => ({ value: option.value, label: t(option.labelKey) }),
+  )
 
   // ── 视图与排期导航 ────────────────────────────────────────────────
   const [view, setView] = useState<PlanView>('list')
@@ -398,12 +421,12 @@ export function PersonalPlanScreen(): React.JSX.Element {
         personalTasks.setData((previous) =>
           previous ? previous.filter((item) => item.id !== task.id) : previous,
         )
-        setUndo({ taskId: task.id, message: `已完成「${task.title}」` })
+        setUndo({ taskId: task.id, message: t('screen.plan.toast.completed', { title: task.title }) })
       } catch {
-        showToast('操作失败，请重试')
+        showToast(t('screen.plan.toast.failed'))
       }
     },
-    [personalTasks, showToast],
+    [personalTasks, showToast, t],
   )
 
   /** 撤销完成（回滚为待办并刷新） */
@@ -414,11 +437,11 @@ export function PersonalPlanScreen(): React.JSX.Element {
     try {
       await focusService.updatePersonalTask(current.taskId, { status: 'todo' })
     } catch {
-      showToast('撤销失败，请重试')
+      showToast(t('screen.plan.toast.undoFailed'))
     } finally {
       await personalTasks.refetch()
     }
-  }, [personalTasks, showToast, undo])
+  }, [personalTasks, showToast, t, undo])
 
   const handleUndoExpire = useCallback(() => setUndo(null), [])
 
@@ -472,24 +495,24 @@ export function PersonalPlanScreen(): React.JSX.Element {
     let valid = true
 
     if (!title) {
-      setFormTitleError('请输入任务标题')
+      setFormTitleError(t('screen.plan.error.titleRequired'))
       valid = false
     } else {
       setFormTitleError(null)
     }
 
     if (!formStartAt) {
-      setFormStartError('请选择开始时间')
+      setFormStartError(t('screen.plan.error.startRequired'))
       valid = false
     } else {
       setFormStartError(null)
     }
 
     if (!formEndAt) {
-      setFormEndError('请选择结束时间')
+      setFormEndError(t('screen.plan.error.endRequired'))
       valid = false
     } else if (formStartAt && new Date(formEndAt).getTime() <= new Date(formStartAt).getTime()) {
-      setFormEndError('结束时间需晚于开始时间')
+      setFormEndError(t('screen.plan.error.endAfterStart'))
       valid = false
     } else {
       setFormEndError(null)
@@ -518,7 +541,9 @@ export function PersonalPlanScreen(): React.JSX.Element {
       runLayoutAnimation()
       await personalTasks.refetch()
     } catch {
-      showToast(editingTask ? '保存失败，请重试' : '创建失败，请重试')
+      showToast(
+        editingTask ? t('screen.plan.toast.saveFailed') : t('screen.plan.toast.createFailed'),
+      )
     } finally {
       setFormSubmitting(false)
     }
@@ -530,6 +555,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
     formTitle,
     personalTasks,
     showToast,
+    t,
     userId,
   ])
 
@@ -544,11 +570,11 @@ export function PersonalPlanScreen(): React.JSX.Element {
       runLayoutAnimation()
       await personalTasks.refetch()
     } catch {
-      showToast('删除失败，请重试')
+      showToast(t('screen.plan.toast.deleteFailed'))
     } finally {
       setDeleting(false)
     }
-  }, [deleteTask, personalTasks, showToast])
+  }, [deleteTask, personalTasks, showToast, t])
 
   // ── 排期操作 ──────────────────────────────────────────────────────
 
@@ -566,11 +592,11 @@ export function PersonalPlanScreen(): React.JSX.Element {
         runLayoutAnimation()
         await Promise.all([personalTasks.refetch(), scheduledTasks.refetch()])
       } catch {
-        showToast('改期失败，请重试')
+        showToast(t('screen.plan.toast.rescheduleFailed'))
         await personalTasks.refetch()
       }
     },
-    [dayDate, personalTasks, scheduledTasks, showToast, timezone],
+    [dayDate, personalTasks, scheduledTasks, showToast, t, timezone],
   )
 
   /** 点击块：团队任务 → 详情；个人任务 → 时段选择抽屉 */
@@ -621,12 +647,12 @@ export function PersonalPlanScreen(): React.JSX.Element {
         })
         runLayoutAnimation()
       } catch {
-        showToast('改期失败，请重试')
+        showToast(t('screen.plan.toast.rescheduleFailed'))
       } finally {
         await personalTasks.refetch()
       }
     },
-    [dayDate, personalTasks, showToast, slotTask, timezone],
+    [dayDate, personalTasks, showToast, slotTask, t, timezone],
   )
 
   /** 周视图点击某天 → 跳回日视图并选中该天 */
@@ -639,11 +665,13 @@ export function PersonalPlanScreen(): React.JSX.Element {
   )
 
   // ── 列表视图 ──────────────────────────────────────────────────────
-  const groupEntries = [
-    { key: 'today', title: '今天', tasks: groups.today },
-    { key: 'week', title: '本周', tasks: groups.week },
-    { key: 'later', title: '以后', tasks: groups.later },
-  ].filter((entry) => entry.tasks.length > 0)
+  const groupEntries = (
+    [
+      { key: 'today', titleKey: 'screen.plan.group.today', tasks: groups.today },
+      { key: 'week', titleKey: 'screen.plan.group.week', tasks: groups.week },
+      { key: 'later', titleKey: 'screen.plan.group.later', tasks: groups.later },
+    ] as { key: string; titleKey: TranslationKey; tasks: PersonalTask[] }[]
+  ).filter((entry) => entry.tasks.length > 0)
 
   const listSection = personalTasks.loading ? (
     <View style={styles.section}>
@@ -661,9 +689,9 @@ export function PersonalPlanScreen(): React.JSX.Element {
       <Card>
         <EmptyState
           icon="calendar"
-          title="今天还没有个人安排"
-          description="新建一条个人任务，开始安排你的时间"
-          actionLabel="新建"
+          title={t('screen.plan.empty.title')}
+          description={t('screen.plan.empty.description')}
+          actionLabel={t('screen.plan.new')}
           onAction={openCreate}
         />
       </Card>
@@ -675,7 +703,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
       ) : null}
       {groupEntries.map((group, groupIndex) => (
         <View key={group.key} style={styles.group}>
-          <Text style={[typography.label, styles.groupTitle]}>{group.title}</Text>
+          <Text style={[typography.label, styles.groupTitle]}>{t(group.titleKey)}</Text>
           {group.tasks.map((task, index) => (
             <FadeIn
               key={task.id}
@@ -701,7 +729,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
       <View style={styles.dateNav}>
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel="前一天"
+          accessibilityLabel={t('screen.plan.prevDay')}
           onPress={() => setDayOffset((value) => Math.max(-DAY_NAV_RANGE, value - 1))}
           scale={0.96}
           style={styles.navButton}
@@ -709,11 +737,11 @@ export function PersonalPlanScreen(): React.JSX.Element {
           <Feather name="chevron-left" size={layout.icon.md} color={colors.text.primary} />
         </PressableScale>
         <Text style={[typography.title, styles.dateLabel]}>
-          {dayOffset === 0 ? `今天 · ${dayLabel}` : dayLabel}
+          {dayOffset === 0 ? t('screen.plan.todayDate', { date: dayLabel }) : dayLabel}
         </Text>
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel="后一天"
+          accessibilityLabel={t('screen.plan.nextDay')}
           onPress={() => setDayOffset((value) => Math.min(DAY_NAV_RANGE, value + 1))}
           scale={0.96}
           style={styles.navButton}
@@ -723,12 +751,12 @@ export function PersonalPlanScreen(): React.JSX.Element {
         {dayOffset !== 0 ? (
           <PressableScale
             accessibilityRole="button"
-            accessibilityLabel="回到今天"
+            accessibilityLabel={t('screen.plan.backToToday')}
             onPress={() => setDayOffset(0)}
             scale={0.96}
             style={styles.todayButton}
           >
-            <Text style={[typography.label, styles.todayText]}>回到今天</Text>
+            <Text style={[typography.label, styles.todayText]}>{t('screen.plan.backToToday')}</Text>
           </PressableScale>
         ) : null}
       </View>
@@ -756,15 +784,15 @@ export function PersonalPlanScreen(): React.JSX.Element {
             />
           </Card>
           <Text style={[typography.caption, styles.hintText]}>
-            长按个人任务块可拖动改期，点击可快速选择时段
+            {t('screen.plan.dragHint')}
           </Text>
           {blocks.length === 0 ? (
             <Card style={styles.emptyCard}>
               <EmptyState
                 icon="calendar"
-                title="今天还没有个人安排"
-                description="新建一条个人任务，拖到合适的时间即可排期"
-                actionLabel="新建"
+                title={t('screen.plan.empty.title')}
+                description={t('screen.plan.dayEmpty.description')}
+                actionLabel={t('screen.plan.new')}
                 onAction={openCreate}
               />
             </Card>
@@ -803,10 +831,12 @@ export function PersonalPlanScreen(): React.JSX.Element {
               >
                 {formatDate(section.date, timezone)} {formatWeekday(section.date, timezone)}
               </Text>
-              {isToday ? <Text style={[typography.label, styles.weekTodayTag]}>今天</Text> : null}
+              {isToday ? (
+                <Text style={[typography.label, styles.weekTodayTag]}>{t('screen.plan.group.today')}</Text>
+              ) : null}
             </PressableScale>
             {section.tasks.length === 0 ? (
-              <Text style={[typography.caption, styles.weekEmpty]}>暂无个人安排</Text>
+              <Text style={[typography.caption, styles.weekEmpty]}>{t('screen.plan.weekEmptyCell')}</Text>
             ) : (
               section.tasks.map((task) => (
                 <View key={task.id} style={styles.cardGap}>
@@ -825,9 +855,9 @@ export function PersonalPlanScreen(): React.JSX.Element {
         <Card style={styles.emptyCard}>
           <EmptyState
             icon="calendar"
-            title="本周还没有个人安排"
-            description="新建一条个人任务，开始安排你的时间"
-            actionLabel="新建"
+            title={t('screen.plan.weekEmpty.title')}
+            description={t('screen.plan.weekEmpty.description')}
+            actionLabel={t('screen.plan.new')}
             onAction={openCreate}
           />
         </Card>
@@ -838,7 +868,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
   const scheduleSection = (
     <View style={styles.section}>
       <SegmentedControl
-        options={SCHEDULE_VIEW_OPTIONS}
+        options={scheduleViewOptions}
         value={scheduleView}
         onChange={setScheduleView}
       />
@@ -851,9 +881,11 @@ export function PersonalPlanScreen(): React.JSX.Element {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title="个人计划"
+        title={t('screen.plan.title')}
         subtitle={
-          personalTasks.data ? `共 ${personalTasks.data.length} 项个人任务` : undefined
+          personalTasks.data
+            ? t('screen.plan.subtitle', { count: personalTasks.data.length })
+            : undefined
         }
         onBack={() => goBackOrHome(navigation)}
       />
@@ -872,7 +904,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
         }
       >
         <FadeIn>
-          <SegmentedControl options={VIEW_OPTIONS} value={view} onChange={setView} />
+          <SegmentedControl options={viewOptions} value={view} onChange={setView} />
         </FadeIn>
 
         {view === 'list' ? listSection : scheduleSection}
@@ -881,7 +913,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
       {/* 新建个人任务浮动按钮 */}
       <PressableScale
         accessibilityRole="button"
-        accessibilityLabel="新建个人任务"
+        accessibilityLabel={t('screen.plan.newTask')}
         onPress={openCreate}
         scale={0.94}
         style={[styles.fab, { bottom: insets.bottom + spacing.lg }]}
@@ -898,7 +930,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
       >
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel="编辑"
+          accessibilityLabel={t('common.edit')}
           onPress={() => {
             if (actionTask) openEdit(actionTask)
           }}
@@ -907,11 +939,11 @@ export function PersonalPlanScreen(): React.JSX.Element {
           style={[styles.sheetRow, styles.sheetRowDivider]}
         >
           <Feather name="edit-2" size={layout.icon.md} color={colors.text.primary} />
-          <Text style={[typography.body, styles.sheetRowText]}>编辑</Text>
+          <Text style={[typography.body, styles.sheetRowText]}>{t('common.edit')}</Text>
         </PressableScale>
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel="删除"
+          accessibilityLabel={t('common.delete')}
           onPress={() => {
             const target = actionTask
             setActionTask(null)
@@ -922,7 +954,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
           style={styles.sheetRow}
         >
           <Feather name="trash-2" size={layout.icon.md} color={colors.danger} />
-          <Text style={[typography.body, styles.sheetRowDanger]}>删除</Text>
+          <Text style={[typography.body, styles.sheetRowDanger]}>{t('common.delete')}</Text>
         </PressableScale>
       </BottomSheet>
 
@@ -930,12 +962,12 @@ export function PersonalPlanScreen(): React.JSX.Element {
       <BottomSheet
         visible={formVisible}
         onClose={() => setFormVisible(false)}
-        title={editingTask ? '编辑个人任务' : '新建个人任务'}
+        title={editingTask ? t('screen.plan.form.editTitle') : t('screen.plan.newTask')}
         heightRatio={0.66}
       >
         <ScrollView showsVerticalScrollIndicator={false}>
           <TextField
-            label="任务标题"
+            label={t('screen.plan.form.titleField')}
             value={formTitle}
             onChangeText={handleTitleChange}
             maxLength={60}
@@ -944,20 +976,22 @@ export function PersonalPlanScreen(): React.JSX.Element {
           <View style={styles.formGap}>
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel="选择优先级"
+              accessibilityLabel={t('screen.plan.form.selectPriority')}
               onPress={() => setPriorityPickerVisible(true)}
               scale={1}
               pressedBg={colors.bg.subtle}
               style={styles.priorityField}
             >
               <View>
-                <Text style={[typography.label, styles.priorityFieldLabel]}>优先级</Text>
+                <Text style={[typography.label, styles.priorityFieldLabel]}>
+                  {t('screen.plan.form.priority')}
+                </Text>
                 <View style={styles.priorityValueRow}>
                   <View
                     style={[styles.priorityDot, { backgroundColor: getPriorityColorFor(formPriority, priorityColor) }]}
                   />
                   <Text style={[typography.body, styles.priorityValue]}>
-                    {priorityLabel[formPriority]}
+                    {t(PRIORITY_KEY[formPriority])}
                   </Text>
                 </View>
               </View>
@@ -966,7 +1000,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
           </View>
           <View style={styles.formGap}>
             <DateTimeField
-              label="开始时间"
+              label={t('screen.plan.form.start')}
               value={formStartAt}
               onChange={handleStartChange}
               timezone={timezone}
@@ -975,7 +1009,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
           </View>
           <View style={styles.formGap}>
             <DateTimeField
-              label="结束时间"
+              label={t('screen.plan.form.end')}
               value={formEndAt}
               onChange={handleEndChange}
               timezone={timezone}
@@ -984,7 +1018,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
           </View>
           <View style={styles.formAction}>
             <Button
-              label={editingTask ? '保存' : '创建'}
+              label={editingTask ? t('common.save') : t('screen.plan.form.submitCreate')}
               fullWidth
               loading={formSubmitting}
               onPress={() => void handleSubmit()}
@@ -997,15 +1031,15 @@ export function PersonalPlanScreen(): React.JSX.Element {
       <BottomSheet
         visible={deleteTask !== null}
         onClose={() => setDeleteTask(null)}
-        title="删除个人任务"
+        title={t('screen.plan.delete.title')}
         heightRatio={0.34}
       >
         <Text style={[typography.caption, styles.deleteHint]}>
-          删除后不可恢复：{deleteTask?.title ?? ''}
+          {t('screen.plan.delete.hint', { title: deleteTask?.title ?? '' })}
         </Text>
         <View style={styles.formAction}>
           <Button
-            label="确认删除"
+            label={t('screen.plan.delete.confirm')}
             variant="danger"
             fullWidth
             loading={deleting}
@@ -1017,8 +1051,8 @@ export function PersonalPlanScreen(): React.JSX.Element {
       {/* 优先级选择 */}
       <PickerSheet
         visible={priorityPickerVisible}
-        title="优先级"
-        options={PRIORITY_OPTIONS}
+        title={t('screen.plan.form.priority')}
+        options={priorityOptions}
         value={formPriority}
         onSelect={setFormPriority}
         onClose={() => setPriorityPickerVisible(false)}
@@ -1027,7 +1061,7 @@ export function PersonalPlanScreen(): React.JSX.Element {
       {/* 时段选择（点击块的无障碍兜底） */}
       <PickerSheet
         visible={slotTask !== null}
-        title="选择时段"
+        title={t('screen.plan.picker.slot')}
         options={slotOptions}
         value={slotValue}
         onSelect={(value) => void handleSlotSelect(value)}

@@ -4,6 +4,7 @@
 import { Feather } from '@expo/vector-icons'
 import { StyleSheet, Text, View } from 'react-native'
 import { Avatar } from './Avatar'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import type { TaskComment, User } from '@/types'
@@ -27,8 +28,9 @@ export function CommentItem({
   timezone = 'Asia/Shanghai',
 }: CommentItemProps): React.JSX.Element {
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
-  const displayName = author?.displayName ?? '未知成员'
+  const displayName = author?.displayName ?? t('business.comment.unknownMember')
 
   return (
     <View style={styles.container}>
@@ -38,11 +40,11 @@ export function CommentItem({
           <Text style={[typography.label, styles.author]} numberOfLines={1}>
             {displayName}
           </Text>
-          {isMine ? <Text style={[typography.label, styles.mineBadge]}>我</Text> : null}
+          {isMine ? <Text style={[typography.label, styles.mineBadge]}>{t('business.comment.mine')}</Text> : null}
           {comment.isDecision ? (
             <View style={styles.decisionBadge}>
               <Feather name="check-circle" size={layout.icon.sm - 2} color={colors.success} />
-              <Text style={[typography.label, styles.decisionText]}>关键决策</Text>
+              <Text style={[typography.label, styles.decisionText]}>{t('business.comment.decision')}</Text>
             </View>
           ) : null}
           <Text style={[typography.caption, styles.time]} numberOfLines={1}>

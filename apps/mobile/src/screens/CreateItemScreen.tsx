@@ -17,6 +17,7 @@ import {
 } from '@/components'
 import { useAsync, useAuth } from '@/hooks'
 import { projectService, taskService } from '@/services'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp, AppRouteProp, SubmissionKind } from '@/types'
@@ -61,6 +62,7 @@ export function CreateItemScreen(): React.JSX.Element {
   const route = useRoute<AppRouteProp<'CreateItem'>>()
   const { user } = useAuth()
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const can = useCan()
   const userId = user?.id ?? ''
@@ -107,8 +109,8 @@ export function CreateItemScreen(): React.JSX.Element {
   const projects = useAsync(() => projectService.listProjectCards('active'), [])
 
   useEffect(() => {
-    if (projects.error) showToast('项目列表加载失败，可稍后重试')
-  }, [projects.error, showToast])
+    if (projects.error) showToast(t('screen.submission.toast.projectLoadFailed'))
+  }, [projects.error, showToast, t])
 
   const projectOptions: PickerOption<string>[] = useMemo(
     () =>
@@ -130,8 +132,8 @@ export function CreateItemScreen(): React.JSX.Element {
     const nextErrors: Partial<Record<keyof ItemFormValue, string>> = {}
     const titleError = validateSubmissionTitle(value.title)
     if (titleError) nextErrors.title = titleError
-    if (value.kind === 'task' && !value.projectId) nextErrors.projectId = '请选择目标项目'
-    if (value.kind === 'project' && !value.ownerId) nextErrors.ownerId = '请选择负责人'
+    if (value.kind === 'task' && !value.projectId) nextErrors.projectId = t('screen.createItem.error.projectRequired')
+    if (value.kind === 'project' && !value.ownerId) nextErrors.ownerId = t('screen.createItem.error.ownerRequired')
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
 
@@ -163,7 +165,7 @@ export function CreateItemScreen(): React.JSX.Element {
           userId,
         )
       }
-      showToast('已创建')
+      showToast(t('screen.createItem.toast.created'))
       navigation.goBack()
     } catch (error) {
       // 失败不清空已填内容，仅顶部轻提示错误文案
@@ -171,15 +173,15 @@ export function CreateItemScreen(): React.JSX.Element {
     } finally {
       setSubmitting(false)
     }
-  }, [navigation, reviewRequired, showToast, userId, value])
+  }, [navigation, reviewRequired, showToast, t, userId, value])
 
   // 权限门禁：项目 / 任务创建均无权限时不渲染表单
   if (!canProject && !canTask) {
     return (
       <View style={styles.root}>
-        <ScreenHeader title="创建事项" onBack={() => goBackOrHome(navigation)} />
+        <ScreenHeader title={t('screen.createItem.title')} onBack={() => goBackOrHome(navigation)} />
         <View style={styles.gate}>
-          <ErrorState message="无权限：当前角色不能创建事项" onRetry={() => navigation.goBack()} />
+          <ErrorState message={t('screen.createItem.gate')} onRetry={() => navigation.goBack()} />
         </View>
       </View>
     )
@@ -187,15 +189,15 @@ export function CreateItemScreen(): React.JSX.Element {
 
   return (
     <View style={styles.root}>
-      <ScreenHeader title="创建事项" onBack={() => goBackOrHome(navigation)} />
+      <ScreenHeader title={t('screen.createItem.title')} onBack={() => goBackOrHome(navigation)} />
 
       {/* 增量 7（M1）：需要评审开关 —— 仅 manager 且 kind === 'task' 时渲染 */}
       {canTask && value.kind === 'task' ? (
         <View style={styles.reviewRow}>
           <View style={styles.reviewText}>
-            <Text style={[typography.body, styles.reviewLabel]}>需要评审</Text>
+            <Text style={[typography.body, styles.reviewLabel]}>{t('screen.createItem.reviewRequired')}</Text>
             <Text style={[typography.caption, styles.reviewHint]}>
-              开启后，完成任务须经审核通过才算完成
+              {t('screen.createItem.reviewHint')}
             </Text>
           </View>
           <Switch

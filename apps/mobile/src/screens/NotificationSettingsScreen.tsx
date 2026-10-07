@@ -17,25 +17,46 @@ import {
 } from '@/components'
 import { useAsync, useAuth } from '@/hooks'
 import { focusService } from '@/services'
+import type { TranslationKey } from '@/i18n'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp, NotificationPreference } from '@/types'
 import { NETWORK_OFFLINE_MESSAGE, NOTIFICATION_EVENT_LABEL, isNetworkError } from '@/types'
 
-/** 渠道配置 */
-const CHANNELS: { key: keyof NotificationPreference['channels']; label: string }[] = [
-  { key: 'email', label: '邮件' },
-  { key: 'push', label: '推送' },
-  { key: 'im', label: '即时消息' },
+/** 渠道配置（文案键在渲染期经 `t()` 求值，随语言切换） */
+const CHANNELS: { key: keyof NotificationPreference['channels']; labelKey: TranslationKey }[] = [
+  { key: 'email', labelKey: 'screen.notificationSettings.channel.email' },
+  { key: 'push', labelKey: 'screen.notificationSettings.channel.push' },
+  { key: 'im', labelKey: 'screen.notificationSettings.channel.im' },
 ]
+
+/** 通知事件类型 → 领域字典键（`domain.ts` 同源派生，与 `NOTIFICATION_EVENT_LABEL` 逐字一致） */
+const EVENT_KEY: Record<string, TranslationKey> = {
+  'task.assigned': 'notificationEvent.taskAssigned',
+  mention: 'notificationEvent.mention',
+  deadline_approaching: 'notificationEvent.deadlineApproaching',
+  'ai.proposal': 'notificationEvent.aiProposal',
+  'task.completed': 'notificationEvent.taskCompleted',
+  'review.result': 'notificationEvent.reviewResult',
+  'review.pending': 'notificationEvent.reviewPending',
+  'review.withdrawn': 'notificationEvent.reviewWithdrawn',
+}
 
 /** 通知偏好设置页 */
 export function NotificationSettingsScreen(): React.JSX.Element {
   const navigation = useNavigation<AppNavigationProp>()
   const { user } = useAuth()
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const userId = user?.id ?? ''
+
+  /** 事件类型文案：优先走领域字典，未知类型回落既有标签 / 原始值 */
+  const eventLabel = (type: string): string => {
+    const key = EVENT_KEY[type]
+    return key ? t(key) : NOTIFICATION_EVENT_LABEL[type] ?? type
+  }
 
   const preferences = useAsync<NotificationPreference[]>(
     () => focusService.getNotificationPreferences(userId),
@@ -71,8 +92,8 @@ export function NotificationSettingsScreen(): React.JSX.Element {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title="通知偏好"
-        subtitle="按事件类型选择接收渠道"
+        title={t('screen.notificationSettings.title')}
+        subtitle={t('screen.notificationSettings.subtitle')}
         onBack={() => navigation.goBack()}
       />
 
@@ -89,7 +110,11 @@ export function NotificationSettingsScreen(): React.JSX.Element {
           />
         ) : list.length === 0 ? (
           <Card>
-            <EmptyState icon="bell-off" title="暂无偏好配置" description="后端未返回任何通知偏好项" />
+            <EmptyState
+              icon="bell-off"
+              title={t('screen.notificationSettings.empty.title')}
+              description={t('screen.notificationSettings.empty.description')}
+            />
           </Card>
         ) : (
           list.map((preference, index) => (
@@ -97,17 +122,19 @@ export function NotificationSettingsScreen(): React.JSX.Element {
               <Card>
                 <View style={styles.headerRow}>
                   <Text style={[typography.title, styles.title]}>
-                    {NOTIFICATION_EVENT_LABEL[preference.eventType] ?? preference.eventType}
+                    {eventLabel(preference.eventType)}
                   </Text>
                   {savingId === preference.id ? (
-                    <Text style={[typography.caption, styles.saving]}>保存中…</Text>
+                    <Text style={[typography.caption, styles.saving]}>
+                      {t('screen.notificationSettings.saving')}
+                    </Text>
                   ) : null}
                 </View>
                 <Text style={[typography.caption, styles.eventType]}>{preference.eventType}</Text>
 
                 {CHANNELS.map((channel) => (
                   <View key={channel.key} style={styles.channelRow}>
-                    <Text style={[typography.body, styles.channelLabel]}>{channel.label}</Text>
+                    <Text style={[typography.body, styles.channelLabel]}>{t(channel.labelKey)}</Text>
                     <Switch
                       value={preference.channels[channel.key]}
                       onValueChange={() => void handleToggle(preference, channel.key)}
@@ -121,7 +148,10 @@ export function NotificationSettingsScreen(): React.JSX.Element {
 
                 {preference.quietHours && preference.quietHours.length > 0 ? (
                   <Text style={[typography.caption, styles.quiet]}>
-                    免打扰：{preference.quietHours[0].start} – {preference.quietHours[0].end}
+                    {t('screen.notificationSettings.quietHours', {
+                      start: preference.quietHours[0].start,
+                      end: preference.quietHours[0].end,
+                    })}
                   </Text>
                 ) : null}
               </Card>
@@ -130,7 +160,7 @@ export function NotificationSettingsScreen(): React.JSX.Element {
         )}
 
         <Text style={[typography.caption, styles.footerNote]}>
-          提示：写操作会同步到后端 notification_preferences；首版仅站内通知 + 轮询，真推送在后续版本接入。
+          {t('screen.notificationSettings.footer')}
         </Text>
       </ScrollView>
     </View>

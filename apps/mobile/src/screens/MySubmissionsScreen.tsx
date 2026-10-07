@@ -22,6 +22,8 @@ import {
 } from '@/components'
 import { useAsync, useAuth } from '@/hooks'
 import { taskService } from '@/services'
+import type { TranslationKey } from '@/i18n'
+import { useT } from '@/store/I18nProvider'
 import { useThemedStyles } from '@/store/ThemeProvider'
 import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
 import { layout, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
@@ -41,13 +43,22 @@ import { useCan } from '@/utils/permission'
 /** 状态标签语义色调（本文件私有，避免与并行任务改 types/ 冲突） */
 type StatusTone = 'neutral' | 'warning' | 'success' | 'danger'
 
-/** 提报状态 → 中文文案 + 语义色调 */
-const SUBMISSION_STATUS_META: Record<SubmissionStatus, { text: string; tone: StatusTone }> = {
-  draft: { text: '草稿', tone: 'neutral' },
-  pending: { text: '待审核', tone: 'warning' },
-  approved: { text: '已通过', tone: 'success' },
-  rejected: { text: '已驳回', tone: 'danger' },
-  withdrawn: { text: '已撤回', tone: 'neutral' },
+/** 提报状态 → 领域字典键（`domain.ts` 同源派生，与 `SUBMISSION_STATUS_LABEL` 逐字一致） */
+const SUBMISSION_STATUS_KEY: Record<SubmissionStatus, TranslationKey> = {
+  draft: 'submissionStatus.draft',
+  pending: 'submissionStatus.pending',
+  approved: 'submissionStatus.approved',
+  rejected: 'submissionStatus.rejected',
+  withdrawn: 'submissionStatus.withdrawn',
+}
+
+/** 提报状态 → 语义色调 */
+const SUBMISSION_STATUS_TONE: Record<SubmissionStatus, StatusTone> = {
+  draft: 'neutral',
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'danger',
+  withdrawn: 'neutral',
 }
 
 /** 语义色调 → 前景色 / 8% 淡底（取主题语义色，与 Tag 胶囊同构；运行时按当前色板求值，C7） */
@@ -58,12 +69,12 @@ const makeToneStyle = (colors: ThemeColors): Record<StatusTone, { color: string;
   danger: { color: colors.danger, bg: `${colors.danger}14` },
 })
 
-/** 提报状态呈现：文案 / 语义色调 / 原因行前缀 */
+/** 提报状态呈现：文案键 / 语义色调 / 原因行前缀键 */
 interface SubmissionView {
-  text: string
+  textKey: TranslationKey
   tone: StatusTone
-  /** 原因行前缀：退回重改 → 「退回原因：」；其余 → 「驳回原因：」 */
-  noteLabel: string
+  /** 原因行前缀键：退回重改 → 「退回原因：」；其余 → 「驳回原因：」 */
+  noteKey: TranslationKey
 }
 
 /** 取末条审核留痕意见（无日志时为 undefined） */
@@ -88,18 +99,24 @@ function isReworkSubmission(task: Task): boolean {
  */
 function resolveSubmissionView(task: Task): SubmissionView {
   if (isReworkSubmission(task)) {
-    return { text: '退回重改', tone: 'warning', noteLabel: '退回原因：' }
+    return {
+      textKey: 'screen.mySubmissions.status.rework',
+      tone: 'warning',
+      noteKey: 'screen.mySubmissions.note.rework',
+    }
   }
+  const status = task.submissionStatus ?? 'draft'
   return {
-    ...SUBMISSION_STATUS_META[task.submissionStatus ?? 'draft'],
-    noteLabel: '驳回原因：',
+    textKey: SUBMISSION_STATUS_KEY[status],
+    tone: SUBMISSION_STATUS_TONE[status],
+    noteKey: 'screen.mySubmissions.note.reject',
   }
 }
 
-/** 提报类型中文文案（徽标用） */
-const SUBMISSION_KIND_TEXT: Record<SubmissionKind, string> = {
-  project: '项目',
-  task: '任务',
+/** 提报类型字典键（徽标用） */
+const SUBMISSION_KIND_KEY: Record<SubmissionKind, TranslationKey> = {
+  project: 'screen.mySubmissions.kind.project',
+  task: 'screen.mySubmissions.kind.task',
 }
 
 /** 轻提示自动消失时长（毫秒，与今日聚焦一致） */
@@ -113,6 +130,7 @@ export function MySubmissionsScreen(): React.JSX.Element {
   const navigation = useNavigation<AppNavigationProp>()
   const { user } = useAuth()
   const can = useCan()
+  const t = useT()
   const toneStyle = useThemedStyles(makeToneStyle)
   const styles = useThemedStyles(makeStyles)
   const userId = user?.id ?? ''
@@ -150,20 +168,20 @@ export function MySubmissionsScreen(): React.JSX.Element {
     try {
       await taskService.withdrawSubmission(target.id, target.version, userId)
       setWithdrawTarget(null)
-      showToast('已撤回')
+      showToast(t('screen.mySubmissions.toast.withdrawn'))
     } catch (error) {
       showToast(getErrorMessage(error))
     } finally {
       setWithdrawing(false)
       await submissions.refetch()
     }
-  }, [showToast, submissions, userId, withdrawTarget])
+  }, [showToast, submissions, t, userId, withdrawTarget])
 
   const list = submissions.data ?? []
 
   return (
     <View style={styles.root}>
-      <ScreenHeader title="我的提报" onBack={() => goBackOrHome(navigation)} />
+      <ScreenHeader title={t('screen.mySubmissions.title')} onBack={() => goBackOrHome(navigation)} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {submissions.isStale && submissions.updatedAt !== null && !submissions.error ? (
@@ -180,9 +198,9 @@ export function MySubmissionsScreen(): React.JSX.Element {
           <Card>
             <EmptyState
               icon="inbox"
-              title="还没有提报记录"
-              description="去工作台提报一个新事项"
-              actionLabel="返回"
+              title={t('screen.mySubmissions.empty.title')}
+              description={t('screen.mySubmissions.empty.description')}
+              actionLabel={t('common.back')}
               onAction={() => navigation.goBack()}
             />
           </Card>
@@ -199,15 +217,19 @@ export function MySubmissionsScreen(): React.JSX.Element {
                       {task.title}
                     </Text>
                     {withdrawable ? (
-                      <Button label="撤回" variant="ghost" onPress={() => setWithdrawTarget(task)} />
+                      <Button
+                        label={t('screen.mySubmissions.withdraw')}
+                        variant="ghost"
+                        onPress={() => setWithdrawTarget(task)}
+                      />
                     ) : null}
                   </View>
 
                   <View style={styles.badgeRow}>
-                    <Tag text={SUBMISSION_KIND_TEXT[task.submissionKind ?? 'task']} tone="neutral" />
+                    <Tag text={t(SUBMISSION_KIND_KEY[task.submissionKind ?? 'task'])} tone="neutral" />
                     <View style={styles.badgeGap} />
                     <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
-                      <Text style={[typography.label, { color: tone.color }]}>{view.text}</Text>
+                      <Text style={[typography.label, { color: tone.color }]}>{t(view.textKey)}</Text>
                     </View>
                   </View>
 
@@ -217,7 +239,7 @@ export function MySubmissionsScreen(): React.JSX.Element {
 
                   {task.reviewNote ? (
                     <Text style={[typography.caption, styles.reviewNote]} numberOfLines={3}>
-                      {view.noteLabel}{task.reviewNote}
+                      {t(view.noteKey)}{task.reviewNote}
                     </Text>
                   ) : null}
                 </Card>
@@ -238,16 +260,16 @@ export function MySubmissionsScreen(): React.JSX.Element {
       <BottomSheet
         visible={withdrawTarget !== null}
         onClose={() => setWithdrawTarget(null)}
-        title="撤回提报"
+        title={t('screen.mySubmissions.sheet.title')}
         heightRatio={WITHDRAW_SHEET_RATIO}
       >
         <Text style={[typography.caption, styles.sheetText]}>
-          撤回后该提报将不再进入审核列表，确定撤回吗？
+          {t('screen.mySubmissions.sheet.text')}
         </Text>
         <View style={styles.sheetActions}>
           <View style={styles.sheetButton}>
             <Button
-              label="取消"
+              label={t('common.cancel')}
               variant="secondary"
               fullWidth
               onPress={() => setWithdrawTarget(null)}
@@ -255,7 +277,7 @@ export function MySubmissionsScreen(): React.JSX.Element {
           </View>
           <View style={styles.sheetButton}>
             <Button
-              label="确定撤回"
+              label={t('screen.mySubmissions.sheet.confirm')}
               variant="danger"
               fullWidth
               loading={withdrawing}

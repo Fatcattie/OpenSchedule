@@ -7,10 +7,11 @@ import { Avatar } from './Avatar'
 import { Card } from './Card'
 import { ProgressBar } from './ProgressBar'
 import { Tag } from './Tag'
+import type { TParams, TranslationKey } from '@/i18n'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, spacing, typography, type ThemeColors } from '@/theme'
 import type { Project, User } from '@/types'
-import { PROJECT_STATUS_LABEL } from '@/types'
 import { daysUntil, formatDate } from '@/utils/date'
 
 /** ProjectCard 入参 */
@@ -30,15 +31,21 @@ function buildDeadlineMeta(
   project: Project,
   timezone: string,
   colors: ThemeColors,
+  t: (key: TranslationKey, params?: TParams) => string,
 ): { text: string; color: string } | null {
   if (!project.deadline) return null
   if (project.status !== 'active') {
-    return { text: `截止 ${formatDate(project.deadline, timezone)}`, color: colors.text.tertiary }
+    return {
+      text: t('business.projectCard.deadline', { date: formatDate(project.deadline, timezone) }),
+      color: colors.text.tertiary,
+    }
   }
   const diff = daysUntil(project.deadline, timezone)
-  if (diff < 0) return { text: `已逾期 ${Math.abs(diff)} 天`, color: colors.danger }
-  if (diff <= 7) return { text: `剩 ${diff} 天`, color: colors.warning }
-  return { text: `剩 ${diff} 天`, color: colors.text.secondary }
+  if (diff < 0) {
+    return { text: t('business.projectCard.overdue', { days: Math.abs(diff) }), color: colors.danger }
+  }
+  if (diff <= 7) return { text: t('business.projectCard.remaining', { days: diff }), color: colors.warning }
+  return { text: t('business.projectCard.remaining', { days: diff }), color: colors.text.secondary }
 }
 
 /** 项目卡片 */
@@ -51,8 +58,9 @@ export function ProjectCard({
   timezone = 'Asia/Shanghai',
 }: ProjectCardProps): React.JSX.Element {
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
-  const deadline = buildDeadlineMeta(project, timezone, colors)
+  const deadline = buildDeadlineMeta(project, timezone, colors, t)
   const percent = Math.round(Math.max(0, Math.min(1, progress)) * 100)
 
   return (
@@ -68,7 +76,7 @@ export function ProjectCard({
             </Text>
           ) : null}
         </View>
-        <Tag text={PROJECT_STATUS_LABEL[project.status]} tone="neutral" />
+        <Tag text={t(`projectStatus.${project.status}`)} tone="neutral" />
       </View>
 
       <View style={styles.metaRow}>
@@ -82,12 +90,16 @@ export function ProjectCard({
         ) : (
           <View style={styles.metaItem}>
             <Feather name="user" size={layout.icon.sm} color={colors.text.tertiary} />
-            <Text style={[typography.caption, styles.metaText]}>未指定负责人</Text>
+            <Text style={[typography.caption, styles.metaText]}>
+              {t('business.projectCard.noOwner')}
+            </Text>
           </View>
         )}
         <View style={styles.metaItem}>
           <Feather name="list" size={layout.icon.sm} color={colors.text.tertiary} />
-          <Text style={[typography.caption, styles.metaText]}>{taskCount} 个任务</Text>
+          <Text style={[typography.caption, styles.metaText]}>
+            {t('business.projectCard.taskCount', { count: taskCount })}
+          </Text>
         </View>
         {deadline ? (
           <View style={styles.metaItem}>

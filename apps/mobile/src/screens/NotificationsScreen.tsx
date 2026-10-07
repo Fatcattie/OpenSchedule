@@ -18,6 +18,7 @@ import {
 } from '@/components'
 import { useAsync, useAuth } from '@/hooks'
 import { focusService } from '@/services'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp, NotificationItem } from '@/types'
@@ -42,6 +43,7 @@ export function NotificationsScreen(): React.JSX.Element {
   const navigation = useNavigation<AppNavigationProp>()
   const { user } = useAuth()
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const timezone = user?.timezone ?? 'Asia/Shanghai'
   const userId = user?.id ?? ''
@@ -86,8 +88,12 @@ export function NotificationsScreen(): React.JSX.Element {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title="通知"
-        subtitle={unreadCount > 0 ? `${unreadCount} 条未读` : '全部已读'}
+        title={t('screen.notifications.title')}
+        subtitle={
+          unreadCount > 0
+            ? t('screen.notifications.unreadCount', { count: unreadCount })
+            : t('screen.notifications.allRead')
+        }
         onBack={() => goBackOrHome(navigation)}
         right={
           unreadCount > 0 ? (
@@ -99,7 +105,7 @@ export function NotificationsScreen(): React.JSX.Element {
               pressedBg={colors.bg.subtle}
               style={styles.markAllButton}
             >
-              <Text style={[typography.label, styles.markAll]}>全部已读</Text>
+              <Text style={[typography.label, styles.markAll]}>{t('screen.notifications.allRead')}</Text>
             </PressableScale>
           ) : undefined
         }
@@ -129,7 +135,11 @@ export function NotificationsScreen(): React.JSX.Element {
           />
         ) : list.length === 0 ? (
           <Card>
-            <EmptyState icon="bell" title="暂无通知" description="任务指派、@提及与临期提醒会出现在这里" />
+            <EmptyState
+              icon="bell"
+              title={t('screen.notifications.empty.title')}
+              description={t('screen.notifications.empty.description')}
+            />
           </Card>
         ) : (
           list.map((item, index) => (
@@ -169,7 +179,7 @@ export function NotificationsScreen(): React.JSX.Element {
                     ) : null}
                     <Text style={[typography.caption, styles.meta]}>
                       {formatRelativeTime(item.createdAt, timezone)}
-                      {item.data?.taskId ? ' · 点击查看任务' : ''}
+                      {item.data?.taskId ? t('screen.notifications.tapToView') : ''}
                     </Text>
                   </View>
                 </View>

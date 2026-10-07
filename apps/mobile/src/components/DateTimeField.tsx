@@ -26,6 +26,7 @@ import {
   SLOT_MINUTES,
   minutesToIso,
 } from '@/utils/schedule'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 
@@ -76,13 +77,14 @@ export function DateTimeField({
   label,
   value,
   onChange,
-  placeholder = '请选择',
+  placeholder,
   disabled = false,
   error,
   timezone = null,
   clearable = true,
 }: DateTimeFieldProps): React.JSX.Element {
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   /** 当前打开的抽屉步骤：null=关闭 */
   const [step, setStep] = useState<'date' | 'time' | null>(null)
@@ -99,13 +101,18 @@ export function DateTimeField({
     () =>
       dayDates.map((date) => {
         const offset = daysUntil(date, timezone)
-        const prefix = offset === 0 ? '今天 ' : offset === 1 ? '明天 ' : ''
+        const prefix =
+          offset === 0
+            ? t('business.dateTimeField.today')
+            : offset === 1
+              ? t('business.dateTimeField.tomorrow')
+              : ''
         return {
           value: toDateKey(date, timezone),
           label: `${prefix}${formatDate(date, timezone)} ${formatWeekday(date, timezone)}`,
         }
       }),
-    [dayDates, timezone],
+    [dayDates, timezone, t],
   )
 
   // 当前日期键：优先第一步选择，其次由已选值反推
@@ -164,13 +171,13 @@ export function DateTimeField({
             {label}
           </Text>
           <Text style={[typography.body, styles.value, { color: valueColor }]} numberOfLines={1}>
-            {display ?? placeholder}
+            {display ?? placeholder ?? t('business.dateTimeField.placeholder')}
           </Text>
         </View>
         {clearable && value && !disabled ? (
           <PressableScale
             accessibilityRole="button"
-            accessibilityLabel="清除"
+            accessibilityLabel={t('business.dateTimeField.clear')}
             onPress={() => onChange(null)}
             hitSlop={{
               top: spacing.sm,

@@ -7,6 +7,7 @@ import { Feather } from '@expo/vector-icons'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { BottomSheet } from './BottomSheet'
 import { PressableScale } from './PressableScale'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 
@@ -55,6 +56,7 @@ export function PickerSheet<T extends string>({
   onClear,
 }: PickerSheetProps<T>): React.JSX.Element {
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const rowCount = options.length + (clearable ? 1 : 0)
   const heightRatio = resolveHeightRatio(rowCount)
@@ -109,7 +111,7 @@ export function PickerSheet<T extends string>({
       {clearable ? (
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel="清除"
+          accessibilityLabel={t('business.picker.clear')}
           onPress={() => {
             onClear?.()
             onClose()
@@ -118,7 +120,7 @@ export function PickerSheet<T extends string>({
           pressedBg={colors.bg.subtle}
           style={[styles.row, styles.clearRow]}
         >
-          <Text style={[typography.body, styles.clearLabel]}>清除</Text>
+          <Text style={[typography.body, styles.clearLabel]}>{t('business.picker.clear')}</Text>
         </PressableScale>
       ) : null}
     </BottomSheet>

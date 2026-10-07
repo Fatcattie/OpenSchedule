@@ -18,6 +18,8 @@ import { useAuth } from '@/hooks'
 import { taskService } from '@/services'
 import { USE_MOCK } from '@/services/config'
 import { isSourceSupported, pickFile, type PickSource } from '@/services/platform/attachmentPicker'
+import type { TranslationKey } from '@/i18n'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import { getErrorMessage } from '@/types'
@@ -47,24 +49,39 @@ const MOCK_UPLOAD_FILES: AttachmentFileMeta[] = [
 /** 抽屉阶段 */
 type SheetPhase = 'idle' | 'permission' | 'uploading' | 'error'
 
-/** 取图入口定义 */
+/** 取图入口定义（文案键在渲染期经 `t()` 求值，随语言切换） */
 interface PickEntry {
   source: PickSource
   icon: 'camera' | 'image' | 'file'
-  title: string
-  subtitle: string
+  titleKey: TranslationKey
+  subtitleKey: TranslationKey
 }
 
 const PICK_ENTRIES: PickEntry[] = [
-  { source: 'camera', icon: 'camera', title: '拍照', subtitle: '调起系统相机拍摄照片' },
-  { source: 'library', icon: 'image', title: '从相册选择', subtitle: '从系统相册选取图片' },
-  { source: 'document', icon: 'file', title: '选择文件', subtitle: 'PDF / Office / ZIP，单文件 ≤20MB' },
+  {
+    source: 'camera',
+    icon: 'camera',
+    titleKey: 'business.attachment.entry.camera.title',
+    subtitleKey: 'business.attachment.entry.camera.subtitle',
+  },
+  {
+    source: 'library',
+    icon: 'image',
+    titleKey: 'business.attachment.entry.library.title',
+    subtitleKey: 'business.attachment.entry.library.subtitle',
+  },
+  {
+    source: 'document',
+    icon: 'file',
+    titleKey: 'business.attachment.entry.document.title',
+    subtitleKey: 'business.attachment.entry.document.subtitle',
+  },
 ]
 
-/** 权限被拒时的中文说明（面向用户可读） */
-const PERMISSION_MESSAGE: Record<'camera' | 'library', string> = {
-  camera: '相机权限已被关闭 —— 需要在系统设置中开启「相机」权限后才能拍照。',
-  library: '相册权限已被关闭 —— 需要在系统设置中开启「相册」权限后才能选择图片。',
+/** 权限被拒时的说明文案键（面向用户可读，随语言切换） */
+const PERMISSION_KEY: Record<'camera' | 'library', TranslationKey> = {
+  camera: 'business.attachment.permission.camera',
+  library: 'business.attachment.permission.library',
 }
 
 export interface AttachmentUploadSheetProps {
@@ -92,6 +109,7 @@ export function AttachmentUploadSheet({
 }: AttachmentUploadSheetProps): React.JSX.Element {
   const { user } = useAuth()
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const userId = user?.id ?? ''
 
@@ -170,14 +188,14 @@ export function AttachmentUploadSheet({
       // 适配层异常回落：既非「用户取消」、也没有文件 ⇒ 取图失败（不能静默什么都不做）
       if (!result.file) {
         setPending(null)
-        setError('未能读取所选文件，请重新选择')
+        setError(t('business.attachment.readFailed'))
         setHint(null)
         setPhase('error')
         return
       }
       await startUpload(result.file)
     },
-    [startUpload],
+    [startUpload, t],
   )
 
   /** 上传中禁止关闭抽屉（保留既有行为） */
@@ -187,11 +205,11 @@ export function AttachmentUploadSheet({
   }, [onClose, phase])
 
   return (
-    <BottomSheet visible={visible} onClose={handleClose} title="添加附件" heightRatio={0.72}>
+    <BottomSheet visible={visible} onClose={handleClose} title={t('business.attachment.title')} heightRatio={0.72}>
       <ScrollView showsVerticalScrollIndicator={false}>
         {phase === 'idle' ? (
           <Text style={[typography.caption, styles.sheetHint]}>
-            单文件 ≤20MB，支持图片 / PDF / Office 文档 / ZIP
+            {t('business.attachment.hint')}
           </Text>
         ) : null}
 
@@ -202,7 +220,7 @@ export function AttachmentUploadSheet({
               <PressableScale
                 key={entry.source}
                 accessibilityRole="button"
-                accessibilityLabel={entry.title}
+                accessibilityLabel={t(entry.titleKey)}
                 onPress={() => void handlePick(entry.source)}
                 scale={1}
                 pressedBg={colors.bg.subtle}
@@ -210,9 +228,9 @@ export function AttachmentUploadSheet({
               >
                 <Feather name={entry.icon} size={layout.icon.md} color={colors.primary} />
                 <View style={styles.entryBody}>
-                  <Text style={[typography.body, styles.entryTitle]}>{entry.title}</Text>
+                  <Text style={[typography.body, styles.entryTitle]}>{t(entry.titleKey)}</Text>
                   <Text style={[typography.caption, styles.entryMeta]} numberOfLines={1}>
-                    {entry.subtitle}
+                    {t(entry.subtitleKey)}
                   </Text>
                 </View>
                 <Feather name="chevron-right" size={layout.icon.md} color={colors.text.tertiary} />
@@ -224,12 +242,12 @@ export function AttachmentUploadSheet({
         {/* ── 演示文件（仅 mock 分支渲染，真实构建下不出现）── */}
         {phase === 'idle' && USE_MOCK ? (
           <View style={styles.mockGroup}>
-            <Text style={[typography.caption, styles.mockTitle]}>演示文件</Text>
+            <Text style={[typography.caption, styles.mockTitle]}>{t('business.attachment.mockTitle')}</Text>
             {MOCK_UPLOAD_FILES.map((file) => (
               <PressableScale
                 key={file.fileName}
                 accessibilityRole="button"
-                accessibilityLabel={`选择文件 ${file.fileName}`}
+                accessibilityLabel={t('business.attachment.mockA11y', { name: file.fileName })}
                 onPress={() => void startUpload(file)}
                 scale={1}
                 pressedBg={colors.bg.subtle}
@@ -255,25 +273,25 @@ export function AttachmentUploadSheet({
           <View style={styles.notice}>
             <Feather name="alert-circle" size={layout.icon.md} color={colors.warning} />
             <Text style={[typography.caption, styles.noticeText]}>
-              {PERMISSION_MESSAGE[deniedSource]}
+              {t(PERMISSION_KEY[deniedSource])}
             </Text>
             <View style={styles.actions}>
               {canAskAgain ? (
                 <Button
-                  label="重试"
+                  label={t('common.retry')}
                   variant="secondary"
                   icon="refresh-cw"
                   onPress={() => void handlePick(deniedSource)}
                 />
               ) : (
                 <Button
-                  label="去系统设置"
+                  label={t('business.attachment.openSettings')}
                   variant="secondary"
                   icon="settings"
                   onPress={() => void Linking.openSettings()}
                 />
               )}
-              <Button label="取消" variant="ghost" onPress={() => setPhase('idle')} />
+              <Button label={t('common.cancel')} variant="ghost" onPress={() => setPhase('idle')} />
             </View>
           </View>
         ) : null}
@@ -287,14 +305,16 @@ export function AttachmentUploadSheet({
             {USE_MOCK ? (
               <>
                 <Text style={[typography.caption, styles.progressLabel]}>
-                  上传中… {Math.round(progress * 100)}%
+                  {t('business.attachment.uploadingPercent', { percent: Math.round(progress * 100) })}
                 </Text>
                 <ProgressBar value={progress} />
               </>
             ) : (
               <View style={styles.indeterminateRow}>
                 <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={[typography.caption, styles.progressLabel]}>上传中…</Text>
+                <Text style={[typography.caption, styles.progressLabel]}>
+                  {t('business.attachment.uploading')}
+                </Text>
               </View>
             )}
           </View>
@@ -309,13 +329,13 @@ export function AttachmentUploadSheet({
             <View style={styles.actions}>
               {pending ? (
                 <Button
-                  label="重试"
+                  label={t('common.retry')}
                   variant="secondary"
                   icon="refresh-cw"
                   onPress={() => void startUpload(pending)}
                 />
               ) : null}
-              <Button label="取消" variant="ghost" onPress={() => setPhase('idle')} />
+              <Button label={t('common.cancel')} variant="ghost" onPress={() => setPhase('idle')} />
             </View>
           </View>
         ) : null}

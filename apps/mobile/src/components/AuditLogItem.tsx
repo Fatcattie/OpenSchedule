@@ -7,14 +7,31 @@
 import { StyleSheet, Text, View } from 'react-native'
 import { Card } from './Card'
 import { Tag } from './Tag'
+import type { TranslationKey } from '@/i18n'
+import { useT } from '@/store/I18nProvider'
 import { useThemeColors, useThemedStyles } from '@/store/ThemeProvider'
 import { radius, spacing, typography, type ThemeColors } from '@/theme'
-import type { AuditLog, Task } from '@/types'
-import { AUDIT_ACTION_LABEL, opinionMeta } from '@/utils/audit'
+import type { AuditAction, AuditLog, AuditOpinion, Task } from '@/types'
+import { opinionMeta } from '@/utils/audit'
 import { formatRelativeTime } from '@/utils/format'
 
 /** 8% 透明度后缀（#RRGGBB + 14 ≈ 8%，与 Tag / MySubmissionsScreen 同构） */
 const ALPHA_8_PERCENT = '14'
+
+/** 审核意见 → 领域字典键（`domain.ts` 同源派生，与 `OPINION_OPTIONS` 逐字一致） */
+const OPINION_KEY: Record<AuditOpinion, TranslationKey> = {
+  agree: 'auditOpinion.agree',
+  reject: 'auditOpinion.reject',
+  rework: 'auditOpinion.rework',
+  other: 'auditOpinion.other',
+}
+
+/** 审核动作 → 领域字典键（`domain.ts` 同源派生，与 `AUDIT_ACTION_LABEL` 逐字一致） */
+const ACTION_KEY: Record<AuditAction, TranslationKey> = {
+  approve: 'auditAction.approve',
+  reject: 'auditAction.reject',
+  withdraw: 'auditAction.withdraw',
+}
 
 /** AuditLogItem 入参 */
 export interface AuditLogItemProps {
@@ -30,6 +47,7 @@ export function AuditLogItem({
   timezone = 'Asia/Shanghai',
 }: AuditLogItemProps): React.JSX.Element {
   const colors = useThemeColors()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const opinion = opinionMeta(colors)[log.opinion]
   return (
@@ -40,10 +58,10 @@ export function AuditLogItem({
 
       <View style={styles.metaRow}>
         <View style={[styles.pill, { backgroundColor: `${opinion.color}${ALPHA_8_PERCENT}` }]}>
-          <Text style={[typography.label, { color: opinion.color }]}>{opinion.label}</Text>
+          <Text style={[typography.label, { color: opinion.color }]}>{t(OPINION_KEY[log.opinion])}</Text>
         </View>
         <View style={styles.gap} />
-        <Tag text={AUDIT_ACTION_LABEL[log.action]} tone="neutral" />
+        <Tag text={t(ACTION_KEY[log.action])} tone="neutral" />
         <Text style={[typography.caption, styles.operator]} numberOfLines={1}>
           {log.operatorName}
         </Text>

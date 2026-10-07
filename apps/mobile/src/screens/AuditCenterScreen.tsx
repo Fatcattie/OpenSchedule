@@ -44,7 +44,9 @@ import {
 import { userMap as buildUserMap } from '@/data'
 import { useAsync, useAuth } from '@/hooks'
 import { auditService, type SubmitAuditAction } from '@/services'
+import type { TranslationKey } from '@/i18n'
 import { NETWORK_OFFLINE_MESSAGE, isNetworkError } from '@/types'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 import {
@@ -57,7 +59,6 @@ import {
 import {
   OPINION_OPTIONS,
   REVIEW_ACTION_A11Y,
-  REVIEW_ACTION_LABEL,
   canApproveMainTask,
   filterApproved,
   filterPendingAudit,
@@ -72,41 +73,69 @@ import { isWithdrawable } from '@/utils/submission'
 /** 四栏标识 */
 type AuditTab = 'report' | 'audit' | 'approved' | 'withdrawn'
 
-/** 四栏选项（badge 数量在渲染时注入） */
-const TAB_OPTIONS: { value: AuditTab; label: string }[] = [
-  { value: 'report', label: '待提报' },
-  { value: 'audit', label: '待审核' },
-  { value: 'approved', label: '审核通过' },
-  { value: 'withdrawn', label: '撤回审核' },
+/** 四栏选项（label 键在渲染时经 `t()` 求值，badge 数量在渲染时注入） */
+const TAB_OPTIONS: { value: AuditTab; labelKey: TranslationKey }[] = [
+  { value: 'report', labelKey: 'screen.auditCenter.tab.report' },
+  { value: 'audit', labelKey: 'screen.auditCenter.tab.audit' },
+  { value: 'approved', labelKey: 'screen.auditCenter.tab.approved' },
+  { value: 'withdrawn', labelKey: 'screen.auditCenter.tab.withdrawn' },
 ]
 
-/** 各栏空态文案 */
-const EMPTY_TEXT: Record<AuditTab, { title: string; description: string }> = {
-  report: { title: '没有待提报事项', description: '相关事项都已完成或已提交审核' },
-  audit: { title: '没有待审核事项', description: '成员提交完成提报后会出现在这里' },
-  approved: { title: '没有已通过的审核', description: '可调整日期区间查看历史' },
-  withdrawn: { title: '没有驳回 / 撤回记录', description: '可调整日期区间查看历史' },
+/** 各栏空态文案键 */
+const EMPTY_KEY: Record<AuditTab, { titleKey: TranslationKey; descriptionKey: TranslationKey }> = {
+  report: {
+    titleKey: 'screen.auditCenter.empty.report.title',
+    descriptionKey: 'screen.auditCenter.empty.report.description',
+  },
+  audit: {
+    titleKey: 'screen.auditCenter.empty.audit.title',
+    descriptionKey: 'screen.auditCenter.empty.audit.description',
+  },
+  approved: {
+    titleKey: 'screen.auditCenter.empty.approved.title',
+    descriptionKey: 'screen.auditCenter.empty.approved.description',
+  },
+  withdrawn: {
+    titleKey: 'screen.auditCenter.empty.withdrawn.title',
+    descriptionKey: 'screen.auditCenter.empty.withdrawn.description',
+  },
 }
 
-/** 审核动作选项 */
-const ACTION_OPTIONS: { value: SubmitAuditAction; label: string }[] = [
-  { value: 'approve', label: '通过' },
-  { value: 'reject', label: '驳回' },
-  { value: 'withdraw', label: '撤回' },
-]
+/** 审核动作选项顺序 */
+const ACTION_ORDER: SubmitAuditAction[] = ['approve', 'reject', 'withdraw']
+
+/** 审核动作 → 字典键 */
+const ACTION_KEY: Record<SubmitAuditAction, TranslationKey> = {
+  approve: 'screen.auditCenter.action.approve',
+  reject: 'screen.auditCenter.action.reject',
+  withdraw: 'screen.auditCenter.action.withdraw',
+}
+
+/** 审核意见 → 领域字典键（`domain.ts` 同源派生，与 `OPINION_OPTIONS` 逐字一致） */
+const OPINION_KEY: Record<AuditOpinion, TranslationKey> = {
+  agree: 'auditOpinion.agree',
+  reject: 'auditOpinion.reject',
+  rework: 'auditOpinion.rework',
+  other: 'auditOpinion.other',
+}
+
+/** 卡片三枚动作显示文案 → 领域字典键（`domain.ts` 同源派生，与 `REVIEW_ACTION_LABEL` 逐字一致） */
+const REVIEW_KEY: Record<'approve' | 'reject' | 'rework', TranslationKey> = {
+  approve: 'reviewAction.approve',
+  reject: 'reviewAction.reject',
+  rework: 'reviewAction.rework',
+}
 
 /** 审核抽屉占屏比例 */
 const AUDIT_SHEET_RATIO = 0.62
 /** 轻提示自动消失时长（毫秒） */
 const TOAST_DURATION = 2200
 /**
- * 「待审核」栏卡片三枚动作的**显示文案 / accessibilityLabel**。
+ * 「待审核」栏卡片三枚动作的 **accessibilityLabel**（带「审核」前缀，与显示文案分离）。
  *
- * 单一事实来源：取自审核域共用常量 `REVIEW_ACTION_LABEL` / `REVIEW_ACTION_A11Y`
- * （今日聚焦「待我审核」卡片内联三枚按钮共用同一份），避免两处分叉。
- * accessibilityLabel 带「审核」前缀、与显示文案分离（详见 `utils/audit.ts` 注释）。
+ * 单一事实来源：取自审核域共用常量 `REVIEW_ACTION_A11Y`（今日聚焦「待我审核」卡片内联三枚按钮
+ * 共用同一份），避免两处分叉。显示文案经 `t(REVIEW_KEY.*)` 求值（详见 `utils/audit.ts` 注释）。
  */
-const { approve: APPROVE_LABEL, reject: REJECT_LABEL, rework: REWORK_LABEL } = REVIEW_ACTION_LABEL
 const { approve: APPROVE_A11Y, reject: REJECT_A11Y, rework: REWORK_A11Y } = REVIEW_ACTION_A11Y
 
 /** 提交审核的入参（抽屉提交入口使用） */
@@ -127,6 +156,7 @@ export function AuditCenterScreen(): React.JSX.Element {
   const navigation = useNavigation<AppNavigationProp>()
   const { user } = useAuth()
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const can = useCan()
   const canReview = can('review:view_pending')
@@ -195,8 +225,19 @@ export function AuditCenterScreen(): React.JSX.Element {
   )
 
   const tabOptions = useMemo(
-    () => TAB_OPTIONS.map((option) => ({ ...option, badge: counts[option.value] })),
-    [counts],
+    () =>
+      TAB_OPTIONS.map((option) => ({
+        value: option.value,
+        label: t(option.labelKey),
+        badge: counts[option.value],
+      })),
+    [counts, t],
+  )
+
+  /** 审核意见分段选项（文案经 `t()` 求值，与 `OPINION_OPTIONS` 值域一致） */
+  const opinionOptions = useMemo(
+    () => OPINION_OPTIONS.map((option) => ({ value: option.value, label: t(OPINION_KEY[option.value]) })),
+    [t],
   )
 
   /** 某任务当前可执行的动作（无权限 / 非提报人时为空） */
@@ -243,11 +284,11 @@ export function AuditCenterScreen(): React.JSX.Element {
       if (submittingRef.current) return
       const trimmed = reasonText.trim()
       if ((nextAction === 'reject' || nextOpinion === 'other') && trimmed.length < REASON_MIN_LENGTH) {
-        showToast(`原因不少于 ${REASON_MIN_LENGTH} 字`)
+        showToast(t('screen.auditCenter.reasonMin', { count: REASON_MIN_LENGTH }))
         return
       }
       if (nextAction === 'approve' && !canApproveMainTask(target, tasks)) {
-        showToast('评审子任务尚未完成，暂不可通过')
+        showToast(t('screen.auditCenter.reviewBlocked'))
         return
       }
       submittingRef.current = true
@@ -264,7 +305,11 @@ export function AuditCenterScreen(): React.JSX.Element {
         setAuditTarget(null)
         setReason('')
         showToast(
-          nextAction === 'approve' ? '已通过' : nextAction === 'reject' ? '已驳回' : '已撤回',
+          nextAction === 'approve'
+            ? t('screen.auditCenter.toast.approved')
+            : nextAction === 'reject'
+              ? t('screen.auditCenter.toast.rejected')
+              : t('screen.auditCenter.toast.withdrawn'),
         )
       } catch (error) {
         showToast(getErrorMessage(error))
@@ -274,7 +319,7 @@ export function AuditCenterScreen(): React.JSX.Element {
         await audit.refetch()
       }
     },
-    [audit, showToast, tasks, userId],
+    [audit, showToast, t, tasks, userId],
   )
 
   /** 抽屉提交：透传当前动作 / 意见 / 原因 */
@@ -304,7 +349,10 @@ export function AuditCenterScreen(): React.JSX.Element {
   )
 
   const currentActions = auditTarget ? actionsFor(auditTarget) : []
-  const actionOptions = ACTION_OPTIONS.filter((option) => currentActions.includes(option.value))
+  const actionOptions = ACTION_ORDER.filter((value) => currentActions.includes(value)).map((value) => ({
+    value,
+    label: t(ACTION_KEY[value]),
+  }))
   const approveBlocked = auditTarget !== null && !canApproveMainTask(auditTarget, tasks)
   const submitDisabled =
     submitting ||
@@ -313,11 +361,15 @@ export function AuditCenterScreen(): React.JSX.Element {
     (action === 'approve' && approveBlocked)
 
   const showRange = tab === 'approved' || tab === 'withdrawn'
-  const empty = EMPTY_TEXT[tab]
+  const empty = EMPTY_KEY[tab]
 
   return (
     <View style={styles.root}>
-      <ScreenHeader title="审核中心" subtitle="提报审核 · 完成评审" onBack={() => goBackOrHome(navigation)} />
+      <ScreenHeader
+        title={t('screen.auditCenter.title')}
+        subtitle={t('screen.auditCenter.subtitle')}
+        onBack={() => goBackOrHome(navigation)}
+      />
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xxxl }]}
@@ -340,11 +392,21 @@ export function AuditCenterScreen(): React.JSX.Element {
         {showRange ? (
           <FadeIn delay={staggerDelay(1)} style={styles.rangeRow}>
             <View style={styles.rangeField}>
-              <DateTimeField label="起始" value={rangeFrom} onChange={setRangeFrom} timezone={timezone} />
+              <DateTimeField
+                label={t('screen.auditCenter.range.from')}
+                value={rangeFrom}
+                onChange={setRangeFrom}
+                timezone={timezone}
+              />
             </View>
             <View style={styles.rangeGap} />
             <View style={styles.rangeField}>
-              <DateTimeField label="截止" value={rangeTo} onChange={setRangeTo} timezone={timezone} />
+              <DateTimeField
+                label={t('screen.auditCenter.range.to')}
+                value={rangeTo}
+                onChange={setRangeTo}
+                timezone={timezone}
+              />
             </View>
           </FadeIn>
         ) : null}
@@ -364,7 +426,11 @@ export function AuditCenterScreen(): React.JSX.Element {
           ) : tab === 'withdrawn' ? (
             lists.withdrawn.length === 0 ? (
               <Card>
-                <EmptyState icon="check-circle" title={empty.title} description={empty.description} />
+                <EmptyState
+                  icon="check-circle"
+                  title={t(empty.titleKey)}
+                  description={t(empty.descriptionKey)}
+                />
               </Card>
             ) : (
               lists.withdrawn.map((log, index) => (
@@ -375,7 +441,11 @@ export function AuditCenterScreen(): React.JSX.Element {
             )
           ) : lists[tab].length === 0 ? (
             <Card>
-              <EmptyState icon="check-circle" title={empty.title} description={empty.description} />
+              <EmptyState
+                icon="check-circle"
+                title={t(empty.titleKey)}
+                description={t(empty.descriptionKey)}
+              />
             </Card>
           ) : (
             lists[tab].map((task, index) => {
@@ -401,7 +471,7 @@ export function AuditCenterScreen(): React.JSX.Element {
                         accessibilityLabel={APPROVE_A11Y}
                       >
                         <Text style={[typography.label, styles.auditApproveText]} numberOfLines={1}>
-                          {APPROVE_LABEL}
+                          {t(REVIEW_KEY.approve)}
                         </Text>
                       </PressableScale>
                       <PressableScale
@@ -412,7 +482,7 @@ export function AuditCenterScreen(): React.JSX.Element {
                         accessibilityLabel={REJECT_A11Y}
                       >
                         <Text style={[typography.label, styles.auditRejectText]} numberOfLines={1}>
-                          {REJECT_LABEL}
+                          {t(REVIEW_KEY.reject)}
                         </Text>
                       </PressableScale>
                       <PressableScale
@@ -423,13 +493,18 @@ export function AuditCenterScreen(): React.JSX.Element {
                         accessibilityLabel={REWORK_A11Y}
                       >
                         <Text style={[typography.label, styles.auditReworkText]} numberOfLines={1}>
-                          {REWORK_LABEL}
+                          {t(REVIEW_KEY.rework)}
                         </Text>
                       </PressableScale>
                     </View>
                   ) : actions.length > 0 ? (
                     <View style={styles.auditActionsBelow}>
-                      <Button label="审核" variant="ghost" size="md" onPress={() => openAudit(task)} />
+                      <Button
+                        label={t('screen.auditCenter.audit')}
+                        variant="ghost"
+                        size="md"
+                        onPress={() => openAudit(task)}
+                      />
                     </View>
                   ) : null}
                 </FadeIn>
@@ -450,7 +525,7 @@ export function AuditCenterScreen(): React.JSX.Element {
       <BottomSheet
         visible={auditTarget !== null}
         onClose={closeAudit}
-        title="审核"
+        title={t('screen.auditCenter.audit')}
         heightRatio={AUDIT_SHEET_RATIO}
       >
         <ScrollView showsVerticalScrollIndicator={false}>
@@ -460,7 +535,9 @@ export function AuditCenterScreen(): React.JSX.Element {
 
           {actionOptions.length > 0 ? (
             <>
-              <Text style={[typography.label, styles.fieldLabel]}>审核动作</Text>
+              <Text style={[typography.label, styles.fieldLabel]}>
+                {t('screen.auditCenter.sheet.actionLabel')}
+              </Text>
               <SegmentedControl
                 options={actionOptions}
                 value={action}
@@ -469,12 +546,18 @@ export function AuditCenterScreen(): React.JSX.Element {
             </>
           ) : null}
 
-          <Text style={[typography.label, styles.fieldLabel]}>审核意见</Text>
-          <SegmentedControl options={OPINION_OPTIONS} value={opinion} onChange={setOpinion} />
+          <Text style={[typography.label, styles.fieldLabel]}>
+            {t('screen.auditCenter.sheet.opinionLabel')}
+          </Text>
+          <SegmentedControl options={opinionOptions} value={opinion} onChange={setOpinion} />
 
           <View style={styles.reasonField}>
             <TextField
-              label={opinion === 'other' || action === 'reject' ? '原因（必填）' : '备注（选填）'}
+              label={
+                opinion === 'other' || action === 'reject'
+                  ? t('screen.auditCenter.sheet.reasonRequired')
+                  : t('screen.auditCenter.sheet.noteOptional')
+              }
               value={reason}
               onChangeText={setReason}
               multiline
@@ -484,17 +567,17 @@ export function AuditCenterScreen(): React.JSX.Element {
 
           {action === 'approve' && approveBlocked ? (
             <Text style={[typography.caption, styles.blockedHint]}>
-              评审子任务尚未完成，暂不可通过
+              {t('screen.auditCenter.reviewBlocked')}
             </Text>
           ) : null}
 
           <View style={styles.sheetActions}>
             <View style={styles.sheetButton}>
-              <Button label="取消" variant="secondary" fullWidth onPress={closeAudit} />
+              <Button label={t('common.cancel')} variant="secondary" fullWidth onPress={closeAudit} />
             </View>
             <View style={styles.sheetButton}>
               <Button
-                label="提交审核"
+                label={t('screen.auditCenter.sheet.submit')}
                 fullWidth
                 loading={submitting}
                 disabled={submitDisabled}

@@ -8,6 +8,8 @@ import { StyleSheet, Text, View } from 'react-native'
 import { Avatar } from './Avatar'
 import { Card } from './Card'
 import { Tag } from './Tag'
+import type { TParams, TranslationKey } from '@/i18n'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { getPriorityColorFor, layout, radius, spacing, typography, type ThemeColors } from '@/theme'
 import type { Project, Task, User } from '@/types'
@@ -42,6 +44,7 @@ function buildDueMeta(
   task: Task,
   timezone: string,
   colors: ThemeColors,
+  t: (key: TranslationKey, params?: TParams) => string,
 ): { text: string; color: string } | null {
   if (!task.dueAt) return null
   const text = formatDate(task.dueAt, timezone)
@@ -49,9 +52,11 @@ function buildDueMeta(
     return { text, color: colors.text.tertiary }
   }
   const diff = daysUntil(task.dueAt, timezone)
-  if (diff < 0) return { text: `已逾期 ${Math.abs(diff)} 天`, color: colors.danger }
-  if (diff === 0) return { text: '今天到期', color: colors.warning }
-  if (diff === 1) return { text: '明天到期', color: colors.warning }
+  if (diff < 0) {
+    return { text: t('business.taskCard.overdue', { days: Math.abs(diff) }), color: colors.danger }
+  }
+  if (diff === 0) return { text: t('business.taskCard.dueToday'), color: colors.warning }
+  if (diff === 1) return { text: t('business.taskCard.dueTomorrow'), color: colors.warning }
   return { text, color: colors.text.secondary }
 }
 
@@ -69,10 +74,10 @@ export function TaskCard({
   footer = undefined,
 }: TaskCardProps): React.JSX.Element {
   // 运行时取色：状态 / 优先级语义色表随主题切换（否则深色下标签漏白，D8）
-  const { colors, statusColor, priorityColor } = useTheme()
+  const { colors, priorityColor } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
-  const due = buildDueMeta(task, timezone, colors)
-  const status = statusColor[task.status]
+  const due = buildDueMeta(task, timezone, colors, t)
 
   return (
     <Card onPress={onPress} padded={false} style={dimmed ? styles.dimmed : undefined}>
@@ -101,7 +106,7 @@ export function TaskCard({
           ) : null}
 
           <View style={styles.metaRow}>
-            <Tag tone="status" status={task.status} text={status.label} />
+            <Tag tone="status" status={task.status} text={t(`taskStatus.${task.status}`)} />
             {due ? (
               <View style={styles.metaItem}>
                 <Feather name="clock" size={layout.icon.sm} color={due.color} />
@@ -125,7 +130,9 @@ export function TaskCard({
             ) : (
               <View style={styles.metaItem}>
                 <Feather name="user-plus" size={layout.icon.sm} color={colors.text.tertiary} />
-                <Text style={[typography.caption, styles.metaText, { color: colors.text.tertiary }]}>待领取</Text>
+                <Text style={[typography.caption, styles.metaText, { color: colors.text.tertiary }]}>
+                  {t('business.taskCard.unassigned')}
+                </Text>
               </View>
             )}
           </View>

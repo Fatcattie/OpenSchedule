@@ -26,6 +26,7 @@ import {
 } from '@/components'
 import { useAsync, useAuth } from '@/hooks'
 import { DRAFT_KEYS, projectService, taskService, type SubmitItemInput } from '@/services'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import { layout, radius, shadow, spacing, typography, type ThemeColors } from '@/theme'
 import type { AppNavigationProp, AppRouteProp, SubmissionKind } from '@/types'
@@ -63,6 +64,7 @@ export function SubmissionScreen(): React.JSX.Element {
   const route = useRoute<AppRouteProp<'Submission'>>()
   const { user, role } = useAuth()
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const can = useCan()
   const userId = user?.id ?? ''
@@ -165,8 +167,8 @@ export function SubmissionScreen(): React.JSX.Element {
   })
 
   useEffect(() => {
-    if (projects.error) showToast('项目列表加载失败，可稍后重试')
-  }, [projects.error, showToast])
+    if (projects.error) showToast(t('screen.submission.toast.projectLoadFailed'))
+  }, [projects.error, showToast, t])
 
   const projectOptions: PickerOption<string>[] = useMemo(
     () =>
@@ -188,8 +190,8 @@ export function SubmissionScreen(): React.JSX.Element {
     const nextErrors: Partial<Record<keyof ItemFormValue, string>> = {}
     const titleError = validateSubmissionTitle(value.title)
     if (titleError) nextErrors.title = titleError
-    if (value.kind === 'task' && !value.projectId) nextErrors.projectId = '请选择目标项目'
-    if (value.kind === 'project' && !value.ownerId) nextErrors.ownerId = '请选择负责人'
+    if (value.kind === 'task' && !value.projectId) nextErrors.projectId = t('screen.submission.error.projectRequired')
+    if (value.kind === 'project' && !value.ownerId) nextErrors.ownerId = t('screen.submission.error.ownerRequired')
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
 
@@ -210,7 +212,9 @@ export function SubmissionScreen(): React.JSX.Element {
       await taskService.submitItem(input, userId, role)
       // 提交成功：清除本地草稿后再返回
       await removeDraft()
-      showToast(role === 'manager' ? '已直接创建' : '已提交，等待审核')
+      showToast(
+        role === 'manager' ? t('screen.submission.toast.manager') : t('screen.submission.toast.member'),
+      )
       navigation.goBack()
     } catch (error) {
       // 失败不清空已填内容，仅顶部轻提示错误文案
@@ -218,7 +222,7 @@ export function SubmissionScreen(): React.JSX.Element {
     } finally {
       setSubmitting(false)
     }
-  }, [navigation, removeDraft, role, showToast, userId, value])
+  }, [navigation, removeDraft, role, showToast, t, userId, value])
 
   /** 手动清除草稿：清空表单 + 删除本地草稿 + 轻提示 */
   const handleClearDraft = useCallback(() => {
@@ -227,8 +231,8 @@ export function SubmissionScreen(): React.JSX.Element {
     setErrors({})
     setRestoredFromDraft(false)
     void removeDraft()
-    showToast('草稿已清除')
-  }, [removeDraft, showToast, value.kind])
+    showToast(t('screen.submission.toast.draftCleared'))
+  }, [removeDraft, showToast, t, value.kind])
 
   const hasDraftContent = isDraftMeaningful(value)
 
@@ -236,15 +240,16 @@ export function SubmissionScreen(): React.JSX.Element {
   if (!canSubmit) {
     return (
       <View style={styles.root}>
-        <ScreenHeader title="提报事项" onBack={() => goBackOrHome(navigation)} />
+        <ScreenHeader title={t('screen.submission.title.report')} onBack={() => goBackOrHome(navigation)} />
         <View style={styles.gate}>
-          <ErrorState message="无权限：当前角色不能提报事项" onRetry={() => navigation.goBack()} />
+          <ErrorState message={t('screen.submission.gate')} onRetry={() => navigation.goBack()} />
         </View>
       </View>
     )
   }
 
-  const headerTitle = role === 'manager' ? '新建事项' : '提报事项'
+  const headerTitle =
+    role === 'manager' ? t('screen.submission.title.create') : t('screen.submission.title.report')
 
   return (
     <View style={styles.root}>
@@ -255,7 +260,7 @@ export function SubmissionScreen(): React.JSX.Element {
           hasDraftContent ? (
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel="清除草稿"
+              accessibilityLabel={t('screen.submission.clearDraft')}
               onPress={() => setConfirmClear(true)}
               hitSlop={spacing.xs}
               scale={0.94}
@@ -263,7 +268,7 @@ export function SubmissionScreen(): React.JSX.Element {
               style={styles.clearButton}
             >
               <Feather name="trash-2" size={layout.icon.sm} color={colors.text.secondary} />
-              <Text style={[typography.caption, styles.clearText]}>清除草稿</Text>
+              <Text style={[typography.caption, styles.clearText]}>{t('screen.submission.clearDraft')}</Text>
             </PressableScale>
           ) : undefined
         }
@@ -277,7 +282,7 @@ export function SubmissionScreen(): React.JSX.Element {
         onSubmit={() => void handleSubmit()}
         submitting={submitting}
         errors={errors}
-        banner={restoredFromDraft ? '已恢复上次未提交的草稿' : undefined}
+        banner={restoredFromDraft ? t('screen.submission.restored') : undefined}
         projects={projectOptions}
         members={memberOptions}
       />
@@ -293,17 +298,21 @@ export function SubmissionScreen(): React.JSX.Element {
       <BottomSheet
         visible={confirmClear}
         onClose={() => setConfirmClear(false)}
-        title="清除草稿"
+        title={t('screen.submission.clearDraft')}
         heightRatio={0.28}
       >
         <Text style={[typography.body, styles.confirmText]}>
-          将清空当前填写内容并删除本地草稿，确定继续？
+          {t('screen.submission.clearSheet.text')}
         </Text>
         <View style={styles.confirmActions}>
           <View style={styles.confirmCancel}>
-            <Button variant="secondary" label="取消" onPress={() => setConfirmClear(false)} />
+            <Button
+              variant="secondary"
+              label={t('common.cancel')}
+              onPress={() => setConfirmClear(false)}
+            />
           </View>
-          <Button variant="danger" label="清除" onPress={handleClearDraft} />
+          <Button variant="danger" label={t('screen.submission.clearSheet.confirm')} onPress={handleClearDraft} />
         </View>
       </BottomSheet>
     </View>

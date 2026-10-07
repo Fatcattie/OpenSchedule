@@ -29,6 +29,8 @@ import {
   staggerDelay,
 } from '@/components'
 import { useAsync, useAuth } from '@/hooks'
+import type { TranslationKey } from '@/i18n'
+import { useT } from '@/store/I18nProvider'
 import { useTheme, useThemedStyles } from '@/store/ThemeProvider'
 import {
   CALENDAR_END_HOUR,
@@ -77,9 +79,9 @@ const WEEK_HEADER_HEIGHT = spacing.xxxl
 /** 周视图时间带内每 N 小时一条淡网格线（仅作方位参考，列窄故稀疏） */
 const WEEK_GRID_STEP_HOURS = 3
 
-const VIEW_OPTIONS: { value: CalendarView; label: string }[] = [
-  { value: 'day', label: '日视图' },
-  { value: 'week', label: '周视图' },
+const VIEW_OPTIONS: { value: CalendarView; labelKey: TranslationKey }[] = [
+  { value: 'day', labelKey: 'screen.calendar.view.day' },
+  { value: 'week', labelKey: 'screen.calendar.view.week' },
 ]
 
 const HOURS = Array.from(
@@ -166,9 +168,13 @@ export function CalendarScreen(): React.JSX.Element {
   const navigation = useNavigation<AppNavigationProp>()
   const { user } = useAuth()
   const { colors } = useTheme()
+  const t = useT()
   const styles = useThemedStyles(makeStyles)
   const timezone = user?.timezone ?? 'Asia/Shanghai'
   const userId = user?.id ?? ''
+
+  /** 视图分段选项（文案经 `t()` 求值，随语言切换） */
+  const viewOptions = VIEW_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))
 
   const [view, setView] = useState<CalendarView>('day')
   const [dayOffset, setDayOffset] = useState(0)
@@ -267,11 +273,11 @@ export function CalendarScreen(): React.JSX.Element {
       setNewEnd('10:00')
       await Promise.all([day.refetch(), week.refetch()])
     } catch {
-      setCreateError('创建失败，请稍后重试')
+      setCreateError(t('screen.calendar.create.error'))
     } finally {
       setCreating(false)
     }
-  }, [day, newEnd, newStart, newTitle, timezone, userId, week])
+  }, [day, newEnd, newStart, newTitle, t, timezone, userId, week])
 
   const dayLabel = `${formatDate(new Date(Date.now() + dayOffset * 86_400_000), timezone)} ${formatWeekday(
     new Date(Date.now() + dayOffset * 86_400_000),
@@ -296,14 +302,14 @@ export function CalendarScreen(): React.JSX.Element {
         }
       >
         <FadeIn>
-          <Text style={[typography.display, styles.title]}>时间容器</Text>
+          <Text style={[typography.display, styles.title]}>{t('screen.calendar.title')}</Text>
           <Text style={[typography.caption, styles.subtitle]}>
-            08:00–20:00 · 空闲 {Math.round(totalFreeMinutes / 60)} 小时可排期
+            {t('screen.calendar.subtitle', { hours: Math.round(totalFreeMinutes / 60) })}
           </Text>
         </FadeIn>
 
         <FadeIn delay={staggerDelay(1)} style={styles.segmentedWrapper}>
-          <SegmentedControl options={VIEW_OPTIONS} value={view} onChange={setView} />
+          <SegmentedControl options={viewOptions} value={view} onChange={setView} />
         </FadeIn>
 
         {view === 'day' ? (
@@ -315,7 +321,7 @@ export function CalendarScreen(): React.JSX.Element {
             <FadeIn delay={staggerDelay(2)} style={styles.dateNav}>
               <PressableScale
                 accessibilityRole="button"
-                accessibilityLabel="前一天"
+                accessibilityLabel={t('screen.calendar.prevDay')}
                 onPress={() => setDayOffset((value) => Math.max(-DAY_NAV_RANGE, value - 1))}
                 scale={0.96}
                 style={styles.navButton}
@@ -323,11 +329,11 @@ export function CalendarScreen(): React.JSX.Element {
                 <Feather name="chevron-left" size={layout.icon.md} color={colors.text.primary} />
               </PressableScale>
               <Text style={[typography.title, styles.dateLabel]}>
-                {dayOffset === 0 ? `今天 · ${dayLabel}` : dayLabel}
+                {dayOffset === 0 ? t('screen.calendar.todayDate', { date: dayLabel }) : dayLabel}
               </Text>
               <PressableScale
                 accessibilityRole="button"
-                accessibilityLabel="后一天"
+                accessibilityLabel={t('screen.calendar.nextDay')}
                 onPress={() => setDayOffset((value) => Math.min(DAY_NAV_RANGE, value + 1))}
                 scale={0.96}
                 style={styles.navButton}
@@ -341,7 +347,7 @@ export function CalendarScreen(): React.JSX.Element {
                   scale={0.96}
                   style={styles.todayButton}
                 >
-                  <Text style={[typography.label, styles.todayText]}>回到今天</Text>
+                  <Text style={[typography.label, styles.todayText]}>{t('screen.calendar.backToToday')}</Text>
                 </PressableScale>
               ) : null}
             </FadeIn>
@@ -411,9 +417,9 @@ export function CalendarScreen(): React.JSX.Element {
               <Card style={styles.emptyCard}>
                 <EmptyState
                   icon="calendar"
-                  title="今日暂无安排"
-                  description="时间轴已按 08:00–20:00 渲染，可新建个人任务排期"
-                  actionLabel="新建个人任务"
+                  title={t('screen.calendar.empty.title')}
+                  description={t('screen.calendar.empty.description')}
+                  actionLabel={t('screen.calendar.newTask')}
                   onAction={() => setCreateVisible(true)}
                 />
               </Card>
@@ -441,9 +447,18 @@ export function CalendarScreen(): React.JSX.Element {
                   <PressableScale
                     key={dayItem.dateKey}
                     accessibilityRole="button"
-                    accessibilityLabel={`${formatWeekday(dayItem.dateKey, timezone)} ${formatCompactDate(
-                      dayItem.dateKey,
-                    )}，${count > 0 ? `${count} 个任务` : '空闲'}`}
+                    accessibilityLabel={
+                      count > 0
+                        ? t('screen.calendar.weekA11yTasks', {
+                            weekday: formatWeekday(dayItem.dateKey, timezone),
+                            date: formatCompactDate(dayItem.dateKey),
+                            count,
+                          })
+                        : t('screen.calendar.weekA11yFree', {
+                            weekday: formatWeekday(dayItem.dateKey, timezone),
+                            date: formatCompactDate(dayItem.dateKey),
+                          })
+                    }
                     onPress={() => openDay(dayItem.dateKey)}
                     scale={0.96}
                     style={[
@@ -507,7 +522,7 @@ export function CalendarScreen(): React.JSX.Element {
 
                     {/* 列底：当天任务数 / 空闲 */}
                     <Text numberOfLines={1} style={[typography.label, styles.weekCount]}>
-                      {count > 0 ? `${count} 个` : '空闲'}
+                      {count > 0 ? t('screen.calendar.countShort', { count }) : t('screen.calendar.free')}
                     </Text>
                   </PressableScale>
                 )
@@ -518,9 +533,9 @@ export function CalendarScreen(): React.JSX.Element {
               <Card style={styles.emptyCard}>
                 <EmptyState
                   icon="calendar"
-                  title="本周暂无安排"
-                  description="已按 08:00–20:00 渲染，点击任意列可进入该日排期"
-                  actionLabel="新建个人任务"
+                  title={t('screen.calendar.weekEmpty.title')}
+                  description={t('screen.calendar.weekEmpty.description')}
+                  actionLabel={t('screen.calendar.newTask')}
                   onAction={() => setCreateVisible(true)}
                 />
               </Card>
@@ -532,7 +547,7 @@ export function CalendarScreen(): React.JSX.Element {
       {/* 新建个人任务浮动按钮（P1） */}
       <PressableScale
         accessibilityRole="button"
-        accessibilityLabel="新建个人任务"
+        accessibilityLabel={t('screen.calendar.newTask')}
         onPress={() => setCreateVisible(true)}
         scale={0.94}
         style={[styles.fab, { bottom: insets.bottom + spacing.lg }]}
@@ -544,16 +559,25 @@ export function CalendarScreen(): React.JSX.Element {
       <BottomSheet
         visible={createVisible}
         onClose={() => setCreateVisible(false)}
-        title="新建个人任务"
+        title={t('screen.calendar.newTask')}
         heightRatio={0.5}
       >
-        <TextField label="任务标题" value={newTitle} onChangeText={setNewTitle} maxLength={60} />
+        <TextField
+          label={t('screen.calendar.create.titleField')}
+          value={newTitle}
+          onChangeText={setNewTitle}
+          maxLength={60}
+        />
         <View style={styles.timeRow}>
           <View style={styles.timeField}>
-            <TextField label="开始（HH:mm）" value={newStart} onChangeText={setNewStart} />
+            <TextField
+              label={t('screen.calendar.create.start')}
+              value={newStart}
+              onChangeText={setNewStart}
+            />
           </View>
           <View style={styles.timeField}>
-            <TextField label="结束（HH:mm）" value={newEnd} onChangeText={setNewEnd} />
+            <TextField label={t('screen.calendar.create.end')} value={newEnd} onChangeText={setNewEnd} />
           </View>
         </View>
         {createError ? (
@@ -561,7 +585,7 @@ export function CalendarScreen(): React.JSX.Element {
         ) : null}
         <View style={styles.createAction}>
           <Button
-            label="创建"
+            label={t('screen.calendar.create.submit')}
             fullWidth
             loading={creating}
             disabled={newTitle.trim().length === 0}

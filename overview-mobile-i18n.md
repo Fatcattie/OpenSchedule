@@ -122,7 +122,9 @@
 2. **全 `src/` 残留中文审计**（脚本分类，非人工抽查）：`(a) 字典 783` / `(b) 冻结常量与取数 672` / `(c) 注释 2048` / `(d) mock 种子 259` / `(g) 待判定 31` ⇒ 逐条判定后 `(g)` 中 **2 处真缺口已修**，其余合法。
 3. **zh 输出逐字不变（最强证据）**：修复后 `offline-provider.test.tsx:246` 断言 `toasts[0].props.message === '网络已恢复，已刷新'` **仍绿** —— 即把硬编码换成 `t('component.refreshToast.message')` 后，zh 侧输出**逐字节未变**。
 
-> ⚠️ **诚实边界**：E2E 已完成并落报告（**IS_PASS = NO / 阻断项 0**），3 个非阻断缺陷中 **D1 / D2 已修**（`13f2622`）、**D3 待用户定夺**（默认按方案 A 接受 320pt 截断）；另经独立审计**新发现并修复 2 处** `hooks/store` 层硬编码中文（`8e405f5`）。**尚未独立验证**的仅剩：三态解析矩阵全矩阵、默认路径零加载 `expo-localization` 的运行时计数（二者均有单测等价覆盖）。
+**验证完整性（截至收尾）**：浏览器 E2E（**IS_PASS NO / 阻断 0**，10 项走查 8 项全通过）与核心机制独立复核（**IS_PASS YES / 阻断 0**）**均已完成并落报告**。发现的 5 个缺陷**全部闭环**：D1/D2 已修（`13f2622`）、D3 已裁决接受（无需改码）、独立审计新发现的 G1/G2 已修（`8e405f5`）。
+
+> ⚠️ **诚实边界（未覆盖项）**：① `expo-localization` 的**真机**返回形状未实测（Web 已实测通过，mock 矩阵已覆盖契约）；② `probeEpoch`（AppState 回前台重探测）分支未单独验证；③ 服务端文案需 `Accept-Language`，本期明确不做（PRD §6-D13 已列为允许残留）；④ **原生能力**（真机手势 / 生物识别 / 首屏性能）沿用 `DELIVERY-mobile.md` 已知限制 #6，需真机 Expo Go 扫码。
 
 ---
 
@@ -147,7 +149,7 @@
 | **L7 取词机制** | 新增 `src/i18n/current.ts` 模块级 locale 访问器，服务/工具层 `translate(getCurrentLocale(), key)`，**不改服务函数签名** |
 
 ### 用户拍板（不可推翻）
-① 语言**三态**（含「跟随系统」）⇒ **破例授权新增 `expo-localization`（本增量唯一新增依赖）**；② 本期**全量 L0–L7**；③ **默认 `zh-CN`**；④ i18n 运行时**零第三方库**（自研）。
+① 语言**三态**（含「跟随系统」）⇒ **破例授权新增 `expo-localization`（本增量唯一新增依赖）**；② 本期**全量 L0–L7**；③ **默认 `zh-CN`**；④ i18n 运行时**零第三方库**（自研）；⑤ **web 端遗留改动（`apps/web/src/hooks/useWorkspaceTasks.ts`，增量 7 产物）保留不动**，不纳入本增量；⑥ **接受 320pt 窄屏 TabBar 标签截断**（方案 A，维持术语 `Workspace`）。
 
 ---
 
@@ -168,9 +170,9 @@
 1. **QA 缺陷处置**（浏览器 E2E 走查发现 3 个**非阻断**缺陷，阻断项 0）：
    - ✅ **D1 英文问候语用了全角中文逗号**（`Good afternoon，张伟`，`U+FF0C`）—— **已修**（`13f2622`）：新增整句词条 `screens.core.workspace.greetingWithName`（zh `'{greeting}，{name}'` / en `'{greeting}, {name}'`），分隔符随语言。
    - ✅ **D2 英文态优先级徽标仍显示中文「高」** —— **已修**（`13f2622`）：`components/Tag.tsx` 的状态 / 优先级回退改为走 i18n 字典（`t('taskStatus.*')` / `t('priority.*')`），不再回退 `theme` 的硬编码中文 `priorityLabel`；zh 值同源派生 ⇒ 逐字不变。
-   - ⏳ **D3 320pt 窄屏 TabBar「Workspace」被截断为 `Works…`** —— **待定夺**：320/5 = 64px/项，而 `Workspace` 需 67px，**即使去掉 item padding 也不够**；PRD §6-D12 术语表已定 `Workspace` 并注明「须最短化」。候选：① 缩短为 `Work` 等更短词；② 接受 320pt 截断（390pt 及主流机型均正常）。
+   - ✅ **D3 320pt 窄屏 TabBar「Workspace」被截断为 `Works…`** —— **用户裁决：接受（方案 A，不改代码）**，Tab 术语维持 PRD §6-D12 的 `Workspace`。依据：320/5 = 64px/项而 `Workspace` 需 67px，**去掉 item padding 也不够**，属数学上无解而非实现缺陷；390pt 及所有主流机型均完整显示，320pt 为 iPhone 5/SE1 级极限窄屏；截断仅为标签省略号，**图标与可点区域完整、功能无损**。
    - ✅ **独立审计新发现 2 处 `hooks/store` 层硬编码中文**（实现者与 QA 双方均漏）—— **已修**（`8e405f5`）：`useAuth.ts:73` 生物识别失败提示（新增键 `auth.biometricFailed`）→ `t()`；`ConnectivityProvider.tsx:154` 硬编码 `message="网络已恢复，已刷新"` **绕过了 `RefreshToast` 已接入的 i18n** → 改为 `t('component.refreshToast.message')`。两处 zh 值逐字不变（有测试断言佐证）。
-   - ⏳ **D3 待用户定夺**（默认按方案 A 接受 320pt 截断）。
+   - ✅ **D3 已裁决**：接受 320pt 截断（方案 A），**无需改码**。
 6. **核心机制验证的存疑 / 未覆盖**（详见 QA 报告末节）：① `expo-localization` **真机**返回值形状未实测（Web 已实测通过）；② `probeEpoch`（AppState 回前台重探测）分支未单独验证；③ 服务端文案需 `Accept-Language`，本期不做。
 2. **英文模式下的显式允许残留**（PRD §6-D13，已在「语言」区块下方明示）：
    - **日期 / 星期 / 相对时间 / 字节 / 工时格式**（L8，`WorkspaceScreen` 的 `formatTodayLabel`/`weekdays`、`utils/date.ts`、`utils/format.ts`）；

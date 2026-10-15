@@ -1,11 +1,8 @@
 # ============================================================
 # OpenSchedule .gitignore
-# 原则：真实凭据不进 git（只提交 .env.example），生成物/依赖一律忽略
+# 原则：真实凭据不进 git（只提交 .env.example）；
+#       依赖以快照形式入库（node_modules 受版本控制）——详见 README「依赖快照」一节
 # ============================================================
-
-# ---------- 依赖 ----------
-node_modules/
-.pnpm-store/
 
 # ---------- 构建产物 ----------
 dist/
@@ -22,14 +19,14 @@ coverage/
 
 # ---------- Prisma ----------
 # 迁移文件（services/api/prisma/migrations）必须提交——DDL 唯一权威来源；
-# 生成的 Prisma Client 默认位于 node_modules/.prisma，随 node_modules 忽略；
-# 如自定义生成输出目录（如 src/generated/prisma），请在此追加对应目录
+# node_modules 内已生成的 Prisma Client 随依赖快照一起入库（见文末重新纳入规则）
 **/.prisma/
 
 # ---------- 日志与临时文件 ----------
 *.log
 logs/
 .tmp/
+.tmp-*
 .DS_Store
 Thumbs.db
 
@@ -54,7 +51,16 @@ local-data/
 
 # ---------- 本地项目数据 / 工具缓存（绝不入库） ----------
 .workbuddy/
+.workbuddy-ai/
 .repro/
 dist-*/
 dist-mvp-8/
+.pnpm-store/
 .DS_Store
+
+# ---------- 依赖快照重新纳入（必须放在所有排除规则之后） ----------
+# node_modules 为受版本控制的依赖快照：上述 dist/、build/、**/.prisma/、
+# *.log 等规则不得误伤 node_modules 内的文件，故在末尾统一重新纳入。
+# Windows 下 pnpm 使用 junction，Git 入库时展开为实体文件，
+# clone 后无需安装、离线即可直接运行（含平台二进制：esbuild/prisma 引擎等）。
+!**/node_modules/**

@@ -1,0 +1,69 @@
+- generic [ref=e54]:
+  - generic [ref=e64]:
+    - generic [ref=e67]:
+      - generic [ref=e68]: 我的
+      - generic [ref=e69]: 身份、偏好与退出
+    - generic [ref=e71]:
+      - generic [ref=e72]:
+        - generic [ref=e73]: 伟
+        - generic [ref=e77]:
+          - generic [ref=e78]: 张伟
+          - generic [ref=e79]: zhangwei@example.com
+          - generic [ref=e80]:
+            - generic [ref=e81]: 
+            - generic [ref=e82]: 北极星研发组 · PRO
+      - generic [ref=e83]: “把复杂留给自己，把简单留给用户”
+    - generic [ref=e84]:
+      - generic [ref=e85]: 角色切换
+      - generic [ref=e86]: 演示用视角切换（后端角色：manager / member）
+      - generic [ref=e89]:
+        - tab "管理人员" [ref=e90] [cursor=pointer]
+        - tab "普通人员" [ref=e92] [cursor=pointer]
+    - generic [ref=e94]:
+      - generic [ref=e95]: 设置
+      - generic [ref=e96]:
+        - button " 通知偏好 加载中… " [ref=e97] [cursor=pointer]:
+          - generic [ref=e98]: 
+          - generic [ref=e99]: 通知偏好
+          - generic [ref=e100]: 加载中…
+          - generic [ref=e101]: 
+        - generic:
+          - generic [ref=e102]: 
+          - generic [ref=e103]: 时区
+          - generic [ref=e104]: Asia/Shanghai
+        - button " 关于 OpenSchedule v1.0.0 " [ref=e105] [cursor=pointer]:
+          - generic [ref=e106]: 
+          - generic [ref=e107]: 关于 OpenSchedule
+          - generic [ref=e108]: v1.0.0
+          - generic [ref=e109]: 
+      - progressbar [ref=e111]
+    - button "退出登录" [ref=e118] [cursor=pointer]:
+      - generic [ref=e119]:
+        - generic [ref=e120]: 
+        - generic [ref=e121]: 退出登录
+  - tablist [ref=e123]:
+    - tab "  工作台" [ref=e125] [cursor=pointer]:
+      - generic [ref=e126]:
+        - generic [ref=e127]: 
+        - generic [ref=e129]: 
+      - generic [ref=e131]: 工作台
+    - tab "  今日" [ref=e133] [cursor=pointer]:
+      - generic [ref=e134]:
+        - generic [ref=e135]: 
+        - generic [ref=e137]: 
+      - generic [ref=e139]: 今日
+    - tab "  项目" [ref=e141] [cursor=pointer]:
+      - generic [ref=e142]:
+        - generic [ref=e143]: 
+        - generic [ref=e145]: 
+      - generic [ref=e147]: 项目
+    - tab "  时间" [ref=e149] [cursor=pointer]:
+      - generic [ref=e150]:
+        - generic [ref=e151]: 
+        - generic [ref=e153]: 
+      - generic [ref=e155]: 时间
+    - tab "  我的" [selected] [ref=e157] [cursor=pointer]:
+      - generic [ref=e158]:
+        - generic [ref=e159]: 
+        - generic [ref=e161]: 
+      - generic [ref=e163]: 我的

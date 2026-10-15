@@ -1,0 +1,4 @@
+# node_modules 作为依赖快照入库：二进制级原样存取
+# - 禁止行尾转换（CRLF/LF），保证 clone 后字节级一致
+# - 不做文本 diff，避免 git status/diff 在海量依赖文件上做文本比对
+**/node_modules/** -text

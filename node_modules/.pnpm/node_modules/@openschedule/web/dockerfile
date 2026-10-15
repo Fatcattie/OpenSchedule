@@ -1,0 +1,43 @@
+# syntax=docker/dockerfile:1
+# ============================================================
+# OpenSchedule 前端镜像（React 19 + Vite，Node 22，多阶段构建）
+# 本地开发定位：容器内跑 Vite dev server（HMR 经 5173 端口映射，见 compose）
+# 生产静态产物（第三阶段预留）在 CI/上线前启用
+# 构建上下文 = 仓库根目录（配合根 .dockerignore）
+# 构建方式（仓库根目录）：
+#   docker compose --env-file .env -f deploy/docker-compose.yml build web
+# 依赖契约（由前端同事实现，缺一则构建报错，属预期）：
+#   - apps/web/package.json 存在 dev 脚本（vite dev，读取 VITE_API_PROXY_TARGET 做代理）
+#   - 页面根路由返回 200（健康检查探活用）
+# ============================================================
+
+# ---------- 阶段 1：基础层 ----------
+FROM node:22-alpine AS base
+ENV PNPM_HOME="/pnpm" \
+    PATH="/pnpm:$PATH"
+RUN corepack enable
+WORKDIR /app
+
+# ---------- 阶段 2：依赖安装 ----------
+FROM base AS deps
+COPY . .
+RUN if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi
+
+# ---------- 阶段 3：开发运行层（compose 默认目标） ----------
+FROM base AS dev
+COPY --from=deps /app /app
+# 默认值兜底；compose 中会以 environment 覆盖（浏览器侧地址）
+ENV VITE_API_BASE_URL=http://localhost:3000
+EXPOSE 5173
+# 健康检查：Vite dev server 根路径返回 200 即视为存活
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+# "--" 之后的参数透传给 vite：--host 0.0.0.0 允许容器外访问
+CMD ["pnpm", "--filter", "./apps/web", "run", "dev", "--", "--host", "0.0.0.0"]
+
+# ---------- 阶段 4：生产构建层（预留，上线前启用） ----------
+# FROM base AS build
+# COPY --from=deps /app /app
+# RUN pnpm --filter "./apps/web" run build
+# 产物目录：apps/web/dist-mvp-2（与 vite.config.ts、preview 脚本一致）
+# TODO(部署)：runner 用 nginx:alpine 托管 apps/web/dist-mvp-2，当前 compose 仅用 dev 目标

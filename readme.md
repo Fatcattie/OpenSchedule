@@ -25,6 +25,15 @@
 | Python | ≥ 3.12 | AI 服务（建议装 [uv](https://docs.astral.sh/uv/) 管理依赖） |
 | Docker | Compose v2 | 本地开发栈（本仓库 compose 无 `version` 字段，需 v2 语法） |
 
+### 依赖快照：node_modules 已入库（clone 后免安装直接运行）
+
+本仓库将 **node_modules 作为依赖快照纳入版本控制**（root / apps/web / apps/mobile / services/api 四处，含 esbuild、Prisma 引擎等平台二进制，约 51 万个文件）。`git clone` 后**无需执行 `pnpm install`，离线即可直接启动**，保证在任何机器上的运行效果与提交时一致。
+
+- 版本口径不变：`pnpm-lock.yaml`（pnpm 9.15.5 / Node ≥ 22）与 `apps/mobile/package-lock.json` 照常提交、照常评审。增删依赖后正常 `pnpm install`，然后把 node_modules 的改动**像代码一样提交**（`git add -A` 会一并纳入）。
+- 代价提示：索引约 51 万文件，`git status` / `git checkout` / `git pull` 等操作会明显变慢，仓库体积较大——这是「免安装直接跑」的预期代价。
+- Windows 注意：少量 React Native 原生源码路径极深（超过 260 字符），clone 前需开启长路径支持（`git config --global core.longpaths true`，并确认系统已启用「Win32 长路径」），否则这些文件会检出失败；缺失只影响 Android/iOS 原生编译，不影响 Web / API / Metro 打包运行。
+- Python 服务（services/ai）依赖不落库（`.venv` 含绝对路径、无法跨机复用）：首次运行执行一次 `cd services/ai && uv sync --frozen`，按 uv.lock 精确复现。
+
 ### 方式 A：一键容器启动（前后端 + 基础设施全容器）
 
 ```bash

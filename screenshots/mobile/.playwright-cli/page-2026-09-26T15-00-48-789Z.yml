@@ -1,0 +1,71 @@
+- generic [ref=f13e19]:
+  - generic [ref=f13e27]:
+    - generic [ref=f13e30]:
+      - generic [ref=f13e31]:
+        - generic [ref=f13e32]: 时间容器
+        - generic [ref=f13e33]: 08:00–20:00 · 空闲 2 小时可排期
+      - generic [ref=f13e36]:
+        - tab "日视图" [active] [ref=f13e37] [cursor=pointer]
+        - tab "周视图" [ref=f13e39] [cursor=pointer]
+      - generic [ref=f13e260]:
+        - button "前一天" [ref=f13e261] [cursor=pointer]:
+          - generic [ref=f13e262]: 
+        - generic [ref=f13e263]: 今天 · 9月26日 周六
+        - button "后一天" [ref=f13e264] [cursor=pointer]:
+          - generic [ref=f13e265]: 
+      - generic [ref=f13e267]:
+        - generic [ref=f13e268]:
+          - generic [ref=f13e269]: 08:00
+          - generic [ref=f13e271]: 09:00
+          - generic [ref=f13e273]: 10:00
+          - generic [ref=f13e275]: 11:00
+          - generic [ref=f13e277]: 12:00
+          - generic [ref=f13e279]: 13:00
+          - generic [ref=f13e281]: 14:00
+          - generic [ref=f13e283]: 15:00
+          - generic [ref=f13e285]: 16:00
+          - generic [ref=f13e287]: 17:00
+          - generic [ref=f13e289]: 18:00
+          - generic [ref=f13e291]: 19:00
+          - generic [ref=f13e293]: 20:00
+        - generic [ref=f13e295]:
+          - button "视觉规范定稿" [ref=f13e312] [cursor=pointer]
+          - button "需求文档评审" [ref=f13e316] [cursor=pointer]
+          - button "首页原型设计" [ref=f13e320] [cursor=pointer]
+          - button "晨会同步" [ref=f13e324] [cursor=pointer]
+          - button "接口联调环境" [ref=f13e328] [cursor=pointer]
+          - button "完成提报：首页原型评审" [ref=f13e332] [cursor=pointer]
+          - button "组件库搭建" [ref=f13e336] [cursor=pointer]
+          - button "日志查询小工具" [ref=f13e340] [cursor=pointer]
+          - button "本周复盘会材料" [ref=f13e344] [cursor=pointer]
+          - button "官网改版验收清单" [ref=f13e348] [cursor=pointer]
+          - button "整理本周周报" [ref=f13e352] [cursor=pointer]:
+            - generic [ref=f13e355]: ↓
+    - button "新建个人任务" [ref=f13e137] [cursor=pointer]:
+      - generic [ref=f13e138]: 
+  - tablist [ref=f13e140]:
+    - tab "  工作台" [ref=f13e142] [cursor=pointer]:
+      - generic [ref=f13e143]:
+        - generic [ref=f13e144]: 
+        - generic [ref=f13e146]: 
+      - generic [ref=f13e148]: 工作台
+    - tab "  今日" [ref=f13e150] [cursor=pointer]:
+      - generic [ref=f13e151]:
+        - generic [ref=f13e152]: 
+        - generic [ref=f13e154]: 
+      - generic [ref=f13e156]: 今日
+    - tab "  项目" [ref=f13e158] [cursor=pointer]:
+      - generic [ref=f13e159]:
+        - generic [ref=f13e160]: 
+        - generic [ref=f13e162]: 
+      - generic [ref=f13e164]: 项目
+    - tab "  时间" [selected] [ref=f13e166] [cursor=pointer]:
+      - generic [ref=f13e167]:
+        - generic [ref=f13e168]: 
+        - generic [ref=f13e170]: 
+      - generic [ref=f13e172]: 时间
+    - tab "  我的" [ref=f13e174] [cursor=pointer]:
+      - generic [ref=f13e175]:
+        - generic [ref=f13e176]: 
+        - generic [ref=f13e178]: 
+      - generic [ref=f13e180]: 我的

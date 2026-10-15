@@ -1,0 +1,395 @@
+/**
+ * rule-engine.spec.ts —— 自动化规则引擎单测（B20）
+ * 覆盖：触发器匹配（6 类）+ 条件匹配（8 个条件）+ 动作计算（7 种动作）+ 综合场景
+ */
+import {
+  matchRule,
+  evaluateActions,
+  findMatchingRules,
+  SYSTEM_TEMPLATES,
+} from './rule-engine'
+import type { RuleLike, TaskLike, RuleAction } from './rule-engine'
+
+const baseTask: TaskLike = {
+  id: 't1',
+  title: '测试任务',
+  status: 'todo',
+  priority: 'medium',
+  assigneeId: 'u1',
+  dueAt: null,
+  tags: [],
+}
+
+function makeRule(overrides: Partial<RuleLike> = {}): RuleLike {
+  return {
+    id: 'r1',
+    triggerType: 'task_overdue',
+    triggerConfig: {},
+    conditionConfig: null,
+    actions: [{ type: 'add_label', config: { label: '逾期' } }],
+    isEnabled: true,
+    ...overrides,
+  }
+}
+
+describe('规则触发器 - task_overdue', () => {
+  it('未设置截止日 → 不匹配', () => {
+    const rule = makeRule()
+    expect(matchRule(rule, baseTask)).toBe(false)
+  })
+
+  it('截止日已过且未完成 → 匹配', () => {
+    const rule = makeRule()
+    const task = { ...baseTask, dueAt: new Date('2026-08-01T00:00:00'), status: 'todo' }
+    const now = new Date('2026-08-20T12:00:00')
+    expect(matchRule(rule, task, { now })).toBe(true)
+  })
+
+  it('截止日已过但已完成 → 不匹配', () => {
+    const rule = makeRule()
+    const task = { ...baseTask, dueAt: new Date('2026-08-01T00:00:00'), status: 'done' }
+    const now = new Date('2026-08-20T12:00:00')
+    expect(matchRule(rule, task, { now })).toBe(false)
+  })
+
+  it('截止日是今天 → 不算逾期', () => {
+    const rule = makeRule()
+    const task = { ...baseTask, dueAt: new Date('2026-08-20T18:00:00'), status: 'todo' }
+    const now = new Date('2026-08-20T12:00:00')
+    expect(matchRule(rule, task, { now })).toBe(false)
+  })
+
+  it('禁用的规则 → 不匹配', () => {
+    const rule = makeRule({ isEnabled: false })
+    const task = { ...baseTask, dueAt: new Date('2026-08-01') }
+    const now = new Date('2026-08-20')
+    expect(matchRule(rule, task, { now })).toBe(false)
+  })
+})
+
+describe('规则触发器 - task_due_soon', () => {
+  it('3 天内截止 → 匹配', () => {
+    const rule = makeRule({ triggerType: 'task_due_soon', triggerConfig: { days: 3 } })
+    const task = { ...baseTask, dueAt: new Date('2026-08-22T18:00:00'), status: 'todo' }
+    const now = new Date('2026-08-20T12:00:00')
+    expect(matchRule(rule, task, { now })).toBe(true)
+  })
+
+  it('刚好 3 天 → 匹配', () => {
+    const rule = makeRule({ triggerType: 'task_due_soon', triggerConfig: { days: 3 } })
+    const task = { ...baseTask, dueAt: new Date('2026-08-23T00:00:00'), status: 'todo' }
+    const now = new Date('2026-08-20T12:00:00')
+    expect(matchRule(rule, task, { now })).toBe(true)
+  })
+
+  it('5 天后截止（>3天）→ 不匹配', () => {
+    const rule = makeRule({ triggerType: 'task_due_soon', triggerConfig: { days: 3 } })
+    const task = { ...baseTask, dueAt: new Date('2026-08-25T00:00:00'), status: 'todo' }
+    const now = new Date('2026-08-20T12:00:00')
+    expect(matchRule(rule, task, { now })).toBe(false)
+  })
+
+  it('已完成任务 → 不匹配', () => {
+    const rule = makeRule({ triggerType: 'task_due_soon', triggerConfig: { days: 3 } })
+    const task = { ...baseTask, dueAt: new Date('2026-08-22T18:00:00'), status: 'done' }
+    const now = new Date('2026-08-20T12:00:00')
+    expect(matchRule(rule, task, { now })).toBe(false)
+  })
+})
+
+describe('规则触发器 - status_changed', () => {
+  it('状态从 todo → in_progress → 匹配（任意状态变更）', () => {
+    const rule = makeRule({ triggerType: 'status_changed', triggerConfig: {} })
+    const ctx = { eventType: 'status_changed' as const, changedFields: { status: { old: 'todo', new: 'in_progress' } } }
+    expect(matchRule(rule, baseTask, ctx)).toBe(true)
+  })
+
+  it('指定 toStatus=done 且正好变为 done → 匹配', () => {
+    const rule = makeRule({ triggerType: 'status_changed', triggerConfig: { toStatus: 'done' } })
+    const ctx = { eventType: 'status_changed' as const, changedFields: { status: { old: 'in_progress', new: 'done' } } }
+    expect(matchRule(rule, baseTask, ctx)).toBe(true)
+  })
+
+  it('指定 toStatus=done 但变为 cancelled → 不匹配', () => {
+    const rule = makeRule({ triggerType: 'status_changed', triggerConfig: { toStatus: 'done' } })
+    const ctx = { eventType: 'status_changed' as const, changedFields: { status: { old: 'todo', new: 'cancelled' } } }
+    expect(matchRule(rule, baseTask, ctx)).toBe(false)
+  })
+
+  it('指定 fromStatus=todo 但从 in_progress 变 → 不匹配', () => {
+    const rule = makeRule({ triggerType: 'status_changed', triggerConfig: { fromStatus: 'todo' } })
+    const ctx = { eventType: 'status_changed' as const, changedFields: { status: { old: 'in_progress', new: 'done' } } }
+    expect(matchRule(rule, baseTask, ctx)).toBe(false)
+  })
+})
+
+describe('规则触发器 - label_added / label_removed', () => {
+  it('加了 Bug 标签 → 匹配（指定 label）', () => {
+    const rule = makeRule({ triggerType: 'label_added', triggerConfig: { label: 'Bug' } })
+    const ctx = { eventType: 'label_changed' as const, changedFields: { labelsAdded: ['Bug'], labelsRemoved: [] } }
+    expect(matchRule(rule, baseTask, ctx)).toBe(true)
+  })
+
+  it('加的是 Feature 标签 → 不匹配 Bug 规则', () => {
+    const rule = makeRule({ triggerType: 'label_added', triggerConfig: { label: 'Bug' } })
+    const ctx = { eventType: 'label_changed' as const, changedFields: { labelsAdded: ['Feature'], labelsRemoved: [] } }
+    expect(matchRule(rule, baseTask, ctx)).toBe(false)
+  })
+
+  it('移除 Bug 标签 → 匹配 label_removed 规则', () => {
+    const rule = makeRule({ triggerType: 'label_removed', triggerConfig: { label: 'Bug' } })
+    const ctx = { eventType: 'label_changed' as const, changedFields: { labelsAdded: [], labelsRemoved: ['Bug'] } }
+    expect(matchRule(rule, baseTask, ctx)).toBe(true)
+  })
+})
+
+describe('规则触发器 - priority_changed', () => {
+  it('优先级从 medium → high → 匹配（指定 toPriority）', () => {
+    const rule = makeRule({ triggerType: 'priority_changed', triggerConfig: { toPriority: 'high' } })
+    const ctx = { eventType: 'priority_changed' as const, changedFields: { priority: { old: 'medium', new: 'high' } } }
+    expect(matchRule(rule, baseTask, ctx)).toBe(true)
+  })
+
+  it('从 low → medium，不涉及 high → 不匹配 high 规则', () => {
+    const rule = makeRule({ triggerType: 'priority_changed', triggerConfig: { toPriority: 'high' } })
+    const ctx = { eventType: 'priority_changed' as const, changedFields: { priority: { old: 'low', new: 'medium' } } }
+    expect(matchRule(rule, baseTask, ctx)).toBe(false)
+  })
+})
+
+describe('条件匹配', () => {
+  it('条件：负责人在名单内 → 匹配', () => {
+    const rule = makeRule({
+      triggerType: 'task_overdue',
+      conditionConfig: { assigneeIds: ['u1', 'u2'] },
+    })
+    const task = { ...baseTask, dueAt: new Date('2026-08-01') }
+    const now = new Date('2026-08-20')
+    expect(matchRule(rule, task, { now })).toBe(true)
+  })
+
+  it('条件：负责人不在名单内 → 不匹配', () => {
+    const rule = makeRule({
+      triggerType: 'task_overdue',
+      conditionConfig: { assigneeIds: ['u99'] },
+    })
+    const task = { ...baseTask, dueAt: new Date('2026-08-01') }
+    const now = new Date('2026-08-20')
+    expect(matchRule(rule, task, { now })).toBe(false)
+  })
+
+  it('条件：必须包含所有标签（AND）', () => {
+    const rule = makeRule({
+      triggerType: 'task_overdue',
+      conditionConfig: { labels: ['Bug', 'Urgent'] },
+    })
+    const task = { ...baseTask, dueAt: new Date('2026-08-01'), tags: ['Bug', 'Urgent', 'Frontend'] }
+    const now = new Date('2026-08-20')
+    expect(matchRule(rule, task, { now })).toBe(true)
+  })
+
+  it('条件：缺少一个标签（AND 不满足）→ 不匹配', () => {
+    const rule = makeRule({
+      triggerType: 'task_overdue',
+      conditionConfig: { labels: ['Bug', 'Urgent'] },
+    })
+    const task = { ...baseTask, dueAt: new Date('2026-08-01'), tags: ['Bug'] }
+    const now = new Date('2026-08-20')
+    expect(matchRule(rule, task, { now })).toBe(false)
+  })
+
+  it('条件：包含任一标签（OR）', () => {
+    const rule = makeRule({
+      triggerType: 'task_overdue',
+      conditionConfig: { anyLabels: ['Bug', 'Feature'] },
+    })
+    const task = { ...baseTask, dueAt: new Date('2026-08-01'), tags: ['Feature'] }
+    const now = new Date('2026-08-20')
+    expect(matchRule(rule, task, { now })).toBe(true)
+  })
+
+  it('条件：不能包含某些标签', () => {
+    const rule = makeRule({
+      triggerType: 'task_overdue',
+      conditionConfig: { noLabels: ['已完成', '忽略'] },
+    })
+    const task = { ...baseTask, dueAt: new Date('2026-08-01'), tags: ['Bug'] }
+    const now = new Date('2026-08-20')
+    expect(matchRule(rule, task, { now })).toBe(true)
+  })
+
+  it('条件：优先级 >= high', () => {
+    const rule = makeRule({
+      triggerType: 'task_overdue',
+      conditionConfig: { priorityGte: 'high' },
+    })
+    const task = { ...baseTask, dueAt: new Date('2026-08-01'), priority: 'high' }
+    const now = new Date('2026-08-20')
+    expect(matchRule(rule, task, { now })).toBe(true)
+  })
+
+  it('条件：优先级 <= low → medium 不匹配', () => {
+    const rule = makeRule({
+      triggerType: 'task_overdue',
+      conditionConfig: { priorityLte: 'low' },
+    })
+    const task = { ...baseTask, dueAt: new Date('2026-08-01'), priority: 'medium' }
+    const now = new Date('2026-08-20')
+    expect(matchRule(rule, task, { now })).toBe(false)
+  })
+
+  it('条件：状态在名单内', () => {
+    const rule = makeRule({
+      triggerType: 'task_due_soon',
+      triggerConfig: { days: 3 },
+      conditionConfig: { statusIn: ['todo', 'in_progress'] },
+    })
+    const task = { ...baseTask, dueAt: new Date('2026-08-22'), status: 'todo' }
+    const now = new Date('2026-08-20')
+    expect(matchRule(rule, task, { now })).toBe(true)
+  })
+
+  it('多条件 AND 组合：负责人 + 标签 + 优先级全部满足', () => {
+    const rule = makeRule({
+      triggerType: 'label_added',
+      triggerConfig: { label: 'Bug' },
+      conditionConfig: {
+        assigneeIds: ['u1'],
+        priorityLte: 'medium',
+        statusIn: ['todo'],
+      },
+    })
+    const task = { ...baseTask, tags: [] }
+    const ctx = { eventType: 'label_changed' as const, changedFields: { labelsAdded: ['Bug'], labelsRemoved: [] } }
+    expect(matchRule(rule, task, ctx)).toBe(true)
+  })
+})
+
+describe('动作计算', () => {
+  it('set_priority: 不同优先级 → 返回成功 + 新值', () => {
+    const actions = [{ type: 'set_priority' as const, config: { priority: 'high' } }]
+    const results = evaluateActions(actions, baseTask)
+    expect(results).toHaveLength(1)
+    expect(results[0].success).toBe(true)
+    expect(results[0].value).toBe('high')
+  })
+
+  it('set_priority: 相同优先级 → 跳过', () => {
+    const actions = [{ type: 'set_priority' as const, config: { priority: 'medium' } }]
+    const results = evaluateActions(actions, baseTask)
+    expect(results[0].detail).toContain('无需变更')
+  })
+
+  it('set_status: 正常修改', () => {
+    const actions = [{ type: 'set_status' as const, config: { status: 'in_progress' } }]
+    const results = evaluateActions(actions, baseTask)
+    expect(results[0].success).toBe(true)
+    expect(results[0].value).toBe('in_progress')
+  })
+
+  it('add_label: 不存在的标签 → 添加', () => {
+    const actions = [{ type: 'add_label' as const, config: { label: '紧急' } }]
+    const results = evaluateActions(actions, baseTask)
+    expect(results[0].success).toBe(true)
+    expect(results[0].target).toBe('紧急')
+  })
+
+  it('add_label: 已存在 → 跳过', () => {
+    const actions = [{ type: 'add_label' as const, config: { label: 'Bug' } }]
+    const task = { ...baseTask, tags: ['Bug'] }
+    const results = evaluateActions(actions, task)
+    expect(results[0].detail).toContain('跳过')
+  })
+
+  it('remove_label: 存在则移除', () => {
+    const actions = [{ type: 'remove_label' as const, config: { label: 'Bug' } }]
+    const task = { ...baseTask, tags: ['Bug', 'Feature'] }
+    const results = evaluateActions(actions, task)
+    expect(results[0].success).toBe(true)
+    expect(results[0].value).toBe(false)
+  })
+
+  it('set_assignee: 改负责人', () => {
+    const actions = [{ type: 'set_assignee' as const, config: { assigneeId: 'u2' } }]
+    const results = evaluateActions(actions, baseTask)
+    expect(results[0].success).toBe(true)
+    expect(results[0].value).toBe('u2')
+  })
+
+  it('add_comment: 正常添加', () => {
+    const actions = [{ type: 'add_comment' as const, config: { content: '已逾期，请处理' } }]
+    const results = evaluateActions(actions, baseTask)
+    expect(results[0].success).toBe(true)
+    expect(results[0].value).toBe('已逾期，请处理')
+  })
+
+  it('send_notification: 正常发送', () => {
+    const actions = [{ type: 'send_notification' as const, config: { content: '提醒', channel: 'inapp' } }]
+    const results = evaluateActions(actions, baseTask)
+    expect(results[0].success).toBe(true)
+    expect(results[0].target).toBe('inapp')
+  })
+
+  it('多个动作按顺序执行', () => {
+    const actions = [
+      { type: 'set_priority' as const, config: { priority: 'high' } },
+      { type: 'add_label' as const, config: { label: '紧急' } },
+      { type: 'send_notification' as const, config: { content: '请注意' } },
+    ]
+    const results = evaluateActions(actions, baseTask)
+    expect(results).toHaveLength(3)
+    expect(results.every(r => r.success)).toBe(true)
+  })
+})
+
+describe('综合场景', () => {
+  it('findMatchingRules: 从多条规则中筛选出匹配的', () => {
+    const rules: RuleLike[] = [
+      makeRule({ id: 'r1', triggerType: 'task_overdue' }),
+      makeRule({ id: 'r2', triggerType: 'task_due_soon', triggerConfig: { days: 3 } }),
+      makeRule({ id: 'r3', triggerType: 'status_changed', isEnabled: false }),
+    ]
+    const task = { ...baseTask, dueAt: new Date('2026-08-01'), status: 'todo' }
+    const now = new Date('2026-08-20')
+    const matched = findMatchingRules(rules, task, { now })
+    expect(matched.map(r => r.id)).toEqual(['r1'])
+  })
+
+  it('Bug 标签 + medium 优先级 → 自动提为 high（预设模板 5）', () => {
+    const rule = {
+      id: 'tpl-bug',
+      triggerType: 'label_added',
+      triggerConfig: { label: 'Bug' },
+      conditionConfig: { priorityLte: 'medium' },
+      actions: [{ type: 'set_priority', config: { priority: 'high' } }],
+      isEnabled: true,
+    }
+    const task = { ...baseTask, priority: 'medium', tags: [] }
+    const ctx = { eventType: 'label_changed' as const, changedFields: { labelsAdded: ['Bug'], labelsRemoved: [] } }
+    expect(matchRule(rule, task, ctx)).toBe(true)
+    const results = evaluateActions(rule.actions as RuleAction[], task)
+    expect(results[0].value).toBe('high')
+  })
+
+  it('完成任务自动打标签（预设模板 3）', () => {
+    const rule = {
+      id: 'tpl-done',
+      triggerType: 'status_changed',
+      triggerConfig: { toStatus: 'done' },
+      conditionConfig: null,
+      actions: [{ type: 'add_label', config: { label: '已完成' } }],
+      isEnabled: true,
+    }
+    const task = { ...baseTask, status: 'done', tags: [] }
+    const ctx = { eventType: 'status_changed' as const, changedFields: { status: { old: 'in_progress', new: 'done' } } }
+    expect(matchRule(rule, task, ctx)).toBe(true)
+  })
+
+  it('系统预设模板数量为 5', () => {
+    expect(SYSTEM_TEMPLATES.length).toBe(5)
+  })
+
+  it('所有预设模板默认禁用', () => {
+    expect(SYSTEM_TEMPLATES.every(t => !t.isEnabled)).toBe(true)
+  })
+})

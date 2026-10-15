@@ -1,0 +1,30 @@
+/**
+ * 通知外发适配器接口（邮件/WebPush/IM 留接口 TODO：Phase 1 只落 delivery 记录与退避元数据，不真正外发）。
+ * 实现类各自处理通道签名（SMTP / VAPID / 企微·飞书·钉钉 webhook 签名），配置来源：env + 租户级 DB。
+ */
+export interface OutboundNotification {
+  id: string;
+  tenantId: string;
+  userId: string;
+  type: string;
+  title: string;
+  body: string | null;
+  data: unknown;
+  channel: string;
+}
+
+export interface DeliveryRecord {
+  id: string;
+  notificationId: string;
+  channel: string;
+  attempts: number;
+}
+
+export const NOTIFICATION_CHANNELS = ['email', 'push', 'im'] as const;
+export type OutboundChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+export interface NotificationAdapter {
+  readonly channel: OutboundChannel;
+  /** 发送通知；失败抛错（由 NotificationService 落 failed + 退避元数据并发布 notification.failed） */
+  send(notification: OutboundNotification, delivery: DeliveryRecord): Promise<void>;
+}

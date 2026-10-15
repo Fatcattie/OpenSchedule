@@ -1,0 +1,26 @@
+- generic [ref=e9]:
+  - generic [ref=e11]:
+    - generic [ref=e12]: 
+    - generic [ref=e14]: OpenSchedule
+    - generic [ref=e15]: 把「计划—执行—复盘」装进口袋
+  - generic [ref=e18]:
+    - generic [ref=e19]:
+      - generic [ref=e20]: 登录你的工作台
+      - generic [ref=e24]:
+        - generic [ref=e25]: 账号
+        - textbox [ref=e26]
+      - generic [ref=e29]:
+        - generic [ref=e30]: 密码
+        - textbox [ref=e31]
+        - button "显示密码" [ref=e33] [cursor=pointer]:
+          - generic [ref=e34]: 
+      - generic [ref=e35]:
+        - checkbox " 记住我" [ref=e36] [cursor=pointer]:
+          - generic [ref=e37]: 
+          - generic [ref=e38]: 记住我
+        - button "忘记密码" [ref=e39] [cursor=pointer]
+      - generic [ref=e42]:
+        - button "登录" [disabled]
+    - button " 演示账号：zhangwei@example.com / openschedule（点击填入）" [ref=e46] [cursor=pointer]:
+      - generic [ref=e47]: 
+      - generic [ref=e48]: 演示账号：zhangwei@example.com / openschedule（点击填入）

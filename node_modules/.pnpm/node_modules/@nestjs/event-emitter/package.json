@@ -1,0 +1,60 @@
+{
+  "name": "@nestjs/event-emitter",
+  "version": "3.1.0",
+  "description": "Nest - modern, fast, powerful node.js web framework (@event-emitter)",
+  "author": "Kamil Mysliwiec",
+  "license": "MIT",
+  "url": "https://github.com/nestjs/event-emitter#readme",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "rimraf -rf dist && tsc -p tsconfig.build.json",
+    "format": "prettier --write \"{lib,test}/**/*.ts\"",
+    "lint": "oxlint --config oxlint.json lib",
+    "prepublish:npm": "npm run build",
+    "publish:npm": "npm publish --access public",
+    "prepublish:next": "npm run build",
+    "publish:next": "npm publish --access public --tag next",
+    "test:e2e": "vitest run",
+    "prerelease": "npm run build",
+    "release": "release-it",
+    "prepare": "husky install"
+  },
+  "dependencies": {
+    "eventemitter2": "6.4.9"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "20.5.2",
+    "@commitlint/config-angular": "20.5.0",
+    "@nestjs/common": "11.1.19",
+    "@nestjs/core": "11.1.19",
+    "@nestjs/platform-express": "11.1.19",
+    "@nestjs/testing": "11.1.19",
+    "@types/node": "24.12.2",
+    "husky": "9.1.7",
+    "lint-staged": "16.4.0",
+    "oxlint": "1.61.0",
+    "prettier": "3.8.3",
+    "reflect-metadata": "0.2.2",
+    "release-it": "20.0.1",
+    "rimraf": "6.1.3",
+    "rxjs": "7.8.2",
+    "typescript": "6.0.3",
+    "vite": "8.0.10",
+    "vitest": "4.1.5"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^10.0.0 || ^11.0.0",
+    "@nestjs/core": "^10.0.0 || ^11.0.0"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "prettier --write",
+      "oxlint --config oxlint.json"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nestjs/event-emitter"
+  }
+}

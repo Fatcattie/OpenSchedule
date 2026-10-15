@@ -1,0 +1,64 @@
+- generic [ref=f1e19]:
+  - generic [ref=f1e27]:
+    - generic [ref=f1e30]:
+      - generic [ref=f1e31]:
+        - generic [ref=f1e32]: 时间容器
+        - generic [ref=f1e33]: 08:00–20:00 · 空闲 12 小时可排期
+      - generic [ref=f1e36]:
+        - tab "日视图" [ref=f1e37] [cursor=pointer]
+        - tab "周视图" [ref=f1e39] [cursor=pointer]
+        - tab "整周" [ref=f1e41] [cursor=pointer]
+      - generic [ref=f1e483]:
+        - button "前一天" [ref=f1e484] [cursor=pointer]:
+          - generic [ref=f1e485]: 
+        - generic [ref=f1e486]: 9月30日 周三
+        - button "后一天" [ref=f1e487] [cursor=pointer]:
+          - generic [ref=f1e488]: 
+        - button "回到今天" [ref=f1e489] [cursor=pointer]
+      - generic [ref=f1e493]:
+        - generic [ref=f1e494]: 08:00
+        - generic [ref=f1e496]: 09:00
+        - generic [ref=f1e498]: 10:00
+        - generic [ref=f1e500]: 11:00
+        - generic [ref=f1e502]: 12:00
+        - generic [ref=f1e504]: 13:00
+        - generic [ref=f1e506]: 14:00
+        - generic [ref=f1e508]: 15:00
+        - generic [ref=f1e510]: 16:00
+        - generic [ref=f1e512]: 17:00
+        - generic [ref=f1e514]: 18:00
+        - generic [ref=f1e516]: 19:00
+        - generic [ref=f1e518]: 20:00
+      - generic [ref=f1e536]:
+        - generic [ref=f1e537]: 
+        - generic [ref=f1e539]: 今日暂无安排
+        - generic [ref=f1e540]: 时间轴已按 08:00–20:00 渲染，可新建个人任务排期
+        - button "新建个人任务" [ref=f1e543] [cursor=pointer]
+    - button "新建个人任务" [ref=f1e139] [cursor=pointer]:
+      - generic [ref=f1e140]: 
+  - tablist [ref=f1e142]:
+    - tab "  工作台" [ref=f1e144] [cursor=pointer]:
+      - generic [ref=f1e145]:
+        - generic [ref=f1e146]: 
+        - generic [ref=f1e148]: 
+      - generic [ref=f1e150]: 工作台
+    - tab "  今日" [ref=f1e152] [cursor=pointer]:
+      - generic [ref=f1e153]:
+        - generic [ref=f1e154]: 
+        - generic [ref=f1e156]: 
+      - generic [ref=f1e158]: 今日
+    - tab "  项目" [ref=f1e160] [cursor=pointer]:
+      - generic [ref=f1e161]:
+        - generic [ref=f1e162]: 
+        - generic [ref=f1e164]: 
+      - generic [ref=f1e166]: 项目
+    - tab "  时间" [selected] [ref=f1e168] [cursor=pointer]:
+      - generic [ref=f1e169]:
+        - generic [ref=f1e170]: 
+        - generic [ref=f1e172]: 
+      - generic [ref=f1e174]: 时间
+    - tab "  我的" [ref=f1e176] [cursor=pointer]:
+      - generic [ref=f1e177]:
+        - generic [ref=f1e178]: 
+        - generic [ref=f1e180]: 
+      - generic [ref=f1e182]: 我的

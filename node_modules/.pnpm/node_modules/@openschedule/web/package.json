@@ -1,0 +1,36 @@
+{
+  "name": "@openschedule/web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "OpenSchedule 前端（React 19 + Vite 7 + AntD 5 + React Router v7 + TanStack Query + Zustand + axios）",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build --outDir dist-mvp-8",
+    "preview": "vite preview --outDir dist-mvp-8 --host 0.0.0.0 --port 4173",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^5.6.1",
+    "@ant-design/v5-patch-for-react-19": "^1.0.3",
+    "@tanstack/react-query": "^5.101.4",
+    "antd": "^5.29.3",
+    "axios": "^1.19.0",
+    "dayjs": "^1.11.23",
+    "jszip": "^3.10.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.18.2",
+    "vis-network": "^10.1.2",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.2.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.6",
+    "vite-plugin-pwa": "^1.0.1"
+  }
+}

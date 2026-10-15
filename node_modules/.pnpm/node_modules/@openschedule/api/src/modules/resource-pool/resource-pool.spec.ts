@@ -1,0 +1,297 @@
+/**
+ * resource-pool.spec.ts —— 跨项目资源池引擎单测
+ */
+import { calculateResourcePool, generateRebalanceSuggestions } from './resource-pool'
+
+function makeTask(overrides: Partial<any> = {}) {
+  return {
+    id: overrides.id ?? 't1',
+    assigneeId: overrides.assigneeId ?? 'u1',
+    status: overrides.status ?? 'in_progress',
+    estimatedHours: overrides.estimatedHours ?? 8,
+    dueAt: overrides.dueAt,
+    priority: overrides.priority ?? 'medium',
+    projectId: overrides.projectId ?? 'p1',
+    projectName: overrides.projectName ?? '项目A',
+    isCritical: overrides.isCritical ?? false,
+  }
+}
+
+describe('resource-pool', () => {
+  const now = new Date('2026-08-22T10:00:00Z')
+
+  describe('基础聚合', () => {
+    it('空任务列表返回空池', () => {
+      const result = calculateResourcePool([], [], now)
+      expect(result.members).toHaveLength(0)
+      expect(result.totalCapacity).toBe(0)
+      expect(result.overloadCount).toBe(0)
+      expect(result.conflicts).toHaveLength(0)
+    })
+
+    it('单成员单项目正常负载', () => {
+      const tasks = [
+        makeTask({ id: 't1', assigneeId: 'u1', estimatedHours: 10, status: 'in_progress' }),
+        makeTask({ id: 't2', assigneeId: 'u1', estimatedHours: 8, status: 'todo' }),
+        makeTask({ id: 't3', assigneeId: 'u1', estimatedHours: 16, status: 'done' }),
+      ]
+      const members = [{ id: 'u1', name: '张三' }]
+      const result = calculateResourcePool(tasks, members, now)
+
+      expect(result.members).toHaveLength(1)
+      const u1 = result.members[0]
+      expect(u1.totalHours).toBe(18) // 10 + 8（done 不计）
+      expect(u1.utilization).toBe(45) // 18 / 40
+      expect(u1.loadLevel).toBe('normal')
+      expect(u1.inProgressCount).toBe(1)
+      expect(u1.todoCount).toBe(1)
+    })
+
+    it('成员有自定义容量', () => {
+      const tasks = [makeTask({ estimatedHours: 40 })]
+      const members = [{ id: 'u1', capacityHoursPerWeek: 32 }]
+      const result = calculateResourcePool(tasks, members, now)
+
+      expect(result.members[0].capacityHours).toBe(32)
+      expect(result.members[0].utilization).toBe(125)
+      expect(result.members[0].loadLevel).toBe('overload')
+    })
+
+    it('按利用率降序排列成员', () => {
+      const tasks = [
+        makeTask({ id: 't1', assigneeId: 'u1', estimatedHours: 30 }),
+        makeTask({ id: 't2', assigneeId: 'u2', estimatedHours: 10 }),
+        makeTask({ id: 't3', assigneeId: 'u3', estimatedHours: 50 }),
+      ]
+      const result = calculateResourcePool(tasks, [], now)
+
+      expect(result.members.map(m => m.assigneeId)).toEqual(['u3', 'u1', 'u2'])
+    })
+  })
+
+  describe('负载等级', () => {
+    it('idle: < 30%', () => {
+      const result = calculateResourcePool(
+        [makeTask({ estimatedHours: 8, assigneeId: 'u1' })],
+        [], now,
+      )
+      expect(result.members[0].loadLevel).toBe('idle')
+      expect(result.members[0].utilization).toBe(20)
+    })
+
+    it('normal: 30%~70%', () => {
+      const result = calculateResourcePool(
+        [makeTask({ estimatedHours: 20, assigneeId: 'u1' })],
+        [], now,
+      )
+      expect(result.members[0].loadLevel).toBe('normal')
+    })
+
+    it('heavy: 70%~100%', () => {
+      const result = calculateResourcePool(
+        [makeTask({ estimatedHours: 32, assigneeId: 'u1' })],
+        [], now,
+      )
+      expect(result.members[0].loadLevel).toBe('heavy')
+    })
+
+    it('overload: >= 100%', () => {
+      const result = calculateResourcePool(
+        [makeTask({ estimatedHours: 45, assigneeId: 'u1' })],
+        [], now,
+      )
+      expect(result.members[0].loadLevel).toBe('overload')
+    })
+  })
+
+  describe('跨项目统计', () => {
+    it('成员在多个项目有任务', () => {
+      const tasks = [
+        makeTask({ id: 't1', projectId: 'p1', projectName: '项目A', estimatedHours: 12 }),
+        makeTask({ id: 't2', projectId: 'p2', projectName: '项目B', estimatedHours: 16 }),
+        makeTask({ id: 't3', projectId: 'p2', projectName: '项目B', estimatedHours: 8, status: 'todo' }),
+      ]
+      const result = calculateResourcePool(tasks, [], now)
+      const u1 = result.members[0]
+
+      expect(u1.projects).toHaveLength(2)
+      expect(u1.projects[0].projectId).toBe('p2') // 工时多排前
+      expect(u1.projects[0].hours).toBe(24)
+      expect(u1.projects[1].projectId).toBe('p1')
+      expect(u1.projects[1].hours).toBe(12)
+    })
+
+    it('无 assignee 的任务不计入', () => {
+      const tasks = [
+        makeTask({ assigneeId: '', estimatedHours: 100 }),
+      ]
+      const result = calculateResourcePool(tasks, [], now)
+      expect(result.members).toHaveLength(0)
+    })
+  })
+
+  describe('整体指标', () => {
+    it('整体利用率计算正确', () => {
+      const tasks = [
+        makeTask({ id: 't1', assigneeId: 'u1', estimatedHours: 20 }),
+        makeTask({ id: 't2', assigneeId: 'u2', estimatedHours: 30 }),
+      ]
+      const members = [
+        { id: 'u1', capacityHoursPerWeek: 40 },
+        { id: 'u2', capacityHoursPerWeek: 40 },
+      ]
+      const result = calculateResourcePool(tasks, members, now)
+
+      expect(result.totalCapacity).toBe(80)
+      expect(result.totalAllocated).toBe(50)
+      expect(result.utilization).toBe(63) // 50/80
+    })
+
+    it('topBottlenecks 取前 5 名', () => {
+      const tasks: any[] = []
+      for (let i = 1; i <= 8; i++) {
+        tasks.push(makeTask({ id: `t${i}`, assigneeId: `u${i}`, estimatedHours: 10 * i }))
+      }
+      const result = calculateResourcePool(tasks, [], now)
+      expect(result.topBottlenecks).toHaveLength(5)
+      expect(result.topBottlenecks[0]).toBe('u8') // 利用率最高
+    })
+  })
+
+  describe('冲突检测', () => {
+    it('跨项目过载检测', () => {
+      const tasks = [
+        makeTask({ id: 't1', assigneeId: 'u1', projectId: 'p1', projectName: 'A', estimatedHours: 30, status: 'in_progress' }),
+        makeTask({ id: 't2', assigneeId: 'u1', projectId: 'p2', projectName: 'B', estimatedHours: 20, status: 'in_progress' }),
+      ]
+      const members = [{ id: 'u1', name: '张三' }]
+      const result = calculateResourcePool(tasks, members, now)
+
+      const overloadConflict = result.conflicts.find(c => c.type === 'cross_project_overload')
+      expect(overloadConflict).toBeDefined()
+      expect(overloadConflict!.assigneeId).toBe('u1')
+      expect(overloadConflict!.relatedProjectIds).toEqual(['p1', 'p2'])
+      expect(overloadConflict!.severity).toBe('high')
+    })
+
+    it('利用率 ≥150% 时冲突严重度为 critical', () => {
+      const tasks = [
+        makeTask({ assigneeId: 'u1', projectId: 'p1', projectName: 'A', estimatedHours: 35 }),
+        makeTask({ assigneeId: 'u1', projectId: 'p2', projectName: 'B', estimatedHours: 30 }),
+        makeTask({ assigneeId: 'u1', projectId: 'p3', projectName: 'C', estimatedHours: 25 }),
+      ]
+      const result = calculateResourcePool(tasks, [], now)
+      const c = result.conflicts.find(x => x.type === 'cross_project_overload')
+      expect(c?.severity).toBe('critical')
+    })
+
+    it('同截止日高优任务争抢', () => {
+      const tasks = [
+        makeTask({ id: 't1', assigneeId: 'u1', priority: 'high', dueAt: new Date('2026-08-25'), estimatedHours: 4 }),
+        makeTask({ id: 't2', assigneeId: 'u1', priority: 'high', dueAt: new Date('2026-08-26'), estimatedHours: 4 }),
+        makeTask({ id: 't3', assigneeId: 'u1', priority: 'urgent', dueAt: new Date('2026-08-27'), estimatedHours: 4 }),
+        makeTask({ id: 't4', assigneeId: 'u1', priority: 'medium', dueAt: new Date('2026-08-28'), estimatedHours: 4 }),
+      ]
+      const result = calculateResourcePool(tasks, [], now)
+      const c = result.conflicts.find(x => x.type === 'same_deadline_contention')
+      expect(c).toBeDefined()
+      expect(c!.relatedTaskIds).toHaveLength(3) // 3 个 high/urgent
+    })
+
+    it('关键路径共享检测', () => {
+      const tasks = [
+        makeTask({ id: 't1', assigneeId: 'u1', projectId: 'p1', isCritical: true }),
+        makeTask({ id: 't2', assigneeId: 'u1', projectId: 'p2', isCritical: true }),
+        makeTask({ id: 't3', assigneeId: 'u1', projectId: 'p2', isCritical: true }),
+      ]
+      const result = calculateResourcePool(tasks, [], now)
+      const c = result.conflicts.find(x => x.type === 'critical_shared_task')
+      expect(c).toBeDefined()
+      expect(c!.relatedProjectIds).toHaveLength(2)
+    })
+
+    it('单项目不过载时不触发跨项目冲突', () => {
+      const tasks = [
+        makeTask({ assigneeId: 'u1', projectId: 'p1', estimatedHours: 50 }),
+      ]
+      const result = calculateResourcePool(tasks, [], now)
+      expect(result.conflicts.filter(c => c.type === 'cross_project_overload')).toHaveLength(0)
+    })
+  })
+
+  describe('再平衡建议', () => {
+    it('过载+空闲 → 生成迁移建议', () => {
+      const tasks = [
+        makeTask({ id: 't1', assigneeId: 'u1', priority: 'high', estimatedHours: 40 }),
+        makeTask({ id: 't2', assigneeId: 'u1', priority: 'low', estimatedHours: 8 }),
+        makeTask({ id: 't3', assigneeId: 'u1', priority: 'low', estimatedHours: 8 }),
+        makeTask({ id: 't4', assigneeId: 'u2', priority: 'medium', estimatedHours: 5 }),
+      ]
+      const members = [
+        { id: 'u1', name: '张三' },
+        { id: 'u2', name: '李四' },
+      ]
+      const result = generateRebalanceSuggestions(tasks, members, now)
+
+      expect(result.actions.length).toBeGreaterThanOrEqual(1)
+      const reassign = result.actions.find(a => a.actionType === 'reassign')
+      expect(reassign).toBeDefined()
+      expect(reassign!.fromAssigneeId).toBe('u1')
+      expect(reassign!.toAssigneeId).toBe('u2')
+    })
+
+    it('无闲置时生成延后建议', () => {
+      const tasks: any[] = []
+      // 两个过载的人
+      for (let i = 1; i <= 2; i++) {
+        tasks.push(makeTask({ id: `t${i}a`, assigneeId: `u${i}`, priority: 'high', estimatedHours: 30 }))
+        tasks.push(makeTask({ id: `t${i}b`, assigneeId: `u${i}`, priority: 'low', estimatedHours: 16 }))
+      }
+      const members = [
+        { id: 'u1' },
+        { id: 'u2' },
+      ]
+      const result = generateRebalanceSuggestions(tasks, members, now)
+
+      const defer = result.actions.find(a => a.actionType === 'defer_low_priority')
+      expect(defer).toBeDefined()
+    })
+
+    it('整体利用率正常时建议较少', () => {
+      const tasks = [
+        makeTask({ assigneeId: 'u1', estimatedHours: 16 }),
+        makeTask({ assigneeId: 'u2', estimatedHours: 16 }),
+      ]
+      const result = generateRebalanceSuggestions(tasks, [], now)
+      // 两个正常负载的人，没有什么可调整的
+      expect(result.actions.length).toBe(0)
+      expect(result.summary).toContain('均衡')
+    })
+
+    it('预估利用率下降', () => {
+      const tasks = [
+        makeTask({ id: 't1', assigneeId: 'u1', priority: 'low', estimatedHours: 40 }),
+        makeTask({ id: 't2', assigneeId: 'u2', priority: 'medium', estimatedHours: 4 }),
+      ]
+      const members = [{ id: 'u1' }, { id: 'u2' }]
+      const result = generateRebalanceSuggestions(tasks, members, now)
+
+      if (result.actions.length > 0) {
+        expect(result.utilizationAfterEstimate).toBeLessThanOrEqual(result.utilizationBefore)
+      }
+    })
+  })
+
+  describe('临期检测', () => {
+    it('一周内到期的活跃任务计入 dueSoonCount', () => {
+      const tasks = [
+        makeTask({ id: 't1', dueAt: new Date('2026-08-25'), status: 'in_progress' }), // 3天后
+        makeTask({ id: 't2', dueAt: new Date('2026-08-29'), status: 'todo' }),       // 7天后
+        makeTask({ id: 't3', dueAt: new Date('2026-09-01'), status: 'todo' }),       // 10天后
+        makeTask({ id: 't4', dueAt: new Date('2026-08-20'), status: 'done' }),       // 已完成
+      ]
+      const result = calculateResourcePool(tasks, [], now)
+      expect(result.members[0].dueSoonCount).toBe(2)
+    })
+  })
+})

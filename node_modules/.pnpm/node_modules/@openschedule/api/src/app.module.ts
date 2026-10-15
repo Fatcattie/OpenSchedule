@@ -1,0 +1,105 @@
+/**
+ * 根模块装配：Config/EventEmitter 全局能力 + 基建模块（Common/Rbac/Auth/Audit）。
+ * 业务模块由业务同事挂入下方 TODO 标注的 imports 数组。
+ */
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { AuthModule } from './modules/auth/auth.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { RbacModule } from './modules/rbac/rbac.module';
+import { CommonModule } from './common/common.module';
+import { ProjectsModule } from './modules/projects/projects.module';
+import { TasksModule } from './modules/tasks/tasks.module';
+import { AssignmentsModule } from './modules/assignments/assignments.module';
+import { CommentsModule } from './modules/comments/comments.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { RemindersModule } from './modules/reminders/reminders.module';
+import { AttachmentsModule } from './modules/attachments/attachments.module';
+import { SearchModule } from './modules/search/search.module';
+import { ImportExportModule } from './modules/import-export/import-export.module';
+import { SummariesModule } from './modules/summaries/summaries.module';
+import { ReportsModule } from './modules/reports/reports.module';
+import { DependenciesModule } from './modules/dependencies/dependencies.module';
+import { EvaluationsModule } from './modules/evaluations/evaluations.module';
+import { TemplatesModule } from './modules/templates/templates.module';
+import { AutomationModule } from './modules/automation/automation.module';
+import { ApiKeysModule } from './modules/api-keys/api-keys.module';
+import { WebhooksModule } from './modules/webhooks/webhooks.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
+import { ProposalsModule } from './modules/proposals/proposals.module';
+import { HealthModule } from './modules/health/health.module';
+import { ResourcePoolModule } from './modules/resource-pool/resource-pool.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
+
+@Module({
+  imports: [
+    // 全局配置（读取 services/api/.env；isGlobal 供所有模块注入 ConfigService）
+    ConfigModule.forRoot({ isGlobal: true, cache: true }),
+
+    // 领域事件总线（工程决策 11：业务事务提交后发布事件；事件名契约唯一来源 packages/domain-events，Phase 1 先本地常量）
+    EventEmitterModule.forRoot(),
+
+    // 基建层（@Global）：PrismaService（租户过滤扩展）、AuditService、AuthUserLoader、
+    // 全局 JwtAuthGuard（APP_GUARD）、全局 Idempotency-Key 拦截器（APP_INTERCEPTOR）、
+    // TenantFilterMiddleware + RequestIdMiddleware（forRoutes('*')）
+    CommonModule,
+
+    // 权限：3 租户角色（admin/member/viewer）+ 项目负责人 owner_id 派生；角色模板种子在 RbacModule 初始化时落库
+    RbacModule,
+
+    // 认证：register/login/refresh/logout/me（JWT access 15m + refresh 7d + bcrypt）
+    AuthModule,
+
+    // 审计：AuditService 写 append-only audit_logs（@Audited 装饰器 + 事务内 record）
+    AuditModule,
+
+    // ============================================================
+    // 业务模块（Phase 1：projects/tasks/assignments/comments/notifications/reminders）
+    // 依赖的 PrismaService/AuditService/全局守卫已由 CommonModule(@Global) 提供
+    ProjectsModule,
+    TasksModule,
+    AssignmentsModule,
+    CommentsModule,
+    NotificationsModule,
+    RemindersModule,
+
+    // ============================================================
+    // Phase 1 收尾模块（attachments/search/import-export/summaries）
+    // attachments 依赖 S3Service（common/storage/s3.service.ts，模块内自提供）
+    AttachmentsModule,
+    SearchModule,
+    ImportExportModule,
+    SummariesModule,
+
+    // Phase 2 B16：报表聚合 API（甘特/燃尽/负载）
+    ReportsModule,
+
+    // Phase 2 B15：依赖 CRUD + CPM 计划
+    DependenciesModule,
+
+    // Phase 2 B17：工时统计 + 智能评估 v1（规则引擎，无 LLM）
+    EvaluationsModule,
+
+    // Phase 2 B19：模板库
+    TemplatesModule,
+
+    // Phase 2 B20：自动化规则引擎
+    AutomationModule,
+
+    // Phase 2 B22：开放 API + Webhook
+    ApiKeysModule,
+    WebhooksModule,
+
+    // Phase 2 B21：日历集成
+    CalendarModule,
+    ProposalsModule,
+    HealthModule,
+    ResourcePoolModule,
+
+    // 钉钉 / 飞书集成出口（MCP 网关 / OpenAPI / Mock 三通道，统一由后端代理）
+    IntegrationsModule,
+
+  ],
+})
+export class AppModule {}

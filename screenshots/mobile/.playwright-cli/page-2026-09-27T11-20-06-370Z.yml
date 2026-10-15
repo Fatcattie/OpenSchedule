@@ -1,0 +1,520 @@
+- generic [ref=e151]:
+  - generic [ref=e152]:
+    - generic:
+      - generic [aria-hidden]:
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic: 伟
+                              - generic:
+                                - generic: 晚上好，张伟
+                                - generic: 北极星研发组 · 9月27日 周日
+                              - button:
+                                - generic: 
+                                - generic: 管理人员
+                              - button:
+                                - generic: 
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: 
+                                - generic: 有 5 个任务将在 24 小时内到期
+                              - generic: 最紧急：组件库搭建
+                          - generic:
+                            - generic:
+                              - button:
+                                - generic: 
+                                - generic: 今日聚焦
+                              - button:
+                                - generic: 
+                                - generic: 时间容器
+                              - button:
+                                - generic: 
+                                - generic: 项目看板
+                            - generic:
+                              - button:
+                                - generic: 
+                                - generic: 提报事项
+                              - button:
+                                - generic: 
+                                - generic: 创建事项
+                              - button:
+                                - generic: 
+                                - generic: 个人计划
+                          - generic:
+                            - generic:
+                              - generic: 我的待办
+                              - generic: 共 7 条
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: 完成
+                                - generic:
+                                  - generic:
+                                    - button:
+                                      - generic:
+                                        - generic:
+                                          - generic: 日志查询小工具
+                                          - generic:
+                                            - generic: 进行中
+                                            - generic:
+                                              - generic: 
+                                              - generic: 10月3日
+                                            - generic:
+                                              - generic: 
+                                              - generic: 10h
+                                            - generic:
+                                              - generic: 
+                                              - generic: 待领取
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: 完成
+                                - generic:
+                                  - generic:
+                                    - button:
+                                      - generic:
+                                        - generic:
+                                          - generic: 接口联调环境
+                                          - generic:
+                                            - generic: 进行中
+                                            - generic:
+                                              - generic: 
+                                              - generic: 10月1日
+                                            - generic:
+                                              - generic: 
+                                              - generic: 8h
+                                            - generic:
+                                              - generic: 
+                                              - generic: 待领取
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: 承接
+                                - generic:
+                                  - generic:
+                                    - button:
+                                      - generic:
+                                        - generic:
+                                          - generic: 本周复盘会材料
+                                          - generic:
+                                            - generic: 待办
+                                            - generic:
+                                              - generic: 
+                                              - generic: 今天到期
+                                            - generic:
+                                              - generic: 
+                                              - generic: 2h
+                                            - generic:
+                                              - generic: 
+                                              - generic: 待领取
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: 承接
+                                - generic:
+                                  - generic:
+                                    - button:
+                                      - generic:
+                                        - generic:
+                                          - generic: 需求文档评审
+                                          - generic:
+                                            - generic: 待办
+                                            - generic:
+                                              - generic: 
+                                              - generic: 今天到期
+                                            - generic:
+                                              - generic: 
+                                              - generic: 4h
+                                            - generic:
+                                              - generic: 
+                                              - generic: 待领取
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: 承接
+                                - generic:
+                                  - generic:
+                                    - button:
+                                      - generic:
+                                        - generic:
+                                          - generic: 官网改版验收清单
+                                          - generic:
+                                            - generic: 待办
+                                            - generic:
+                                              - generic: 
+                                              - generic: 今天到期
+                                            - generic:
+                                              - generic: 
+                                              - generic: 1h
+                                            - generic:
+                                              - generic: 
+                                              - generic: 待领取
+                          - generic:
+                            - generic: 团队动态
+                            - generic:
+                              - generic:
+                                - button:
+                                  - generic:
+                                    - generic: 提交了「首页原型评审」完成提报
+                                    - generic: 李娜 · 7 小时前
+                              - generic:
+                                - button:
+                                  - generic:
+                                    - generic: 将「日志查询小工具」推进为进行中
+                                    - generic: 王强 · 8 小时前
+                              - generic:
+                                - button:
+                                  - generic:
+                                    - generic: 生成了「日志查询小工具」拆解草稿
+                                    - generic: AI 助手 · 昨天 18:00
+                              - generic:
+                                - button:
+                                  - generic:
+                                    - generic: 在「组件库搭建」中回复了讨论
+                                    - generic: 王强 · 昨天 10:10
+                              - generic:
+                                - button:
+                                  - generic:
+                                    - generic: 将「第三方登录接入受阻」标记为已阻塞
+                                    - generic: 王强 · 2 天前
+                            - button:
+                              - generic: 加载更多动态
+                              - generic: 
+    - generic:
+      - generic [aria-hidden]:
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic: 今日聚焦
+                            - generic: 9月27日 周日 · 共 10 项待处理
+                          - generic:
+                            - generic:
+                              - generic:
+                                - tab:
+                                  - generic: 今日到期
+                                  - generic: "5"
+                                - tab:
+                                  - generic: 待我审核
+                                  - generic: "4"
+                                - tab:
+                                  - generic: 临期预警
+                                  - generic: "5"
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: 完成
+                                - generic:
+                                  - generic:
+                                    - button:
+                                      - generic:
+                                        - generic:
+                                          - generic: 组件库搭建
+                                          - generic:
+                                            - generic: 进行中
+                                            - generic:
+                                              - generic: 
+                                              - generic: 今天到期
+                                            - generic:
+                                              - generic: 
+                                              - generic: 待领取
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: 完成
+                                - generic:
+                                  - generic:
+                                    - button:
+                                      - generic:
+                                        - generic:
+                                          - generic: 首页原型设计
+                                          - generic:
+                                            - generic: 进行中
+                                            - generic:
+                                              - generic: 
+                                              - generic: 今天到期
+                                            - generic:
+                                              - generic: 
+                                              - generic: 待领取
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: 承接
+                                - generic:
+                                  - generic:
+                                    - button:
+                                      - generic:
+                                        - generic:
+                                          - generic: 本周复盘会材料
+                                          - generic:
+                                            - generic: 待办
+                                            - generic:
+                                              - generic: 
+                                              - generic: 今天到期
+                                            - generic:
+                                              - generic: 
+                                              - generic: 待领取
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: 承接
+                                - generic:
+                                  - generic:
+                                    - button:
+                                      - generic:
+                                        - generic:
+                                          - generic: 需求文档评审
+                                          - generic:
+                                            - generic: 待办
+                                            - generic:
+                                              - generic: 
+                                              - generic: 今天到期
+                                            - generic:
+                                              - generic: 
+                                              - generic: 待领取
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: 承接
+                                - generic:
+                                  - generic:
+                                    - button:
+                                      - generic:
+                                        - generic:
+                                          - generic: 官网改版验收清单
+                                          - generic:
+                                            - generic: 待办
+                                            - generic:
+                                              - generic: 
+                                              - generic: 今天到期
+                                            - generic:
+                                              - generic: 
+                                              - generic: 待领取
+                          - generic:
+                            - generic: 
+                            - generic: 向右滑动卡片可快速操作
+    - generic [ref=e535]:
+      - generic [ref=e537]:
+        - button "返回" [ref=e538] [cursor=pointer]:
+          - generic [ref=e539]: 
+        - generic [ref=e540]:
+          - generic [ref=e541]: 官网改版 2026 Q3
+          - generic [ref=e542]: 完成 33% · 4/12 个任务
+      - generic [ref=e547]:
+        - generic [ref=e548]:
+          - generic [ref=e549]:
+            - generic [ref=e551]: 待办
+            - generic [ref=e552]: "5"
+          - generic [ref=e554]:
+            - button "需求文档评审 切换状态 待办  今天到期 伟" [ref=e557] [cursor=pointer]:
+              - generic [ref=e560]:
+                - generic [ref=e561]:
+                  - generic [ref=e562]: 需求文档评审
+                  - button "切换状态" [ref=e564]:
+                    - generic [ref=e565]: 
+                - generic [ref=e566]:
+                  - generic [ref=e567]: 待办
+                  - generic [ref=e569]:
+                    - generic [ref=e570]: 
+                    - generic [ref=e571]: 今天到期
+                  - generic [ref=e572]: 伟
+            - button "设计走查清单 切换状态 待办  9月29日  待领取" [ref=e577] [cursor=pointer]:
+              - generic [ref=e580]:
+                - generic [ref=e581]:
+                  - generic [ref=e582]: 设计走查清单
+                  - button "切换状态" [ref=e584]:
+                    - generic [ref=e585]: 
+                - generic [ref=e586]:
+                  - generic [ref=e587]: 待办
+                  - generic [ref=e589]:
+                    - generic [ref=e590]: 
+                    - generic [ref=e591]: 9月29日
+                  - generic [ref=e592]:
+                    - generic [ref=e593]: 
+                    - generic [ref=e594]: 待领取
+            - button "竞品分析报告 切换状态 待办  10月4日 娜" [ref=e597] [cursor=pointer]:
+              - generic [ref=e600]:
+                - generic [ref=e601]:
+                  - generic [ref=e602]: 竞品分析报告
+                  - button "切换状态" [ref=e604]:
+                    - generic [ref=e605]: 
+                - generic [ref=e606]:
+                  - generic [ref=e607]: 待办
+                  - generic [ref=e609]:
+                    - generic [ref=e610]: 
+                    - generic [ref=e611]: 10月4日
+                  - generic [ref=e612]: 娜
+            - button "本周复盘会材料 切换状态 待办  今天到期 伟" [ref=e617] [cursor=pointer]:
+              - generic [ref=e620]:
+                - generic [ref=e621]:
+                  - generic [ref=e622]: 本周复盘会材料
+                  - button "切换状态" [ref=e624]:
+                    - generic [ref=e625]: 
+                - generic [ref=e626]:
+                  - generic [ref=e627]: 待办
+                  - generic [ref=e629]:
+                    - generic [ref=e630]: 
+                    - generic [ref=e631]: 今天到期
+                  - generic [ref=e632]: 伟
+            - button "官网改版验收清单 切换状态 待办  今天到期 伟" [ref=e637] [cursor=pointer]:
+              - generic [ref=e640]:
+                - generic [ref=e641]:
+                  - generic [ref=e642]: 官网改版验收清单
+                  - button "切换状态" [ref=e644]:
+                    - generic [ref=e645]: 
+                - generic [ref=e646]:
+                  - generic [ref=e647]: 待办
+                  - generic [ref=e649]:
+                    - generic [ref=e650]: 
+                    - generic [ref=e651]: 今天到期
+                  - generic [ref=e652]: 伟
+        - generic [ref=e655]:
+          - generic [ref=e656]:
+            - generic [ref=e658]: 进行中
+            - generic [ref=e659]: "2"
+          - generic [ref=e661]:
+            - button "接口联调环境 切换状态 进行中  10月1日 伟" [ref=e664] [cursor=pointer]:
+              - generic [ref=e667]:
+                - generic [ref=e668]:
+                  - generic [ref=e669]: 接口联调环境
+                  - button "切换状态" [ref=e671]:
+                    - generic [ref=e672]: 
+                - generic [ref=e673]:
+                  - generic [ref=e674]: 进行中
+                  - generic [ref=e676]:
+                    - generic [ref=e677]: 
+                    - generic [ref=e678]: 10月1日
+                  - generic [ref=e679]: 伟
+            - button "完成提报：首页原型评审 切换状态 进行中  今天到期 娜" [ref=e684] [cursor=pointer]:
+              - generic [ref=e687]:
+                - generic [ref=e688]:
+                  - generic [ref=e689]: 完成提报：首页原型评审
+                  - button "切换状态" [ref=e691]:
+                    - generic [ref=e692]: 
+                - generic [ref=e693]:
+                  - generic [ref=e694]: 进行中
+                  - generic [ref=e696]:
+                    - generic [ref=e697]: 
+                    - generic [ref=e698]: 今天到期
+                  - generic [ref=e699]: 娜
+        - generic [ref=e702]:
+          - generic [ref=e703]:
+            - generic [ref=e705]: 已阻塞
+            - generic [ref=e706]: "1"
+          - button "第三方登录接入受阻 切换状态 已阻塞  9月30日 强" [ref=e711] [cursor=pointer]:
+            - generic [ref=e714]:
+              - generic [ref=e715]:
+                - generic [ref=e716]: 第三方登录接入受阻
+                - button "切换状态" [ref=e718]:
+                  - generic [ref=e719]: 
+              - generic [ref=e720]:
+                - generic [ref=e721]: 已阻塞
+                - generic [ref=e723]:
+                  - generic [ref=e724]: 
+                  - generic [ref=e725]: 9月30日
+                - generic [ref=e726]: 强
+        - generic [ref=e729]:
+          - generic [ref=e730]:
+            - generic [ref=e732]: 已完成
+            - generic [ref=e733]: "4"
+          - generic [ref=e735]:
+            - button "首页原型设计 切换状态 已完成  9月27日 娜" [ref=e738] [cursor=pointer]:
+              - generic [ref=e741]:
+                - generic [ref=e742]:
+                  - generic [ref=e743]: 首页原型设计
+                  - button "切换状态" [ref=e745]:
+                    - generic [ref=e746]: 
+                - generic [ref=e747]:
+                  - generic [ref=e748]: 已完成
+                  - generic [ref=e750]:
+                    - generic [ref=e751]: 
+                    - generic [ref=e752]: 9月27日
+                  - generic [ref=e753]: 娜
+            - button "组件库搭建 切换状态 已完成  9月27日 强" [ref=e758] [cursor=pointer]:
+              - generic [ref=e761]:
+                - generic [ref=e762]:
+                  - generic [ref=e763]: 组件库搭建
+                  - button "切换状态" [ref=e765]:
+                    - generic [ref=e766]: 
+                - generic [ref=e767]:
+                  - generic [ref=e768]: 已完成
+                  - generic [ref=e770]:
+                    - generic [ref=e771]: 
+                    - generic [ref=e772]: 9月27日
+                  - generic [ref=e773]: 强
+            - button "视觉规范定稿 切换状态 已完成  9月23日 娜" [ref=e778] [cursor=pointer]:
+              - generic [ref=e781]:
+                - generic [ref=e782]:
+                  - generic [ref=e783]: 视觉规范定稿
+                  - button "切换状态" [ref=e785]:
+                    - generic [ref=e786]: 
+                - generic [ref=e787]:
+                  - generic [ref=e788]: 已完成
+                  - generic [ref=e790]:
+                    - generic [ref=e791]: 
+                    - generic [ref=e792]: 9月23日
+                  - generic [ref=e793]: 娜
+            - button "技术选型确认 切换状态 已完成  9月21日 强" [ref=e798] [cursor=pointer]:
+              - generic [ref=e801]:
+                - generic [ref=e802]:
+                  - generic [ref=e803]: 技术选型确认
+                  - button "切换状态" [ref=e805]:
+                    - generic [ref=e806]: 
+                - generic [ref=e807]:
+                  - generic [ref=e808]: 已完成
+                  - generic [ref=e810]:
+                    - generic [ref=e811]: 
+                    - generic [ref=e812]: 9月21日
+                  - generic [ref=e813]: 强
+  - tablist [ref=e281]:
+    - tab "  工作台" [ref=e283] [cursor=pointer]:
+      - generic [ref=e284]:
+        - generic [ref=e285]: 
+        - generic [ref=e287]: 
+      - generic [ref=e289]: 工作台
+    - tab "  今日" [ref=e291] [cursor=pointer]:
+      - generic [ref=e292]:
+        - generic [ref=e293]: 
+        - generic [ref=e295]: 
+      - generic [ref=e297]: 今日
+    - tab "  项目" [selected] [ref=e299] [cursor=pointer]:
+      - generic [ref=e300]:
+        - generic [ref=e301]: 
+        - generic [ref=e303]: 
+      - generic [ref=e305]: 项目
+    - tab "  时间" [ref=e307] [cursor=pointer]:
+      - generic [ref=e308]:
+        - generic [ref=e309]: 
+        - generic [ref=e311]: 
+      - generic [ref=e313]: 时间
+    - tab "  我的" [ref=e315] [cursor=pointer]:
+      - generic [ref=e316]:
+        - generic [ref=e317]: 
+        - generic [ref=e319]: 
+      - generic [ref=e321]: 我的

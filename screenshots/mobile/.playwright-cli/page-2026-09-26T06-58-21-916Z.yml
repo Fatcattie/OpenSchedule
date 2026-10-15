@@ -1,0 +1,52 @@
+- generic [ref=e54]:
+  - generic [ref=e65]:
+    - generic [ref=e67]:
+      - generic [ref=e68]: 伟
+      - generic [ref=e70]:
+        - generic [ref=e71]: 下午好，张伟
+        - generic [ref=e72]: 北极星研发组 · 9月26日 周六
+      - button "切换角色" [ref=e73] [cursor=pointer]:
+        - generic [ref=e74]: 
+        - generic [ref=e75]: 管理人员
+      - button "通知" [ref=e76] [cursor=pointer]:
+        - generic [ref=e77]: 
+    - generic [ref=e79]:
+      - button " 今日聚焦" [ref=e80] [cursor=pointer]:
+        - generic [ref=e81]: 
+        - generic [ref=e83]: 今日聚焦
+      - button " 时间容器" [ref=e84] [cursor=pointer]:
+        - generic [ref=e85]: 
+        - generic [ref=e87]: 时间容器
+      - button " 项目看板" [ref=e88] [cursor=pointer]:
+        - generic [ref=e89]: 
+        - generic [ref=e91]: 项目看板
+    - generic [ref=e93]:
+      - generic [ref=e94]: 我的待办
+      - generic [ref=e95]: 共 0 条
+    - generic [ref=e115]: 团队动态
+  - tablist [ref=e132]:
+    - tab "  工作台" [selected] [ref=e134] [cursor=pointer]:
+      - generic [ref=e135]:
+        - generic [ref=e136]: 
+        - generic [ref=e138]: 
+      - generic [ref=e140]: 工作台
+    - tab "  今日" [ref=e142] [cursor=pointer]:
+      - generic [ref=e143]:
+        - generic [ref=e144]: 
+        - generic [ref=e146]: 
+      - generic [ref=e148]: 今日
+    - tab "  项目" [ref=e150] [cursor=pointer]:
+      - generic [ref=e151]:
+        - generic [ref=e152]: 
+        - generic [ref=e154]: 
+      - generic [ref=e156]: 项目
+    - tab "  时间" [ref=e158] [cursor=pointer]:
+      - generic [ref=e159]:
+        - generic [ref=e160]: 
+        - generic [ref=e162]: 
+      - generic [ref=e164]: 时间
+    - tab "  我的" [ref=e166] [cursor=pointer]:
+      - generic [ref=e167]:
+        - generic [ref=e168]: 
+        - generic [ref=e170]: 
+      - generic [ref=e172]: 我的

@@ -1,0 +1,97 @@
+/**
+ * 创建任务 DTO（§3.5.1 POST /projects/:id/tasks，支持批量；§3.5.5 校验规则）。
+ * parent_id 同项目/深度≤4/防环、assignee 须为本项目成员在 service 校验。
+ */
+import { Type } from 'class-transformer';
+import { ArrayMaxSize, ArrayUnique, IsArray, IsBoolean, IsDate, IsEnum, IsIn, IsNumber, IsOptional, IsString, IsUUID, Length, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { TaskPriority } from '../../../common/constants/task-status';
+import { MaxDecimalPlaces } from './max-decimal-places.decorator';
+import { SubtaskItemDto } from './review-task.dto';
+
+/** 任务模式（Phase4：独立任务不支持 AI 拆解） */
+export const TASK_MODES = ['team', 'independent'] as const;
+export type TaskMode = (typeof TASK_MODES)[number];
+
+export class CreateTaskDto {
+  /** 标题：必填 1–200 字符（DB varchar(300) 为容量余量） */
+  @IsString()
+  @Length(1, 200)
+  title!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  description?: string;
+
+  /** 优先级：枚举，默认 medium */
+  @IsOptional()
+  @IsEnum(TaskPriority)
+  priority?: TaskPriority = TaskPriority.MEDIUM;
+
+  /** 分配：可空（=待领取）；非空时必须是本项目成员（跨项目分配直接拒绝） */
+  @IsOptional()
+  @IsUUID()
+  assigneeId?: string;
+
+  /** 截止：可空；按租户时区解释，默认 UTC+8 */
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  dueAt?: Date;
+
+  /** 开始：可空（Phase4：发布任务时间窗起点，与 due_at 构成忙碌窗口供个人计划冲突校验） */
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  startAt?: Date;
+
+  /** 任务模式：team=团队协作任务 / independent=独立任务（默认 team） */
+  @IsOptional()
+  @IsIn(TASK_MODES)
+  taskMode?: TaskMode;
+
+  /** 是否需要评审（仅管理员/项目负责人发布时有效；成员提报忽略） */
+  @IsOptional()
+  @IsBoolean()
+  reviewRequired?: boolean;
+
+  /** 提报补充说明（普通成员提报时可附说明） */
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  submissionNote?: string;
+
+  /** 随发布一并创建的子任务（仅管理员/项目负责人发布团队任务时可用；独立任务拒绝） */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => SubtaskItemDto)
+  subtasks?: SubtaskItemDto[];
+
+  /** 估时：0 < x ≤ 1000，小数 1 位（Phase 1 采集入口） */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.1)
+  @Max(1000)
+  @MaxDecimalPlaces(1)
+  estimatedHours?: number;
+
+  /** 父任务：同项目内；树深度 ≤4；不可把自己的后代设为父（防环） */
+  @IsOptional()
+  @IsUUID()
+  parentId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(20)
+  @ArrayUnique()
+  tags?: string[];
+
+  /** AI 草稿落库标记（可撤销回滚依据） */
+  @IsOptional()
+  @IsBoolean()
+  isAiGenerated?: boolean = false;
+}

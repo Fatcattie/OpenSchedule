@@ -1,0 +1,68 @@
+- generic [ref=e54]:
+  - generic [ref=e65]:
+    - generic [ref=e67]:
+      - generic [ref=e68]: 伟
+      - generic [ref=e70]:
+        - generic [ref=e71]: 早上好，张伟
+        - generic [ref=e72]: 北极星研发组 · 9月27日 周日
+      - button "切换角色" [ref=e73] [cursor=pointer]:
+        - generic [ref=e74]: 
+        - generic [ref=e75]: 管理人员
+      - button "通知" [ref=e76] [cursor=pointer]:
+        - generic [ref=e77]: 
+    - generic [ref=e79]:
+      - generic [ref=e80]:
+        - generic [ref=e81]: 
+        - generic [ref=e82]: 有 7 个任务将在 24 小时内到期
+      - generic [ref=e83]: 最紧急：组件库搭建
+    - generic [ref=e84]:
+      - generic [ref=e85]:
+        - button " 今日聚焦" [ref=e86] [cursor=pointer]:
+          - generic [ref=e87]: 
+          - generic [ref=e89]: 今日聚焦
+        - button " 时间容器" [ref=e90] [cursor=pointer]:
+          - generic [ref=e91]: 
+          - generic [ref=e93]: 时间容器
+        - button " 项目看板" [ref=e94] [cursor=pointer]:
+          - generic [ref=e95]: 
+          - generic [ref=e97]: 项目看板
+      - generic [ref=e98]:
+        - button " 提报事项" [ref=e99] [cursor=pointer]:
+          - generic [ref=e100]: 
+          - generic [ref=e102]: 提报事项
+        - button " 创建事项" [ref=e103] [cursor=pointer]:
+          - generic [ref=e104]: 
+          - generic [ref=e106]: 创建事项
+        - button " 个人计划" [ref=e107] [cursor=pointer]:
+          - generic [ref=e108]: 
+          - generic [ref=e110]: 个人计划
+    - generic [ref=e112]:
+      - generic [ref=e113]: 我的待办
+      - generic [ref=e114]: 共 0 条
+    - generic [ref=e134]: 团队动态
+  - tablist [ref=e151]:
+    - tab "  工作台" [selected] [ref=e153] [cursor=pointer]:
+      - generic [ref=e154]:
+        - generic [ref=e155]: 
+        - generic [ref=e157]: 
+      - generic [ref=e159]: 工作台
+    - tab "  今日" [ref=e161] [cursor=pointer]:
+      - generic [ref=e162]:
+        - generic [ref=e163]: 
+        - generic [ref=e165]: 
+      - generic [ref=e167]: 今日
+    - tab "  项目" [ref=e169] [cursor=pointer]:
+      - generic [ref=e170]:
+        - generic [ref=e171]: 
+        - generic [ref=e173]: 
+      - generic [ref=e175]: 项目
+    - tab "  时间" [ref=e177] [cursor=pointer]:
+      - generic [ref=e178]:
+        - generic [ref=e179]: 
+        - generic [ref=e181]: 
+      - generic [ref=e183]: 时间
+    - tab "  我的" [ref=e185] [cursor=pointer]:
+      - generic [ref=e186]:
+        - generic [ref=e187]: 
+        - generic [ref=e189]: 
+      - generic [ref=e191]: 我的

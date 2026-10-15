@@ -1,0 +1,87 @@
+- generic [ref=f6e1]:
+  - generic [ref=f6e19]:
+    - generic [ref=f6e29]:
+      - generic [ref=f6e32]:
+        - generic [ref=f6e33]: 我的
+        - generic [ref=f6e34]: 身份、偏好与退出
+      - generic [ref=f6e36]:
+        - generic [ref=f6e37]:
+          - generic [ref=f6e38]: 伟
+          - generic [ref=f6e42]:
+            - generic [ref=f6e43]: 张伟
+            - generic [ref=f6e44]: zhangwei@example.com
+            - generic [ref=f6e45]:
+              - generic [ref=f6e46]: 
+              - generic [ref=f6e47]: 北极星研发组 · PRO
+        - generic [ref=f6e48]: “把复杂留给自己，把简单留给用户”
+      - generic [ref=f6e49]:
+        - generic [ref=f6e50]: 角色切换
+        - generic [ref=f6e51]: 演示用视角切换（后端角色：manager / member）
+        - generic [ref=f6e54]:
+          - tab "管理人员" [ref=f6e55] [cursor=pointer]
+          - tab "普通人员" [ref=f6e57] [cursor=pointer]
+      - generic [ref=f6e59]:
+        - generic [ref=f6e60]: 设置
+        - generic [ref=f6e61]:
+          - button " 通知偏好 已开启 6 个通道 " [ref=f6e62] [cursor=pointer]:
+            - generic [ref=f6e63]: 
+            - generic [ref=f6e64]: 通知偏好
+            - generic [ref=f6e65]: 已开启 6 个通道
+            - generic [ref=f6e66]: 
+          - button " 个人计划 " [ref=f6e67] [cursor=pointer]:
+            - generic [ref=f6e68]: 
+            - generic [ref=f6e69]: 个人计划
+            - generic [ref=f6e70]: 
+          - button " 我的提报 " [ref=f6e71] [cursor=pointer]:
+            - generic [ref=f6e72]: 
+            - generic [ref=f6e73]: 我的提报
+            - generic [ref=f6e74]: 
+          - generic:
+            - generic [ref=f6e75]: 
+            - generic [ref=f6e76]: 时区
+            - generic [ref=f6e77]: Asia/Shanghai
+          - button " 关于 OpenSchedule v1.0.0 " [ref=f6e78] [cursor=pointer]:
+            - generic [ref=f6e79]: 
+            - generic [ref=f6e80]: 关于 OpenSchedule
+            - generic [ref=f6e81]: v1.0.0
+            - generic [ref=f6e82]: 
+      - button "退出登录" [ref=f6e85] [cursor=pointer]:
+        - generic [ref=f6e86]:
+          - generic [ref=f6e87]: 
+          - generic [ref=f6e88]: 退出登录
+    - tablist [ref=f6e90]:
+      - tab "  工作台" [ref=f6e92] [cursor=pointer]:
+        - generic [ref=f6e93]:
+          - generic [ref=f6e94]: 
+          - generic [ref=f6e96]: 
+        - generic [ref=f6e98]: 工作台
+      - tab "  今日" [ref=f6e100] [cursor=pointer]:
+        - generic [ref=f6e101]:
+          - generic [ref=f6e102]: 
+          - generic [ref=f6e104]: 
+        - generic [ref=f6e106]: 今日
+      - tab "  项目" [ref=f6e108] [cursor=pointer]:
+        - generic [ref=f6e109]:
+          - generic [ref=f6e110]: 
+          - generic [ref=f6e112]: 
+        - generic [ref=f6e114]: 项目
+      - tab "  时间" [ref=f6e116] [cursor=pointer]:
+        - generic [ref=f6e117]:
+          - generic [ref=f6e118]: 
+          - generic [ref=f6e120]: 
+        - generic [ref=f6e122]: 时间
+      - tab "  我的" [selected] [ref=f6e124] [cursor=pointer]:
+        - generic [ref=f6e125]:
+          - generic [ref=f6e126]: 
+          - generic [ref=f6e128]: 
+        - generic [ref=f6e130]: 我的
+  - dialog [ref=f6e132]:
+    - generic [ref=f6e134]:
+      - button "关闭" [active] [ref=f6e136] [cursor=pointer]
+      - generic [ref=f6e137]:
+        - generic [ref=f6e139]: 确认退出登录？
+        - generic [ref=f6e140]:
+          - generic [ref=f6e141]: 退出后需要重新输入账号密码才能进入工作台，本地计时数据会保留。
+          - generic [ref=f6e142]:
+            - button "取消" [ref=f6e145] [cursor=pointer]
+            - button "退出登录" [ref=f6e150] [cursor=pointer]

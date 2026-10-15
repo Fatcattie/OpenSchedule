@@ -25,6 +25,30 @@ export const cloneTasks = (): WorkspaceTask[] => {
   const base = normalizeTasks(structuredClone(mockTasks).map((t) => toWorkspaceTask(t as WorkspaceTask)))
   // 演示种子：一个已生效的团队协作项目 + 其 SOP 生成的项目内任务（需求 1 审核通过后的形态）
   const now = new Date().toISOString()
+
+  // 演示种子：把 task-004（首页原型设计）直接置为「完成提报待审」。
+  // 原因：审核中心的「审核」按钮只在「待审核」栏有数据时才渲染（AuditPage 待审核栏），
+  // 而种子任务默认 approvalStatus='none' ⇒ 全新会话打开审核页恒为「暂无」，看不到任何审核按钮。
+  // 这里预置一条待审事项，使演示/验收开箱即可走完整审核流（待提报 -1、待审核 +1）。
+  const seededPending: WorkspaceTask[] = base.map((t) =>
+    t.id === 'task-004'
+      ? {
+          ...t,
+          approvalStatus: 'pending' as const,
+          approvalType: 'completion' as const,
+          completion: {
+            completedAt: dayjs().format('YYYY-MM-DD HH:mm'),
+            tags: ['按计划完成'],
+            notes: '先锁定设计 token 再走查，返工明显减少',
+            sopImprovement: '建议把设计 token 评审前置到需求阶段',
+            suggestions: '提前与后端确认接口字段',
+            summary: '已完成首屏与导航高保真原型，列表页待补充',
+            aiGenerated: false,
+          },
+          updatedAt: now,
+        }
+      : t,
+  )
   const demoProject: WorkspaceTask = {
     id: 'project-demo-001', tenantId: 'tenant-001', projectId: 'project-001', parentId: null,
     title: '官网 2.0 改版（演示项目）', description: '团队协作项目演示：审核通过后按 SOP 生成项目内任务，可进入项目详情调整流程顺序、增删任务。',
@@ -53,7 +77,7 @@ export const cloneTasks = (): WorkspaceTask[] => {
     dailyPlans: [], isDraft: false, pendingDelete: false, pendingSop: null,
   }
   const demoChildTasks = buildProjectTasksFromSop(demoProject, demoProject.sop!)
-  return [demoProject, ...demoChildTasks, ...base]
+  return [demoProject, ...demoChildTasks, ...seededPending]
 }
 
 /** 用户显示名 */
@@ -162,15 +186,26 @@ export function useWorkspaceTasks() {
         (cur.approvalStatus === 'approved' || cur.approvalStatus === 'rejected')
       ) {
         const passed = cur.approvalStatus === 'approved'
+        // 文案分叉（仅文案）：驳回时读最后一条审核留痕，opinion='rework' ⇒ 退回重改。
+        // 时序保证：AuditPage.submitAudit 先 setTasks 追加带 opinion 的 AuditLog，
+        // 本推导再于下一轮 effect 读取 cur.auditLogs，故末尾即最新一条。
+        const lastOpinion = cur.auditLogs?.[cur.auditLogs.length - 1]?.opinion
+        const isRework = !passed && lastOpinion === 'rework'
         const typeLabel = cur.approvalType ? APPROVAL_TYPE_META[cur.approvalType]?.label ?? '审批' : '审批'
         const completionApproved = cur.approvalType === 'completion' && passed
         if (!completionApproved) {
           addNotification({
             eventType: 'approval_result',
-            title: passed ? `「${cur.title}」${typeLabel}已通过` : `「${cur.title}」${typeLabel}被驳回`,
+            title: passed
+              ? `「${cur.title}」${typeLabel}已通过`
+              : isRework
+                ? `「${cur.title}」${typeLabel}已退回重改`
+                : `「${cur.title}」${typeLabel}被驳回`,
             body: passed
               ? (cur.approvalType === 'assign' ? `承接人已生效：${displayName(cur.assigneeId ?? cur.recommendedAssigneeId)}` : '审核已通过，任务已生效')
-              : '审核未通过，请修改后重新提交',
+              : isRework
+                ? '已退回重改，请按审核意见修改后重新提交'
+                : '审核未通过，请修改后重新提交',
             data: { taskId: cur.id, route: taskRoute(tasks, cur) },
             scope: 'personal',
             relatedUserIds: uniq(cur.createdBy, cur.assigneeId, cur.recommendedAssigneeId),

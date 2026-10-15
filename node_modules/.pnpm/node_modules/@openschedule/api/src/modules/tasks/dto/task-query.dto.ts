@@ -1,0 +1,61 @@
+/**
+ * 任务列表查询 DTO（§3.5.1 GET /projects/:id/tasks；树或平铺；§3.1 分页 + sort 白名单）。
+ */
+import { Type } from 'class-transformer';
+import { IsDate, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { TASK_SORT_WHITELIST, TaskPriority, TaskStatus } from '../../../common/constants/task-status';
+
+/** 排序白名单（含 - 前缀降序） */
+const SORT_OPTIONS = [...TASK_SORT_WHITELIST, ...TASK_SORT_WHITELIST.map(f => `-${f}`)];
+
+export class TaskQueryDto {
+  @IsOptional()
+  @IsEnum(TaskStatus)
+  status?: TaskStatus;
+
+  @IsOptional()
+  @IsUUID()
+  assigneeId?: string;
+
+  @IsOptional()
+  @IsEnum(TaskPriority)
+  priority?: TaskPriority;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  dueFrom?: Date;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  dueTo?: Date;
+
+  /** 标题模糊搜索 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  /** tree=按 parent_id 组树；flat=平铺（默认） */
+  @IsOptional()
+  @IsIn(['tree', 'flat'])
+  view?: 'tree' | 'flat' = 'flat';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number = 50;
+
+  @IsOptional()
+  @IsIn(SORT_OPTIONS)
+  sort?: string;
+}

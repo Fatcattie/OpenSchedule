@@ -1,0 +1,158 @@
+- generic [ref=f14e19]:
+  - generic [ref=f14e30]:
+    - generic [ref=f14e31]:
+      - generic [ref=f14e32]: 今日聚焦
+      - generic [ref=f14e33]: 9月27日 周日 · 共 18 项待处理
+    - generic [ref=f14e36]:
+      - tab "今日到期 7" [ref=f14e37] [cursor=pointer]:
+        - generic [ref=f14e38]: 今日到期
+        - generic [ref=f14e39]: "7"
+      - tab "待我审核 4" [active] [ref=f14e41] [cursor=pointer]:
+        - generic [ref=f14e42]: 待我审核
+        - generic [ref=f14e43]: "4"
+      - tab "临期预警 7" [ref=f14e45] [cursor=pointer]:
+        - generic [ref=f14e46]: 临期预警
+        - generic [ref=f14e47]: "7"
+    - generic [ref=f14e49]:
+      - generic [ref=f14e50]:
+        - generic [ref=f14e51]: 
+        - generic [ref=f14e52]: AI 提议
+        - generic [ref=f14e53]: 2 条待确认
+      - generic [ref=f14e55]:
+        - generic [ref=f14e56]:
+          - generic [ref=f14e57]: 智能评估
+          - generic [ref=f14e59]: 生成于 9月27日
+        - generic [ref=f14e60]: 评估「官网改版 2026 Q3」当前进度落后约 2 天，建议压缩设计走查范围。
+        - generic [ref=f14e61]: 设计走查清单（范围压缩） · 1h
+        - generic [ref=f14e65]:
+          - generic [ref=f14e66]: 
+          - generic [ref=f14e67]: 组件库搭建为关键路径，延期将直接影响验收
+        - generic [ref=f14e68]:
+          - button "驳回" [ref=f14e71] [cursor=pointer]
+          - button "确认落库" [ref=f14e76] [cursor=pointer]
+      - generic [ref=f14e80]:
+        - generic [ref=f14e81]:
+          - generic [ref=f14e82]: AI 拆解提议
+          - generic [ref=f14e84]: 生成于 9月26日
+        - generic [ref=f14e85]: 将「日志查询小工具」拆解为 4 个子任务，预计总工时 10 小时。
+        - generic [ref=f14e86]:
+          - generic [ref=f14e87]: 梳理日志字段与查询场景 · 2h
+          - generic [ref=f14e90]: 实现 CLI 查询命令 · 4h
+          - generic [ref=f14e93]: 输出聚合视图 · 3h
+          - generic [ref=f14e96]: 补充使用文档 · 1h
+        - generic [ref=f14e99]:
+          - generic [ref=f14e100]: 
+          - generic [ref=f14e101]: 子任务「输出聚合视图」依赖「实现 CLI 查询命令」完成后才能开始
+        - generic [ref=f14e102]:
+          - button "驳回" [ref=f14e105] [cursor=pointer]
+          - button "确认落库" [ref=f14e110] [cursor=pointer]
+    - generic [ref=f14e113]:
+      - generic [ref=f14e115]:
+        - generic:
+          - button "通过"
+          - button "驳回"
+        - button "完成提报：首页原型评审 查看详情 进行中  今天到期  待领取" [ref=f14e118] [cursor=pointer]:
+          - generic [ref=f14e121]:
+            - generic [ref=f14e122]:
+              - generic [ref=f14e123]: 完成提报：首页原型评审
+              - button "查看详情" [ref=f14e126]:
+                - generic [ref=f14e127]:
+                  - generic [ref=f14e128]: 
+                  - generic [ref=f14e129]: 查看详情
+            - generic [ref=f14e130]:
+              - generic [ref=f14e131]: 进行中
+              - generic [ref=f14e133]:
+                - generic [ref=f14e134]: 
+                - generic [ref=f14e135]: 今天到期
+              - generic [ref=f14e136]:
+                - generic [ref=f14e137]: 
+                - generic [ref=f14e138]: 待领取
+      - generic [ref=f14e140]:
+        - generic:
+          - button "通过"
+          - button "驳回"
+        - button "完成提报：组件库文档 查看详情 进行中  今天到期  待领取" [ref=f14e143] [cursor=pointer]:
+          - generic [ref=f14e146]:
+            - generic [ref=f14e147]:
+              - generic [ref=f14e148]: 完成提报：组件库文档
+              - button "查看详情" [ref=f14e151]:
+                - generic [ref=f14e152]:
+                  - generic [ref=f14e153]: 
+                  - generic [ref=f14e154]: 查看详情
+            - generic [ref=f14e155]:
+              - generic [ref=f14e156]: 进行中
+              - generic [ref=f14e158]:
+                - generic [ref=f14e159]: 
+                - generic [ref=f14e160]: 今天到期
+              - generic [ref=f14e161]:
+                - generic [ref=f14e162]: 
+                - generic [ref=f14e163]: 待领取
+      - generic [ref=f14e165]:
+        - generic:
+          - button "通过"
+          - button "驳回"
+        - button "新项目：移动端性能专项 查看详情 待办  10月11日  待领取" [ref=f14e168] [cursor=pointer]:
+          - generic [ref=f14e171]:
+            - generic [ref=f14e172]:
+              - generic [ref=f14e173]: 新项目：移动端性能专项
+              - button "查看详情" [ref=f14e176]:
+                - generic [ref=f14e177]:
+                  - generic [ref=f14e178]: 
+                  - generic [ref=f14e179]: 查看详情
+            - generic [ref=f14e180]:
+              - generic [ref=f14e181]: 待办
+              - generic [ref=f14e183]:
+                - generic [ref=f14e184]: 
+                - generic [ref=f14e185]: 10月11日
+              - generic [ref=f14e186]:
+                - generic [ref=f14e187]: 
+                - generic [ref=f14e188]: 待领取
+      - generic [ref=f14e190]:
+        - generic:
+          - button "通过"
+          - button "驳回"
+        - button "新任务：日志查询结果导出 查看详情 待办  10月6日  待领取" [ref=f14e193] [cursor=pointer]:
+          - generic [ref=f14e196]:
+            - generic [ref=f14e197]:
+              - generic [ref=f14e198]: 新任务：日志查询结果导出
+              - button "查看详情" [ref=f14e201]:
+                - generic [ref=f14e202]:
+                  - generic [ref=f14e203]: 
+                  - generic [ref=f14e204]: 查看详情
+            - generic [ref=f14e205]:
+              - generic [ref=f14e206]: 待办
+              - generic [ref=f14e208]:
+                - generic [ref=f14e209]: 
+                - generic [ref=f14e210]: 10月6日
+              - generic [ref=f14e211]:
+                - generic [ref=f14e212]: 
+                - generic [ref=f14e213]: 待领取
+    - generic [ref=f14e214]:
+      - generic [ref=f14e215]: 
+      - generic [ref=f14e216]: 向右滑动卡片可快速操作
+  - tablist [ref=f14e218]:
+    - tab "  工作台" [ref=f14e220] [cursor=pointer]:
+      - generic [ref=f14e221]:
+        - generic [ref=f14e222]: 
+        - generic [ref=f14e224]: 
+      - generic [ref=f14e226]: 工作台
+    - tab "  今日" [selected] [ref=f14e228] [cursor=pointer]:
+      - generic [ref=f14e229]:
+        - generic [ref=f14e230]: 
+        - generic [ref=f14e232]: 
+      - generic [ref=f14e234]: 今日
+    - tab "  项目" [ref=f14e236] [cursor=pointer]:
+      - generic [ref=f14e237]:
+        - generic [ref=f14e238]: 
+        - generic [ref=f14e240]: 
+      - generic [ref=f14e242]: 项目
+    - tab "  时间" [ref=f14e244] [cursor=pointer]:
+      - generic [ref=f14e245]:
+        - generic [ref=f14e246]: 
+        - generic [ref=f14e248]: 
+      - generic [ref=f14e250]: 时间
+    - tab "  我的" [ref=f14e252] [cursor=pointer]:
+      - generic [ref=f14e253]:
+        - generic [ref=f14e254]: 
+        - generic [ref=f14e256]: 
+      - generic [ref=f14e258]: 我的

@@ -1,0 +1,93 @@
+- generic [ref=f1e19]:
+  - generic [ref=f1e27]:
+    - generic [ref=f1e30]:
+      - generic [ref=f1e31]:
+        - generic [ref=f1e32]: 时间容器
+        - generic [ref=f1e33]: 08:00–20:00 · 空闲 2 小时可排期
+      - generic [ref=f1e36]:
+        - tab "日视图" [ref=f1e37] [cursor=pointer]
+        - tab "周视图" [active] [ref=f1e39] [cursor=pointer]
+        - tab "整周" [ref=f1e41] [cursor=pointer]
+      - generic [ref=f1e185]:
+        - generic [ref=f1e188]:
+          - generic [ref=f1e189]: 08:00
+          - generic [ref=f1e191]: 09:00
+          - generic [ref=f1e193]: 10:00
+          - generic [ref=f1e195]: 11:00
+          - generic [ref=f1e197]: 12:00
+          - generic [ref=f1e199]: 13:00
+          - generic [ref=f1e201]: 14:00
+          - generic [ref=f1e203]: 15:00
+          - generic [ref=f1e205]: 16:00
+          - generic [ref=f1e207]: 17:00
+          - generic [ref=f1e209]: 18:00
+          - generic [ref=f1e211]: 19:00
+          - generic [ref=f1e213]: 20:00
+        - generic [ref=f1e216]:
+          - generic [ref=f1e217]:
+            - generic [ref=f1e218]:
+              - generic [ref=f1e219]: 周六
+              - generic [ref=f1e220]: 9月26日
+            - generic [ref=f1e221]:
+              - button "视觉规范定稿" [ref=f1e238] [cursor=pointer]
+              - button "需求文档评审" [ref=f1e242] [cursor=pointer]
+              - button "首页原型设计" [ref=f1e246] [cursor=pointer]
+              - button "晨会同步" [ref=f1e250] [cursor=pointer]
+              - button "接口联调环境" [ref=f1e254] [cursor=pointer]
+              - button "完成提报：首页原型评审" [ref=f1e258] [cursor=pointer]
+              - button "组件库搭建" [ref=f1e262] [cursor=pointer]
+              - button "日志查询小工具" [ref=f1e266] [cursor=pointer]
+              - button "本周复盘会材料" [ref=f1e270] [cursor=pointer]
+              - button "官网改版验收清单" [ref=f1e274] [cursor=pointer]
+              - button "整理本周周报" [ref=f1e278] [cursor=pointer]:
+                - generic [ref=f1e281]: ↓
+          - generic [ref=f1e282]:
+            - generic [ref=f1e283]:
+              - generic [ref=f1e284]: 周日
+              - generic [ref=f1e285]: 9月27日
+            - generic [ref=f1e286]:
+              - button "竞品分析报告" [ref=f1e303] [cursor=pointer]
+              - button "阅读设计规范更新" [ref=f1e307] [cursor=pointer]
+          - generic [ref=f1e311]:
+            - generic [ref=f1e312]: 周一
+            - generic [ref=f1e313]: 9月28日
+          - generic [ref=f1e330]:
+            - generic [ref=f1e331]: 周二
+            - generic [ref=f1e332]: 9月29日
+          - generic [ref=f1e349]:
+            - generic [ref=f1e350]: 周三
+            - generic [ref=f1e351]: 9月30日
+          - generic [ref=f1e368]:
+            - generic [ref=f1e369]: 周四
+            - generic [ref=f1e370]: 10月1日
+          - generic [ref=f1e387]:
+            - generic [ref=f1e388]: 周五
+            - generic [ref=f1e389]: 10月2日
+    - button "新建个人任务" [ref=f1e139] [cursor=pointer]:
+      - generic [ref=f1e140]: 
+  - tablist [ref=f1e142]:
+    - tab "  工作台" [ref=f1e144] [cursor=pointer]:
+      - generic [ref=f1e145]:
+        - generic [ref=f1e146]: 
+        - generic [ref=f1e148]: 
+      - generic [ref=f1e150]: 工作台
+    - tab "  今日" [ref=f1e152] [cursor=pointer]:
+      - generic [ref=f1e153]:
+        - generic [ref=f1e154]: 
+        - generic [ref=f1e156]: 
+      - generic [ref=f1e158]: 今日
+    - tab "  项目" [ref=f1e160] [cursor=pointer]:
+      - generic [ref=f1e161]:
+        - generic [ref=f1e162]: 
+        - generic [ref=f1e164]: 
+      - generic [ref=f1e166]: 项目
+    - tab "  时间" [selected] [ref=f1e168] [cursor=pointer]:
+      - generic [ref=f1e169]:
+        - generic [ref=f1e170]: 
+        - generic [ref=f1e172]: 
+      - generic [ref=f1e174]: 时间
+    - tab "  我的" [ref=f1e176] [cursor=pointer]:
+      - generic [ref=f1e177]:
+        - generic [ref=f1e178]: 
+        - generic [ref=f1e180]: 
+      - generic [ref=f1e182]: 我的

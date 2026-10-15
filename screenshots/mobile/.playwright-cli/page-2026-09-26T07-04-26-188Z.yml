@@ -1,0 +1,86 @@
+- generic [ref=f1e839]:
+  - generic [ref=f1e841]:
+    - button "返回" [ref=f1e842] [cursor=pointer]:
+      - generic [ref=f1e843]: 
+    - generic [ref=f1e844]:
+      - generic [ref=f1e845]: 任务详情
+      - generic [ref=f1e846]: 官网改版 2026 Q3
+    - button "查看依赖" [ref=f1e848] [cursor=pointer]:
+      - generic [ref=f1e849]: 
+  - generic [ref=f1e851]:
+    - generic [ref=f1e856]:
+      - generic [ref=f1e857]: 视觉规范定稿
+      - generic [ref=f1e858]:
+        - generic [ref=f1e859]: 已完成
+        - generic [ref=f1e861]: 高
+    - generic [ref=f1e864]:
+      - generic [ref=f1e865]:
+        - generic [ref=f1e866]: 
+        - generic [ref=f1e867]: 负责人
+        - generic [ref=f1e868]:
+          - generic [ref=f1e869]: 娜
+          - generic [ref=f1e872]: 李娜
+      - generic [ref=f1e873]:
+        - generic [ref=f1e874]: 
+        - generic [ref=f1e875]: 起止时间
+        - generic [ref=f1e876]: 9月26日 → 9月22日
+      - generic [ref=f1e878]:
+        - generic [ref=f1e879]: 
+        - generic [ref=f1e880]: 截止时刻
+        - generic [ref=f1e881]: 9月22日 18:00
+      - generic [ref=f1e883]:
+        - generic [ref=f1e884]: 
+        - generic [ref=f1e885]: 工时（预估 / 实际）
+        - generic [ref=f1e886]: 12h / 11h
+      - generic [ref=f1e888]:
+        - generic [ref=f1e889]: 
+        - generic [ref=f1e890]: 标签
+        - generic [ref=f1e891]: 设计
+    - generic [ref=f1e893]:
+      - generic [ref=f1e894]: 状态与执行
+      - generic [ref=f1e895]:
+        - generic [ref=f1e896]:
+          - button "重开为待办" [ref=f1e899] [cursor=pointer]
+          - button "重开为进行中" [ref=f1e904] [cursor=pointer]
+        - generic [ref=f1e907]:
+          - generic [ref=f1e908]:
+            - generic [ref=f1e909]: 工时计时
+            - generic [ref=f1e910]: 00:00:00
+          - button "开始计时" [ref=f1e913] [cursor=pointer]:
+            - generic [ref=f1e914]:
+              - generic [ref=f1e915]: 
+              - generic [ref=f1e916]: 开始计时
+    - generic [ref=f1e917]:
+      - generic [ref=f1e918]: 任务描述
+      - generic [ref=f1e919]:
+        - generic [ref=f1e920]: 色板 / 字体 / 间距规范评审通过并归档。
+        - button "展开全文 " [ref=f1e921] [cursor=pointer]:
+          - generic [ref=f1e922]: 展开全文
+          - generic [ref=f1e923]: 
+    - generic [ref=f1e924]:
+      - generic [ref=f1e925]:
+        - generic [ref=f1e926]: 评论
+        - generic [ref=f1e927]: 0 条
+      - generic [ref=f1e928]: 还没有评论，说点什么吧
+      - generic [ref=f1e930]:
+        - generic [ref=f1e933]:
+          - generic [ref=f1e934]: 写评论（支持 @提及）
+          - textbox [ref=f1e935]
+        - generic [ref=f1e937]:
+          - button "发送" [disabled]:
+            - generic [ref=f1e938]:
+              - generic [ref=f1e939]: 
+              - generic [ref=f1e940]: 发送
+    - generic [ref=f1e941]:
+      - generic [ref=f1e942]:
+        - generic [ref=f1e943]: 附件
+        - generic [ref=f1e944]:
+          - generic [ref=f1e945]: 0 个
+          - button "添加附件" [ref=f1e946] [cursor=pointer]:
+            - generic [ref=f1e947]: 
+      - generic [ref=f1e949]: 暂无附件
+  - generic [ref=f1e951]:
+    - generic [ref=f1e952]:
+      - generic [ref=f1e953]: 当前状态
+      - generic [ref=f1e954]: 已完成
+    - button "重开为待办" [ref=f1e956] [cursor=pointer]

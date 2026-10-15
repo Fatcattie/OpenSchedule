@@ -1,0 +1,73 @@
+- generic [ref=f13e19]:
+  - generic [ref=f13e27]:
+    - generic [ref=f13e30]:
+      - generic [ref=f13e31]:
+        - generic [ref=f13e32]: 时间容器
+        - generic [ref=f13e33]: 08:00–20:00 · 空闲 2 小时可排期
+      - generic [ref=f13e36]:
+        - tab "日视图" [ref=f13e37] [cursor=pointer]
+        - tab "周视图" [active] [ref=f13e39] [cursor=pointer]
+      - generic [ref=f13e182]:
+        - button "周六 9/26，11 个任务" [ref=f13e183] [cursor=pointer]:
+          - generic [ref=f13e184]:
+            - generic [ref=f13e185]: 周六
+            - generic [ref=f13e186]: 9/26
+          - generic [ref=f13e193]: 11 个
+        - button "周日 9/27，2 个任务" [ref=f13e194] [cursor=pointer]:
+          - generic [ref=f13e195]:
+            - generic [ref=f13e196]: 周日
+            - generic [ref=f13e197]: 9/27
+          - generic [ref=f13e204]: 2 个
+        - button "周一 9/28，空闲" [ref=f13e205] [cursor=pointer]:
+          - generic [ref=f13e206]:
+            - generic [ref=f13e207]: 周一
+            - generic [ref=f13e208]: 9/28
+          - generic [ref=f13e215]: 空闲
+        - button "周二 9/29，空闲" [ref=f13e216] [cursor=pointer]:
+          - generic [ref=f13e217]:
+            - generic [ref=f13e218]: 周二
+            - generic [ref=f13e219]: 9/29
+          - generic [ref=f13e226]: 空闲
+        - button "周三 9/30，空闲" [ref=f13e227] [cursor=pointer]:
+          - generic [ref=f13e228]:
+            - generic [ref=f13e229]: 周三
+            - generic [ref=f13e230]: 9/30
+          - generic [ref=f13e237]: 空闲
+        - button "周四 10/1，空闲" [ref=f13e238] [cursor=pointer]:
+          - generic [ref=f13e239]:
+            - generic [ref=f13e240]: 周四
+            - generic [ref=f13e241]: 10/1
+          - generic [ref=f13e248]: 空闲
+        - button "周五 10/2，空闲" [ref=f13e249] [cursor=pointer]:
+          - generic [ref=f13e250]:
+            - generic [ref=f13e251]: 周五
+            - generic [ref=f13e252]: 10/2
+          - generic [ref=f13e259]: 空闲
+    - button "新建个人任务" [ref=f13e137] [cursor=pointer]:
+      - generic [ref=f13e138]: 
+  - tablist [ref=f13e140]:
+    - tab "  工作台" [ref=f13e142] [cursor=pointer]:
+      - generic [ref=f13e143]:
+        - generic [ref=f13e144]: 
+        - generic [ref=f13e146]: 
+      - generic [ref=f13e148]: 工作台
+    - tab "  今日" [ref=f13e150] [cursor=pointer]:
+      - generic [ref=f13e151]:
+        - generic [ref=f13e152]: 
+        - generic [ref=f13e154]: 
+      - generic [ref=f13e156]: 今日
+    - tab "  项目" [ref=f13e158] [cursor=pointer]:
+      - generic [ref=f13e159]:
+        - generic [ref=f13e160]: 
+        - generic [ref=f13e162]: 
+      - generic [ref=f13e164]: 项目
+    - tab "  时间" [selected] [ref=f13e166] [cursor=pointer]:
+      - generic [ref=f13e167]:
+        - generic [ref=f13e168]: 
+        - generic [ref=f13e170]: 
+      - generic [ref=f13e172]: 时间
+    - tab "  我的" [ref=f13e174] [cursor=pointer]:
+      - generic [ref=f13e175]:
+        - generic [ref=f13e176]: 
+        - generic [ref=f13e178]: 
+      - generic [ref=f13e180]: 我的

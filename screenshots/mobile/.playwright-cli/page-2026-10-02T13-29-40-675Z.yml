@@ -1,0 +1,17 @@
+- generic [ref=f9e6]:
+  - heading "OpenSchedule" [level=3] [ref=f9e7]
+  - generic [ref=f9e8]: 团队协作 · 个人计划 · AI 增强
+  - alert [ref=f9e9]:
+    - img "info-circle" [ref=f9e10]
+    - generic [ref=f9e13]:
+      - generic [ref=f9e14]: Mock 模式
+      - generic [ref=f9e15]: 任意邮箱可登录；密码填 error 可查看错误提示。后端就绪后设 VITE_USE_MOCK=false 切换。
+  - generic [ref=f9e16]:
+    - generic [ref=f9e22]:
+      - img "mail" [ref=f9e24]
+      - textbox "邮箱" [ref=f9e27]
+    - generic [ref=f9e33]:
+      - img "lock" [ref=f9e35]
+      - textbox "密码" [ref=f9e38]
+      - img "eye-invisible" [ref=f9e40] [cursor=pointer]
+    - button "登 录" [ref=f9e49] [cursor=pointer]

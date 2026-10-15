@@ -1,0 +1,458 @@
+/**
+ * resource-pool.ts —— 跨项目资源池引擎（纯函数）
+ *
+ * 聚合多项目的任务数据，统计每个成员的跨项目负载、检测资源冲突。
+ * 零副作用，纯输入输出。
+ */
+
+// ==================== 类型 ====================
+
+export interface PoolTaskInput {
+  id: string
+  assigneeId?: string
+  status: 'todo' | 'in_progress' | 'blocked' | 'done' | 'cancelled'
+  estimatedHours: number
+  dueAt?: Date
+  priority: 'low' | 'medium' | 'high' | 'urgent'
+  projectId: string
+  projectName: string
+  isCritical?: boolean  // 是否关键路径任务
+}
+
+export interface MemberCapacity {
+  id: string
+  name?: string
+  capacityHoursPerWeek?: number  // 默认 40
+}
+
+export interface MemberProjectLoad {
+  projectId: string
+  projectName: string
+  hours: number
+  taskCount: number
+  inProgressCount: number
+}
+
+export interface ResourceMember {
+  assigneeId: string
+  name?: string
+  projects: MemberProjectLoad[]
+  totalHours: number
+  capacityHours: number
+  utilization: number              // 0-100
+  loadLevel: 'idle' | 'normal' | 'heavy' | 'overload'
+  inProgressCount: number
+  todoCount: number
+  dueSoonCount: number             // 一周内到期未完成
+  criticalTaskCount: number        // 关键路径任务数
+}
+
+export interface ResourceConflict {
+  id: string
+  type: 'cross_project_overload' | 'same_deadline_contention' | 'critical_shared_task'
+  severity: 'low' | 'medium' | 'high' | 'critical'
+  title: string
+  description: string
+  assigneeId: string
+  assigneeName?: string
+  relatedProjectIds: string[]
+  relatedTaskIds: string[]
+  metric?: { name: string; value: number; threshold: number; unit: string }
+}
+
+export interface ResourcePoolResult {
+  members: ResourceMember[]
+  totalCapacity: number
+  totalAllocated: number
+  utilization: number              // 整体利用率 %
+  overloadCount: number
+  idleCount: number
+  topBottlenecks: string[]         // Top 5 瓶颈成员 id
+  conflicts: ResourceConflict[]
+}
+
+// ==================== 工具函数 ====================
+
+const DEFAULT_CAPACITY_HOURS = 40
+const DUE_SOON_DAYS = 7
+
+function isActive(status: string): boolean {
+  return status === 'todo' || status === 'in_progress' || status === 'blocked'
+}
+
+function isWithinDays(dueAt: Date | undefined, now: Date, days: number): boolean {
+  if (!dueAt) return false
+  const diff = dueAt.getTime() - now.getTime()
+  return diff > 0 && diff <= days * 24 * 60 * 60 * 1000
+}
+
+// ==================== 核心计算 ====================
+
+export function calculateResourcePool(
+  tasks: PoolTaskInput[],
+  members: MemberCapacity[] = [],
+  now: Date = new Date(),
+): ResourcePoolResult {
+  // 1. 按成员聚合
+  const memberMap = new Map<string, ResourceMember>()
+
+  // 先把成员加进去（即便是无任务的成员也显示）
+  for (const m of members) {
+    memberMap.set(m.id, {
+      assigneeId: m.id,
+      name: m.name,
+      projects: [],
+      totalHours: 0,
+      capacityHours: m.capacityHoursPerWeek ?? DEFAULT_CAPACITY_HOURS,
+      utilization: 0,
+      loadLevel: 'idle',
+      inProgressCount: 0,
+      todoCount: 0,
+      dueSoonCount: 0,
+      criticalTaskCount: 0,
+    })
+  }
+
+  // 遍历任务累加
+  const projectTasksPerMember = new Map<string, Map<string, MemberProjectLoad>>()
+
+  for (const task of tasks) {
+    if (!task.assigneeId) continue
+
+    const assigneeId = task.assigneeId
+
+    // 确保成员存在
+    if (!memberMap.has(assigneeId)) {
+      memberMap.set(assigneeId, {
+        assigneeId,
+        name: undefined,
+        projects: [],
+        totalHours: 0,
+        capacityHours: DEFAULT_CAPACITY_HOURS,
+        utilization: 0,
+        loadLevel: 'idle',
+        inProgressCount: 0,
+        todoCount: 0,
+        dueSoonCount: 0,
+        criticalTaskCount: 0,
+      })
+    }
+
+    const member = memberMap.get(assigneeId)!
+
+    // 只统计活跃任务的工时
+    if (isActive(task.status)) {
+      member.totalHours += task.estimatedHours
+    }
+
+    // 计数
+    if (task.status === 'in_progress') member.inProgressCount++
+    if (task.status === 'todo') member.todoCount++
+    if (isActive(task.status) && isWithinDays(task.dueAt, now, DUE_SOON_DAYS)) {
+      member.dueSoonCount++
+    }
+    if (task.isCritical && isActive(task.status)) {
+      member.criticalTaskCount++
+    }
+
+    // 按项目聚合
+    if (!projectTasksPerMember.has(assigneeId)) {
+      projectTasksPerMember.set(assigneeId, new Map())
+    }
+    const projectMap = projectTasksPerMember.get(assigneeId)!
+    if (!projectMap.has(task.projectId)) {
+      projectMap.set(task.projectId, {
+        projectId: task.projectId,
+        projectName: task.projectName,
+        hours: 0,
+        taskCount: 0,
+        inProgressCount: 0,
+      })
+    }
+    const proj = projectMap.get(task.projectId)!
+    proj.taskCount++
+    if (isActive(task.status)) proj.hours += task.estimatedHours
+    if (task.status === 'in_progress') proj.inProgressCount++
+  }
+
+  // 填充 projects + 计算利用率 + 等级
+  for (const [assigneeId, member] of memberMap) {
+    const projectMap = projectTasksPerMember.get(assigneeId)
+    if (projectMap) {
+      member.projects = [...projectMap.values()].sort((a, b) => b.hours - a.hours)
+    }
+    member.utilization = member.capacityHours > 0
+      ? Math.round((member.totalHours / member.capacityHours) * 100)
+      : 0
+
+    if (member.utilization >= 100) member.loadLevel = 'overload'
+    else if (member.utilization >= 70) member.loadLevel = 'heavy'
+    else if (member.utilization >= 30) member.loadLevel = 'normal'
+    else member.loadLevel = 'idle'
+  }
+
+  const membersList = [...memberMap.values()].sort((a, b) => b.utilization - a.utilization)
+
+  // 2. 总体指标
+  const totalCapacity = membersList.reduce((s, m) => s + m.capacityHours, 0)
+  const totalAllocated = membersList.reduce((s, m) => s + m.totalHours, 0)
+  const utilization = totalCapacity > 0 ? Math.round((totalAllocated / totalCapacity) * 100) : 0
+  const overloadCount = membersList.filter(m => m.loadLevel === 'overload').length
+  const idleCount = membersList.filter(m => m.loadLevel === 'idle').length
+  const topBottlenecks = membersList
+    .filter(m => m.loadLevel === 'overload' || m.loadLevel === 'heavy')
+    .slice(0, 5)
+    .map(m => m.assigneeId)
+
+  // 3. 冲突检测
+  const conflicts = detectConflicts(membersList, tasks, now)
+
+  return {
+    members: membersList,
+    totalCapacity,
+    totalAllocated,
+    utilization,
+    overloadCount,
+    idleCount,
+    topBottlenecks,
+    conflicts,
+  }
+}
+
+// ==================== 冲突检测 ====================
+
+function detectConflicts(
+  members: ResourceMember[],
+  tasks: PoolTaskInput[],
+  now: Date,
+): ResourceConflict[] {
+  const conflicts: ResourceConflict[] = []
+  let counter = 0
+
+  for (const member of members) {
+    // 规则 1：跨项目过载
+    const activeProjects = member.projects.filter(p => p.hours > 0)
+    if (member.loadLevel === 'overload' && activeProjects.length >= 2) {
+      const projectIds = activeProjects.map(p => p.projectId)
+      const projectNames = activeProjects.map(p => p.projectName).join('、')
+      conflicts.push({
+        id: `conflict_${++counter}`,
+        type: 'cross_project_overload',
+        severity: member.utilization >= 150 ? 'critical' : 'high',
+        title: `${member.name || '成员'} 跨项目过载`,
+        description: `同时在 ${activeProjects.length} 个项目（${projectNames}）承担任务，利用率 ${member.utilization}%，超出承载能力`,
+        assigneeId: member.assigneeId,
+        assigneeName: member.name,
+        relatedProjectIds: projectIds,
+        relatedTaskIds: [],
+        metric: {
+          name: '利用率',
+          value: member.utilization,
+          threshold: 100,
+          unit: '%',
+        },
+      })
+    }
+
+    // 规则 2：同截止日争抢（一周内多个高优任务到期）
+    const highPriorityDueSoon = tasks.filter(
+      t => t.assigneeId === member.assigneeId
+        && isActive(t.status)
+        && (t.priority === 'high' || t.priority === 'urgent')
+        && t.dueAt
+        && isWithinDays(t.dueAt, now, 7),
+    )
+    if (highPriorityDueSoon.length >= 3) {
+      const projectIds = [...new Set(highPriorityDueSoon.map(t => t.projectId))]
+      const severity = highPriorityDueSoon.length >= 5 ? 'high' : 'medium'
+      conflicts.push({
+        id: `conflict_${++counter}`,
+        type: 'same_deadline_contention',
+        severity,
+        title: `${member.name || '成员'} 一周内有 ${highPriorityDueSoon.length} 个高优任务到期`,
+        description: `多个项目的高优先级任务集中在同一周截止，存在交付风险`,
+        assigneeId: member.assigneeId,
+        assigneeName: member.name,
+        relatedProjectIds: projectIds,
+        relatedTaskIds: highPriorityDueSoon.map(t => t.id),
+        metric: {
+          name: '高优临期任务',
+          value: highPriorityDueSoon.length,
+          threshold: 3,
+          unit: '个',
+        },
+      })
+    }
+
+    // 规则 3：关键共享任务（多个项目的关键路径都依赖同一个人）
+    const criticalPerProject = new Map<string, number>()
+    for (const t of tasks) {
+      if (t.assigneeId !== member.assigneeId) continue
+      if (!t.isCritical || !isActive(t.status)) continue
+      criticalPerProject.set(t.projectId, (criticalPerProject.get(t.projectId) ?? 0) + 1)
+    }
+    if (criticalPerProject.size >= 2) {
+      const projectIds = [...criticalPerProject.keys()]
+      const total = [...criticalPerProject.values()].reduce((s, n) => s + n, 0)
+      conflicts.push({
+        id: `conflict_${++counter}`,
+        type: 'critical_shared_task',
+        severity: total >= 4 ? 'high' : 'medium',
+        title: `${member.name || '成员'} 是 ${criticalPerProject.size} 个项目的关键路径共同负责人`,
+        description: `同时承担 ${total} 个关键路径任务，分布在 ${criticalPerProject.size} 个项目中，单点风险高`,
+        assigneeId: member.assigneeId,
+        assigneeName: member.name,
+        relatedProjectIds: projectIds,
+        relatedTaskIds: [],
+        metric: {
+          name: '关键任务数',
+          value: total,
+          threshold: 3,
+          unit: '个',
+        },
+      })
+    }
+  }
+
+  // 按严重度排序：critical > high > medium > low
+  const severityOrder: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 }
+  conflicts.sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity])
+
+  return conflicts
+}
+
+// ==================== 再平衡建议 ====================
+
+export interface RebalanceAction {
+  id: string
+  actionType: 'reassign' | 'split_work' | 'defer_low_priority' | 'hire_support'
+  title: string
+  rationale: string
+  fromAssigneeId?: string
+  toAssigneeId?: string
+  relatedTaskIds: string[]
+  estimatedHoursReduction?: number
+  impact: string
+}
+
+export interface RebalanceSuggestion {
+  actions: RebalanceAction[]
+  overloadedMembers: number
+  idleMembers: number
+  utilizationBefore: number
+  utilizationAfterEstimate: number
+  summary: string
+}
+
+/**
+ * 生成再平衡建议（确定性规则）
+ * 规则：
+ *  1. 过载 → 空闲：优先把低优任务迁移给空闲成员
+ *  2. 过载 → 重载：如果无空闲，建议拆分大任务
+ *  3. 高优临期多：建议延后低优先级任务
+ *  4. 整体过载 > 80% 且无闲置：建议新增支持
+ */
+export function generateRebalanceSuggestions(
+  tasks: PoolTaskInput[],
+  members: MemberCapacity[] = [],
+  now: Date = new Date(),
+): RebalanceSuggestion {
+  const pool = calculateResourcePool(tasks, members, now)
+  const actions: RebalanceAction[] = []
+  let actionCounter = 0
+
+  const overloaded = pool.members.filter(m => m.loadLevel === 'overload')
+  const idle = pool.members.filter(m => m.loadLevel === 'idle')
+
+  // 规则 1：过载成员的低优任务 → 空闲成员
+  for (const overMember of overloaded) {
+    if (idle.length === 0) break
+
+    // 找这个过载成员的低优任务
+    const lowPriorityTasks = tasks.filter(
+      t => t.assigneeId === overMember.assigneeId
+        && t.priority === 'low'
+        && isActive(t.status),
+    ).sort((a, b) => a.estimatedHours - b.estimatedHours)
+
+    if (lowPriorityTasks.length === 0) continue
+
+    // 找最闲的人
+    const target = idle[0]
+    const transferTasks: string[] = []
+    let transferHours = 0
+    const targetFreeHours = target.capacityHours - target.totalHours
+
+    for (const t of lowPriorityTasks) {
+      if (transferHours + t.estimatedHours <= targetFreeHours * 0.7) {
+        transferTasks.push(t.id)
+        transferHours += t.estimatedHours
+      }
+    }
+
+    if (transferTasks.length > 0) {
+      actions.push({
+        id: `action_${++actionCounter}`,
+        actionType: 'reassign',
+        title: `将 ${transferTasks.length} 个低优任务从 ${overMember.name || overMember.assigneeId} 调整给 ${target.name || target.assigneeId}`,
+        rationale: `${overMember.name || overMember.assigneeId} 过载（${overMember.utilization}%），${target.name || target.assigneeId} 闲置（${target.utilization}%），迁移可平衡负载`,
+        fromAssigneeId: overMember.assigneeId,
+        toAssigneeId: target.assigneeId,
+        relatedTaskIds: transferTasks,
+        estimatedHoursReduction: transferHours,
+        impact: `预计将 ${overMember.name || overMember.assigneeId} 利用率从 ${overMember.utilization}% 降至 ~${Math.round((overMember.totalHours - transferHours) / overMember.capacityHours * 100)}%`,
+      })
+    }
+  }
+
+  // 规则 2：无闲置且过载人数 > 2 → 建议延后低优先级任务
+  if (idle.length === 0 && overloaded.length >= 2) {
+    const allLowPriority = tasks.filter(
+      t => t.priority === 'low' && isActive(t.status),
+    )
+    if (allLowPriority.length > 0) {
+      actions.push({
+        id: `action_${++actionCounter}`,
+        actionType: 'defer_low_priority',
+        title: `延后 ${allLowPriority.length} 个低优先级任务，优先保障高优交付`,
+        rationale: `资源池整体偏紧，利用率 ${pool.utilization}%，无闲置成员可承接溢出任务`,
+        relatedTaskIds: allLowPriority.map(t => t.id),
+        estimatedHoursReduction: allLowPriority.reduce((s, t) => s + t.estimatedHours, 0),
+        impact: '集中资源保障中高优任务按期交付，低优任务顺延到下个周期',
+      })
+    }
+  }
+
+  // 规则 3：整体过载且无闲置 → 建议新增支持
+  if (pool.utilization >= 90 && idle.length === 0) {
+    actions.push({
+      id: `action_${++actionCounter}`,
+      actionType: 'hire_support',
+      title: '建议新增外部支持或临时人力',
+      rationale: `整体利用率达 ${pool.utilization}%，无闲置成员，存在系统性资源缺口`,
+      relatedTaskIds: [],
+      impact: '预计可将整体利用率降至 70% 左右的健康水平',
+    })
+  }
+
+  // 预估调整后利用率（粗略）
+  const totalReduction = actions
+    .filter(a => a.estimatedHoursReduction)
+    .reduce((s, a) => s + (a.estimatedHoursReduction ?? 0), 0)
+  const utilizationAfterEstimate = pool.totalCapacity > 0
+    ? Math.round(((pool.totalAllocated - totalReduction) / pool.totalCapacity) * 100)
+    : pool.utilization
+
+  const summary = actions.length > 0
+    ? `识别到 ${overloaded.length} 名过载成员，${idle.length} 名闲置成员，建议 ${actions.length} 项调整措施`
+    : '资源分配基本均衡，无明显需要调整的项目'
+
+  return {
+    actions,
+    overloadedMembers: overloaded.length,
+    idleMembers: idle.length,
+    utilizationBefore: pool.utilization,
+    utilizationAfterEstimate: Math.max(0, utilizationAfterEstimate),
+    summary,
+  }
+}

@@ -1,0 +1,56 @@
+/**
+ * 服务入口：全局前缀 /api/v1、ValidationPipe、CORS、异常过滤器装配；开发环境 DB_AUTO_MIGRATE 自动迁移（§3.7）。
+ */
+import 'reflect-metadata';
+import { execSync } from 'node:child_process';
+import { Logger, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+
+async function bootstrap(): Promise<void> {
+  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  const config = app.get(ConfigService);
+  const logger = new Logger('Bootstrap');
+
+  // 统一前缀（§3.5：统一前缀 /api/v1；controller 内路径不带前缀）；/health 排除在外（docker-compose HEALTHCHECK 探根路径）
+  app.setGlobalPrefix('api/v1', { exclude: ['health'] });
+
+  // CORS（§3.7 CORS_ORIGINS 逗号分隔白名单；开发默认 http://localhost:5173）
+  const origins = (config.get<string>('CORS_ORIGINS') ?? 'http://localhost:5173')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  app.enableCors({ origin: origins, credentials: true, methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS' });
+
+  // 全局参数校验（§3.1：400x 校验失败；whitelist 剔除未声明字段）
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true, // 剔除 DTO 未声明的字段（防注入）
+      transform: true, // 自动类型转换（@Type 显式声明处生效）
+      forbidNonWhitelisted: false,
+      transformOptions: { enableImplicitConversion: false },
+    }),
+  );
+
+  // 全局异常过滤器（统一错误信封 {code,message,details,traceId,requestId}，§3.1；分段码 400x/401x/403x/404x/409x/429x/502/503）
+  app.useGlobalFilters(new AllExceptionsFilter());
+
+  app.enableShutdownHooks();
+
+  // 开发环境自动迁移（§3.7 DB_AUTO_MIGRATE=true；生产建议 false + 流水线单独执行 pnpm prisma:deploy）
+  if (config.get<string>('DB_AUTO_MIGRATE') === 'true' && config.get<string>('APP_ENV') !== 'production') {
+    try {
+      execSync('npx prisma db push --skip-generate', { cwd: process.cwd(), stdio: 'inherit' }); // 骨架阶段：无 migrations 文件，用 db push 直接建表（Phase 2 补正式迁移）
+    } catch (err) {
+      logger.warn(`DB_AUTO_MIGRATE 自动迁移失败（可手动执行 pnpm prisma:deploy）：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  const port = config.get<number>('APP_PORT') ?? 3000;
+  await app.listen(port);
+  logger.log(`OpenSchedule API 已启动：http://localhost:${port}/api/v1（环境 ${config.get<string>('APP_ENV') ?? 'development'}）`);
+}
+
+void bootstrap();

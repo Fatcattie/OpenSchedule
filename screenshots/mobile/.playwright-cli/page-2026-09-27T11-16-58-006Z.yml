@@ -1,0 +1,58 @@
+- generic [ref=e53]:
+  - generic [ref=e55]:
+    - button "返回" [ref=e56] [cursor=pointer]:
+      - generic [ref=e57]: 
+    - generic [ref=e58]:
+      - generic [ref=e59]: 通知
+      - generic [ref=e60]: 4 条未读
+    - button "全部已读" [ref=e62] [cursor=pointer]
+  - generic [ref=e66]:
+    - button " 待你审核 「组件库搭建」已完成提报，等待你的审核 1 分钟前 · 点击查看任务" [ref=e69] [cursor=pointer]:
+      - generic [ref=e70]:
+        - generic [ref=e71]: 
+        - generic [ref=e73]:
+          - generic [ref=e74]: 待你审核
+          - generic [ref=e76]: 「组件库搭建」已完成提报，等待你的审核
+          - generic [ref=e77]: 1 分钟前 · 点击查看任务
+    - button " 「本周复盘会材料」将于 2 小时内到期 任务截止时间临近，请尽快处理。 5 小时前 · 点击查看任务" [ref=e80] [cursor=pointer]:
+      - generic [ref=e81]:
+        - generic [ref=e82]: 
+        - generic [ref=e84]:
+          - generic [ref=e85]: 「本周复盘会材料」将于 2 小时内到期
+          - generic [ref=e88]: 任务截止时间临近，请尽快处理。
+          - generic [ref=e89]: 5 小时前 · 点击查看任务
+    - button " 李娜提交了「首页原型设计」完成提报 待你评审确认。 7 小时前 · 点击查看任务" [ref=e92] [cursor=pointer]:
+      - generic [ref=e93]:
+        - generic [ref=e94]: 
+        - generic [ref=e96]:
+          - generic [ref=e97]: 李娜提交了「首页原型设计」完成提报
+          - generic [ref=e100]: 待你评审确认。
+          - generic [ref=e101]: 7 小时前 · 点击查看任务
+    - button " 「组件库搭建」今日 22:00 到期 该任务为紧急优先级，请优先处理。 10 小时前 · 点击查看任务" [ref=e104] [cursor=pointer]:
+      - generic [ref=e105]:
+        - generic [ref=e106]: 
+        - generic [ref=e108]:
+          - generic [ref=e109]: 「组件库搭建」今日 22:00 到期
+          - generic [ref=e112]: 该任务为紧急优先级，请优先处理。
+          - generic [ref=e113]: 10 小时前 · 点击查看任务
+    - button " AI 生成了「日志查询小工具」拆解草稿 共 4 个子任务，待你确认后落库。 昨天 18:05 · 点击查看任务" [ref=e116] [cursor=pointer]:
+      - generic [ref=e117]:
+        - generic [ref=e118]: 
+        - generic [ref=e120]:
+          - generic [ref=e121]: AI 生成了「日志查询小工具」拆解草稿
+          - generic [ref=e124]: 共 4 个子任务，待你确认后落库。
+          - generic [ref=e125]: 昨天 18:05 · 点击查看任务
+    - button " 王强在「组件库搭建」中提到了你 @张伟 组件库先保证 12 个高频组件可用。 昨天 09:45 · 点击查看任务" [ref=e128] [cursor=pointer]:
+      - generic [ref=e129]:
+        - generic [ref=e130]: 
+        - generic [ref=e132]:
+          - generic [ref=e133]: 王强在「组件库搭建」中提到了你
+          - generic [ref=e135]: "@张伟 组件库先保证 12 个高频组件可用。"
+          - generic [ref=e136]: 昨天 09:45 · 点击查看任务
+    - button " 「视觉规范定稿」已完成 李娜完成了该任务。 4 天前 · 点击查看任务" [ref=e139] [cursor=pointer]:
+      - generic [ref=e140]:
+        - generic [ref=e141]: 
+        - generic [ref=e143]:
+          - generic [ref=e144]: 「视觉规范定稿」已完成
+          - generic [ref=e146]: 李娜完成了该任务。
+          - generic [ref=e147]: 4 天前 · 点击查看任务

@@ -1,0 +1,14 @@
+import { MAX_ATTACHMENT_BYTES, validateAttachmentMetadata } from './attachment-policy'
+
+describe('attachment policy', () => {
+  it('rejects empty, oversized and unsupported files', () => {
+    expect(validateAttachmentMetadata(0, 'image/png')).toContain('空文件')
+    expect(validateAttachmentMetadata(MAX_ATTACHMENT_BYTES + 1, 'image/png')).toContain('20MB')
+    expect(validateAttachmentMetadata(1, 'text/html')).toContain('白名单')
+  })
+
+  it('accepts allowed office and image types case-insensitively', () => {
+    expect(validateAttachmentMetadata(1024, 'IMAGE/PNG')).toBeNull()
+    expect(validateAttachmentMetadata(1024, 'application/pdf')).toBeNull()
+  })
+})

@@ -1,0 +1,256 @@
+/**
+ * 智能评估 v1 评分引擎（B17）：纯函数规则引擎，不依赖 Prisma/NestJS，可独立单测。
+ *
+ * 总分 = 技能匹配 40% + 历史绩效 30% + 当前负载 20% + 复杂度适配 10%
+ *
+ * 复杂度档推导（v1 规则）：estimatedHours < 4 → low；< 16 → medium；≥ 16 → high；无估时 → medium。
+ * 完成率 = done / (done + cancelled 之外的已认领任务)；准时率 = done 中 completedAt ≤ dueAt 比例（无 dueAt 不计分母）。
+ * 负载 = 活跃任务数（todo/in_progress/blocked 且 assignee=该成员）；负载分 = 1 - min(n/5, 1)。
+ */
+
+export type ComplexityTier = 'low' | 'medium' | 'high';
+
+/** 活跃状态集合（负载口径） */
+export const ACTIVE_TASK_STATUS = ['todo', 'in_progress', 'blocked'] as const;
+
+/** 任务统计行（computeMemberStats 输入的最小形状） */
+export interface TaskStatRow {
+  status: string;
+  completedAt: Date | string | null;
+  dueAt: Date | string | null;
+  assigneeId: string | null;
+}
+
+/** 成员聚合统计（历史绩效 + 当前负载） */
+export interface MemberStats {
+  completedCount: number;
+  /** 0-1 */
+  completionRate: number;
+  /** 0-1 */
+  onTimeRate: number;
+  /** 活跃任务数（todo/in_progress/blocked） */
+  activeLoad: number;
+}
+
+// ===================== 工具 =====================
+
+/** 四舍五入到 2 位小数 */
+export function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** 四舍五入到 4 位小数（比率内部精度，避免浮点噪声） */
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
+}
+
+/** 标签归一化：去空格、小写、去重 */
+export function normalizeTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of tags) {
+    const t = (raw ?? '').trim().toLowerCase();
+    if (t && !seen.has(t)) {
+      seen.add(t);
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+// ===================== 复杂度档 =====================
+
+/** 复杂度档推导：<4 → low；<16 → medium；≥16 → high；无估时 → medium */
+export function deriveComplexityTier(estimatedHours: number | null | undefined): ComplexityTier {
+  if (estimatedHours == null) return 'medium';
+  if (estimatedHours < 4) return 'low';
+  if (estimatedHours < 16) return 'medium';
+  return 'high';
+}
+
+// ===================== 成员统计聚合 =====================
+
+/**
+ * 从任务行聚合成员的完成率/准时率/活跃负载（纯函数）。
+ * - 完成率 = done / (done + cancelled 之外的已认领任务)
+ * - 准时率 = done 中 completedAt ≤ dueAt 比例；无 dueAt 的 done 不计分母；分母为 0 → 0.5 中性
+ * - activeLoad = todo/in_progress/blocked 且 assignee=该成员 的任务数
+ */
+export function computeMemberStats(tasks: TaskStatRow[], userId: string): MemberStats {
+  const mine = tasks.filter(t => t.assigneeId === userId);
+  const done = mine.filter(t => t.status === 'done');
+  const denominator = mine.filter(t => t.status !== 'cancelled').length;
+  const completionRate = denominator > 0 ? done.length / denominator : 0;
+
+  const doneWithDue = done.filter(t => t.dueAt != null);
+  let onTimeRate = 0.5; // 无 dueAt 的 done 不计分母；分母为 0 → 中性 0.5
+  if (doneWithDue.length > 0) {
+    const onTime = doneWithDue.filter(t => t.completedAt != null && new Date(t.completedAt).getTime() <= new Date(t.dueAt!).getTime()).length;
+    onTimeRate = onTime / doneWithDue.length;
+  }
+
+  const activeLoad = mine.filter(t => (ACTIVE_TASK_STATUS as readonly string[]).includes(t.status)).length;
+
+  return {
+    completedCount: done.length,
+    completionRate: round4(completionRate),
+    onTimeRate: round4(onTimeRate),
+    activeLoad,
+  };
+}
+
+// ===================== 四因子 =====================
+
+/**
+ * 技能匹配：任务 tags ∩ 成员 skillTags 的 Jaccard 相似度（交集/并集）。
+ * 任务无标签 → 0.6 中性分；成员无技能标签 → 0。
+ */
+export function skillScore(taskTags: string[], skillTags: string[]): number {
+  const task = normalizeTags(taskTags);
+  if (task.length === 0) return 0.6;
+  const skills = normalizeTags(skillTags);
+  if (skills.length === 0) return 0;
+  const intersection = task.filter(t => skills.includes(t)).length;
+  const union = new Set([...task, ...skills]).size;
+  return round2(intersection / union);
+}
+
+/**
+ * 历史绩效：0.5×完成率 + 0.5×准时率。
+ * 无历史记录（完成数 0）→ 0.5 中性分（冷启动）。
+ */
+export function historyScore(stats: MemberStats): number {
+  if (stats.completedCount === 0) return 0.5;
+  return round2(0.5 * stats.completionRate + 0.5 * stats.onTimeRate);
+}
+
+/** 当前负载分：1 - min(活跃任务数/5, 1) */
+export function loadScore(activeTaskCount: number): number {
+  return round2(1 - Math.min(activeTaskCount / 5, 1));
+}
+
+/** 复杂度适配：匹配 1.0 / 相邻 0.7 / 差两档 0.4 / 成员未设置 0.6 */
+export function complexityFitScore(taskTier: ComplexityTier, memberTier: ComplexityTier | null | undefined): number {
+  if (!memberTier) return 0.6;
+  const order: ComplexityTier[] = ['low', 'medium', 'high'];
+  const diff = Math.abs(order.indexOf(taskTier) - order.indexOf(memberTier));
+  if (diff === 0) return 1.0;
+  if (diff === 1) return 0.7;
+  return 0.4;
+}
+
+// ===================== 总分合成 + reason =====================
+
+/** 评分输入（service 层从 DB 行组装后传入） */
+export interface RecommendationInput {
+  taskTags: string[];
+  taskEstimatedHours: number | null;
+  skillTags: string[];
+  complexityTier: ComplexityTier | null;
+  stats: MemberStats;
+}
+
+export interface ScoreBreakdown {
+  skill: number;
+  history: number;
+  load: number;
+  complexity: number;
+}
+
+export interface RecommendationResult {
+  /** 总分（2 位小数） */
+  score: number;
+  scoreBreakdown: ScoreBreakdown;
+  /** 基于实际计算数字拼接的说明文案 */
+  reason: string;
+}
+
+/** 数字展示：去掉多余尾零（0.8 / 0.65 / 1） */
+function fmt(n: number): string {
+  return n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function pct(n: number): string {
+  return `${Math.round(n * 100)}%`;
+}
+
+/** reason 拼接：所有数字均来自实际计算结果，禁止编造 */
+export function buildReason(input: {
+  taskTags: string[];
+  skillTags: string[];
+  stats: MemberStats;
+  taskTier: ComplexityTier;
+  memberTier: ComplexityTier | null;
+  breakdown: ScoreBreakdown;
+}): string {
+  const parts: string[] = [];
+  const task = normalizeTags(input.taskTags);
+  const skills = normalizeTags(input.skillTags);
+
+  // 技能
+  if (task.length === 0) {
+    parts.push(`技能匹配 ${fmt(input.breakdown.skill)}（任务无标签，中性分）`);
+  } else if (skills.length === 0) {
+    parts.push(`技能匹配 ${fmt(input.breakdown.skill)}（成员未设置技能标签）`);
+  } else {
+    const overlap = task.filter(t => skills.includes(t)).length;
+    const union = new Set([...task, ...skills]).size;
+    parts.push(`技能匹配 ${fmt(input.breakdown.skill)}（标签重叠 ${overlap}/${union}）`);
+  }
+
+  // 历史绩效
+  if (input.stats.completedCount === 0) {
+    parts.push(`历史绩效 ${fmt(input.breakdown.history)}（无历史记录，冷启动中性分）`);
+  } else {
+    parts.push(`历史绩效 ${fmt(input.breakdown.history)}（完成率 ${pct(input.stats.completionRate)}/准时率 ${pct(input.stats.onTimeRate)}）`);
+  }
+
+  // 负载
+  parts.push(`负载 ${fmt(input.breakdown.load)}（活跃 ${input.stats.activeLoad} 项）`);
+
+  // 复杂度适配
+  if (!input.memberTier) {
+    parts.push(`复杂度适配 ${fmt(input.breakdown.complexity)}（成员未设置复杂度档）`);
+  } else if (input.taskTier === input.memberTier) {
+    parts.push(`复杂度适配 ${fmt(input.breakdown.complexity)}（档位匹配）`);
+  } else {
+    const order: ComplexityTier[] = ['low', 'medium', 'high'];
+    const diff = Math.abs(order.indexOf(input.taskTier) - order.indexOf(input.memberTier));
+    parts.push(`复杂度适配 ${fmt(input.breakdown.complexity)}（档位${diff === 1 ? '相邻' : '相差两档'}）`);
+  }
+
+  return parts.join('、');
+}
+
+/**
+ * 总评分：0.4×技能 + 0.3×历史 + 0.2×负载 + 0.1×复杂度。
+ * 因子保留 2 位小数入 breakdown；总分用原始值合成后保留 2 位小数。
+ */
+export function calculateRecommendation(input: RecommendationInput): RecommendationResult {
+  const taskTier = deriveComplexityTier(input.taskEstimatedHours);
+  const skill = skillScore(input.taskTags, input.skillTags);
+  const history = historyScore(input.stats);
+  const load = loadScore(input.stats.activeLoad);
+  const complexity = complexityFitScore(taskTier, input.complexityTier);
+
+  const breakdown: ScoreBreakdown = {
+    skill: round2(skill),
+    history: round2(history),
+    load: round2(load),
+    complexity: round2(complexity),
+  };
+  const raw = 0.4 * skill + 0.3 * history + 0.2 * load + 0.1 * complexity;
+
+  return {
+    score: round2(raw),
+    scoreBreakdown: breakdown,
+    reason: buildReason({
+      taskTags: input.taskTags,
+      skillTags: input.skillTags,
+      stats: input.stats,
+      taskTier,
+      memberTier: input.complexityTier,
+      breakdown,
+    }),
+  };
+}

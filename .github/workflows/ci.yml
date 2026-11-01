@@ -176,6 +176,19 @@ jobs:
       - name: API e2e (real PostgreSQL)
         run: pnpm --filter "./services/api" run test:e2e
       # 备份恢复演练：写入哨兵行 → pg_dump → 隔离数据库 pg_restore → 关键表/数据校验
+      # runner 自带的 libpq 客户端比服务端新（pg_dump 17+ 会写出 PG16 不认的 SET transaction_timeout），
+      # 改为在 PG16 服务容器内执行客户端工具——与生产 pg-backup（postgres:16-alpine）及演练脚本同构。
+      # dump 文件路径 /tmp/* 位于容器内，backup/restore 两步在同一容器中读写。
+      - name: Use PostgreSQL 16 client tools (inside service container)
+        run: |
+          bin="$RUNNER_TEMP/pg16-bin"
+          mkdir -p "$bin"
+          for tool in psql pg_dump pg_restore; do
+            printf '#!/usr/bin/env bash\nexec docker exec -i %s %s "$@"\n' "${{ job.services.postgres.id }}" "$tool" > "$bin/$tool"
+            chmod +x "$bin/$tool"
+          done
+          echo "$bin" >> "$GITHUB_PATH"
+          "$bin/pg_restore" --version
       - name: Seed backup sentinel
         # updated_at 为 Prisma @updatedAt 列（库内 NOT NULL 无默认值），须显式给值
         # DATABASE_URL 带 Prisma 专用 ?schema=public，libpq 不认，去掉查询串再交给 psql

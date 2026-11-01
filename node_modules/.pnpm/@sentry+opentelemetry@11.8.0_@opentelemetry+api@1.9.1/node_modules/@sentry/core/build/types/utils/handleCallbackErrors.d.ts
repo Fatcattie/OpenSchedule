@@ -1,3 +1,0 @@
-export declare function handleCallbackErrors<Fn extends () => Promise<any>, PromiseValue = Awaited<ReturnType<Fn>>>(fn: Fn, onError: (error: unknown) => void, onFinally?: () => void, onSuccess?: (result: PromiseValue) => void): ReturnType<Fn>;
-export declare function handleCallbackErrors<Fn extends () => any>(fn: Fn, onError: (error: unknown) => void, onFinally?: () => void, onSuccess?: (result: ReturnType<Fn>) => void): ReturnType<Fn>;
-//# sourceMappingURL=handleCallbackErrors.d.ts.map

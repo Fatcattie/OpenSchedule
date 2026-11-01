@@ -1,1 +1,0 @@
-{"version":3,"file":"transports.d.ts","sourceRoot":"","sources":["../../../../src/core/sentry/transports.ts"],"names":[],"mappings":"AAOA,OAAO,KAAK,EACV,oBAAoB,EACpB,SAAS,EAIV,MAAM,cAAc,CAAC;AAyFtB;cACc;AACd,wBAAgB,kCAAkC,CAChD,mBAAmB,EAAE,OAAO,CAAC,OAAO,CAAC,GACpC,CAAC,OAAO,EAAE,oBAAoB,KAAK,SAAS,CA8B9C"}

@@ -178,7 +178,8 @@ jobs:
       # 备份恢复演练：写入哨兵行 → pg_dump → 隔离数据库 pg_restore → 关键表/数据校验
       - name: Seed backup sentinel
         # updated_at 为 Prisma @updatedAt 列（库内 NOT NULL 无默认值），须显式给值
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "INSERT INTO tenants (id, name, updated_at) VALUES ('00000000-0000-4000-8000-000000000001', 'ci-backup-sentinel', now());"
+        # DATABASE_URL 带 Prisma 专用 ?schema=public，libpq 不认，去掉查询串再交给 psql
+        run: psql "${DATABASE_URL%%\?*}" -v ON_ERROR_STOP=1 -c "INSERT INTO tenants (id, name, updated_at) VALUES ('00000000-0000-4000-8000-000000000001', 'ci-backup-sentinel', now());"
       - name: Dump migrated database
         run: bash deploy/postgres/backup.sh /tmp/openschedule-ci.dump
       - name: Create isolated restore database
@@ -192,6 +193,6 @@ jobs:
       - name: Verify restored database
         run: |
           bash deploy/postgres/verify-restore.sh
-          test "$(psql "$DATABASE_URL" -At -c "SELECT count(*) FROM tenants WHERE id = '00000000-0000-4000-8000-000000000001';")" = "1"
+          test "$(psql "${DATABASE_URL%%\?*}" -At -c "SELECT count(*) FROM tenants WHERE id = '00000000-0000-4000-8000-000000000001';")" = "1"
         env:
           DATABASE_URL: postgresql://openschedule:openschedule@localhost:5432/openschedule_restore?schema=public

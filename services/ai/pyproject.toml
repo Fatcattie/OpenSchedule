@@ -10,7 +10,7 @@ build-backend = "hatchling.build"
 name = "openschedule-ai-service"
 version = "0.1.0"
 description = "OpenSchedule AI 服务：拆解/评估/应急/执行（FastAPI + LangGraph）；AI 提议、人确认；永不直连业务库"
-readme = "README.md"
+readme = "readme.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",          # API 框架

@@ -146,6 +146,9 @@ jobs:
           POSTGRES_DB: openschedule
         ports:
           - 5432:5432
+        # 备份恢复演练的 dump 目录：宿主（restore.sh 可读性检查）与容器内客户端工具共用同一路径
+        volumes:
+          - /tmp/pgdump:/tmp/pgdump
         options: >-
           --health-cmd "pg_isready -U openschedule"
           --health-interval 5s
@@ -178,7 +181,7 @@ jobs:
       # 备份恢复演练：写入哨兵行 → pg_dump → 隔离数据库 pg_restore → 关键表/数据校验
       # runner 自带的 libpq 客户端比服务端新（pg_dump 17+ 会写出 PG16 不认的 SET transaction_timeout），
       # 改为在 PG16 服务容器内执行客户端工具——与生产 pg-backup（postgres:16-alpine）及演练脚本同构。
-      # dump 文件路径 /tmp/* 位于容器内，backup/restore 两步在同一容器中读写。
+      # dump 写入 /tmp/pgdump（服务 volume 挂载，宿主与容器同路径）。
       - name: Use PostgreSQL 16 client tools (inside service container)
         run: |
           bin="$RUNNER_TEMP/pg16-bin"
@@ -194,13 +197,13 @@ jobs:
         # DATABASE_URL 带 Prisma 专用 ?schema=public，libpq 不认，去掉查询串再交给 psql
         run: psql "${DATABASE_URL%%\?*}" -v ON_ERROR_STOP=1 -c "INSERT INTO tenants (id, name, updated_at) VALUES ('00000000-0000-4000-8000-000000000001', 'ci-backup-sentinel', now());"
       - name: Dump migrated database
-        run: bash deploy/postgres/backup.sh /tmp/openschedule-ci.dump
+        run: bash deploy/postgres/backup.sh /tmp/pgdump/openschedule-ci.dump
       - name: Create isolated restore database
         run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE openschedule_restore;"
         env:
           ADMIN_DATABASE_URL: postgresql://openschedule:openschedule@localhost:5432/postgres
       - name: Restore backup
-        run: bash deploy/postgres/restore.sh /tmp/openschedule-ci.dump "$DATABASE_URL"
+        run: bash deploy/postgres/restore.sh /tmp/pgdump/openschedule-ci.dump "$DATABASE_URL"
         env:
           DATABASE_URL: postgresql://openschedule:openschedule@localhost:5432/openschedule_restore?schema=public
       - name: Verify restored database

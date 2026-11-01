@@ -18,6 +18,7 @@
  * 关键路径：TaskA → TaskC → TaskE（最长）
  * projectEta = Day5
  */
+import { describe, expect, it } from 'vitest'
 import { addWorkdays, subtractWorkdays, calculateCPM, topologicalSort, DependencyInput, DependencyOutput, TaskInput } from './cpm';
 
 describe('CPM 算法', () => {
@@ -62,8 +63,7 @@ describe('CPM 算法', () => {
         { id: 'd4', prevTaskId: 'C', nextTaskId: 'E', type: 'FS', lagDays: 0 },
       ];
       const order = topologicalSort(['A', 'B', 'C', 'D', 'E'], deps);
-      // A 必须在 B/C 前，B 必须在 D 前，C 必须在 E 前
-      expect(order.indexOf('A')).toBeLessThan(order.indexOf('B'));
+      // A 必须在 B/C 前，B 必须在 D 前，C 必须在 E 前      expect(order.indexOf('A')).toBeLessThan(order.indexOf('B'));
       expect(order.indexOf('A')).toBeLessThan(order.indexOf('C'));
       expect(order.indexOf('B')).toBeLessThan(order.indexOf('D'));
       expect(order.indexOf('C')).toBeLessThan(order.indexOf('E'));
@@ -121,8 +121,7 @@ describe('CPM 算法', () => {
       expect(taskE.slackDays).toBe(0);
       expect(taskE.critical).toBe(true);
 
-      // B 和 D 有浮动时间
-      expect(taskB.slackDays).toBeGreaterThanOrEqual(0);
+      // B 和 D 有浮动时间      expect(taskB.slackDays).toBeGreaterThanOrEqual(0);
       expect(taskD.slackDays).toBeGreaterThanOrEqual(0);
 
       // 关键路径包含 A, C, E
@@ -148,8 +147,7 @@ describe('CPM 算法', () => {
 
       const result = calculateCPM('proj-2', tasks, deps);
 
-      // A 是 done，不应出现在结果中
-      expect(result.tasks.find(t => t.id === 'A')).toBeUndefined();
+      // A 是 done，不应出现在结果中      expect(result.tasks.find(t => t.id === 'A')).toBeUndefined();
       // B 无活跃前置，ES = today
       const taskB = result.tasks.find(t => t.id === 'B')!;
       expect(taskB.critical).toBe(true);

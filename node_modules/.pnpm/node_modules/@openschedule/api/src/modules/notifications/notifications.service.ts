@@ -1,24 +1,34 @@
 /**
- * 通知服务：站内通知落库（in_app）+ 偏好路由三通道（邮件/WebPush/IM 适配器 TODO）+ 免打扰 + 重试退避元数据。
- * 业务模块经本服务 notify()（模块间只经 service 层交互）；外发失败发布 notification.failed（§3.6）。
+ * 通知服务：站内通知落库（in_app）+ 偏好路由三通道实发（email=SMTP / push=WebPush / im=integrations）
+ * + 免打扰补发（D-12）+ 重试退避与终败收敛。
+ * 业务模块经本服务 notify()（模块间只经 service 层交互）；外发失败发布 notification.failed（§8.1 信封契约）。
  */
-import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
+import { buildEventEnvelope } from '@openschedule/domain-events';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { assertSafeOutboundUrl } from '../../common/security/url-guard';
 import { AuthUser } from './current-user.decorator';
 import { EmailAdapter } from './adapters/email.adapter';
 import { ImAdapter } from './adapters/im.adapter';
 import { NotificationAdapter, OutboundChannel, OutboundNotification } from './adapters/notification-adapter.interface';
 import { PushAdapter } from './adapters/push.adapter';
 import { NotificationQueryDto } from './dto/notification-query.dto';
+import { SubscribePushSubscriptionDto } from './dto/push-subscription.dto';
 import { UpdateNotificationDto } from './dto/update-notification.dto';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { NOTIFICATION_EVENTS } from './events/notification.events';
+import { enabledOutboundChannels } from './notification-routing';
+import { inQuietHours, quietHoursEnd, QuietHourRange } from './quiet-hours';
 import { nextRetryAt } from './retry-policy';
 
 /** 通知模块错误码（§3.1 分段码表） */
-const E = { FORBIDDEN: 40301, NOT_FOUND: 40401 } as const;
+const E = { BAD_REQUEST: 40001, FORBIDDEN: 40301, NOT_FOUND: 40401 } as const;
+
+/** 外发终败上限（此后置 failed + nextRetryAt=null，不再自动重试；约 3h 退避窗口） */
+export const MAX_DELIVERY_ATTEMPTS = 8;
 
 /** notify 入参（调用方构造；type 取 §3.6 事件名或产品语义，如 task.assigned/mention/reminder.due） */
 export interface NotifyInput {
@@ -29,13 +39,6 @@ export interface NotifyInput {
   title: string;
   body?: string;
   data?: Record<string, unknown>;
-}
-
-/** 免打扰时段（notification_preferences.quiet_hours jsonb 形状） */
-export interface QuietHourRange {
-  days: number[]; // 0-6（周日=0，与 JS getDay 对齐）
-  start: string; // 'HH:mm'
-  end: string;
 }
 
 /** 偏好视图（列表响应；通配默认项 id=null 表示未落库） */
@@ -119,11 +122,16 @@ export class NotificationsService {
     return { updated: res.count };
   }
 
-  /** 重试到期的外发投递；站内通知不重复创建，失败仍按同一退避策略回写。 */
+  /**
+   * 重试/补发到期的外发投递（BullMQ repeatable + setInterval 兜底共用）。
+   * - 扫描对象：pending（免打扰挂起，D-12）与 failed（发送失败）且 nextRetryAt 到期；
+   * - 免打扰窗口内到期 → 顺延至窗口结束（不消耗尝试次数）；
+   * - 失败达到 MAX_DELIVERY_ATTEMPTS → 终败（nextRetryAt=null，事件 nextRetryAt=null）。
+   */
   async retryDueDeliveries(now = new Date()): Promise<number> {
     const deliveries = await this.prisma.notificationDelivery.findMany({
-      where: { status: 'failed', nextRetryAt: { lte: now } },
-      include: { notification: true },
+      where: { status: { in: ['pending', 'failed'] }, nextRetryAt: { lte: now } },
+      include: { notification: { include: { user: { select: { email: true, timezone: true } } } } },
       orderBy: { nextRetryAt: 'asc' },
       take: 100,
     });
@@ -133,16 +141,42 @@ export class NotificationsService {
       const adapter = this.adapters[channel];
       if (!adapter) continue;
       const notification = delivery.notification;
-      const outbound: OutboundNotification = { ...notification, channel: 'in_app' };
+      const pref = await this.loadPreference(notification.userId, notification.type);
+      const quietHours = (pref?.quietHours ?? []) as unknown as QuietHourRange[];
+      const timezone = notification.user?.timezone ?? null;
+      if (inQuietHours(quietHours, now, timezone)) {
+        const until = quietHoursEnd(quietHours, now, timezone);
+        if (until) {
+          await this.prisma.notificationDelivery.update({ where: { id: delivery.id }, data: { nextRetryAt: until } });
+          continue;
+        }
+      }
+      const outbound: OutboundNotification = {
+        ...notification,
+        channel,
+        recipientEmail: notification.user?.email ?? null,
+        timezone,
+      };
       try {
         await adapter.send(outbound, delivery);
-        await this.prisma.notificationDelivery.update({ where: { id: delivery.id }, data: { status: 'sent', sentAt: new Date(), nextRetryAt: null } });
-      } catch (err) {
-        const attempts = delivery.attempts + 1;
         await this.prisma.notificationDelivery.update({
           where: { id: delivery.id },
-          data: { attempts, lastError: String((err as Error)?.message ?? err).slice(0, 500), nextRetryAt: nextRetryAt(attempts) },
+          data: { status: 'sent', sentAt: new Date(), nextRetryAt: null },
         });
+      } catch (err) {
+        const attempts = delivery.attempts + 1;
+        const terminal = attempts >= MAX_DELIVERY_ATTEMPTS;
+        const retryAt = terminal ? null : nextRetryAt(attempts);
+        await this.prisma.notificationDelivery.update({
+          where: { id: delivery.id },
+          data: {
+            status: 'failed',
+            attempts,
+            lastError: String((err as Error)?.message ?? err).slice(0, 500),
+            nextRetryAt: retryAt,
+          },
+        });
+        this.emitFailed(notification, delivery.id, channel, attempts, retryAt);
       }
       retried++;
     }
@@ -180,9 +214,62 @@ export class NotificationsService {
     });
   }
 
+  // ===================== WebPush 订阅（R5-3 / D-11） =====================
+
+  /** 本人订阅列表（endpoint 不回显密钥材料） */
+  async listPushSubscriptions(user: AuthUser) {
+    const rows = await this.prisma.pushSubscription.findMany({
+      where: { tenantId: user.tenantId, userId: user.userId },
+      select: { id: true, endpoint: true, userAgent: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return { data: rows };
+  }
+
+  /** 注册订阅（endpoint 唯一；写入前 SSRF 校验 —— 出站 POST 目标不可指向内网/环回） */
+  async addPushSubscription(user: AuthUser, dto: SubscribePushSubscriptionDto) {
+    try {
+      await assertSafeOutboundUrl(dto.endpoint);
+    } catch (err) {
+      throw new BadRequestException({ code: E.BAD_REQUEST, message: (err as Error).message });
+    }
+    return this.prisma.pushSubscription.upsert({
+      where: { endpoint: dto.endpoint },
+      create: {
+        tenantId: user.tenantId,
+        userId: user.userId,
+        endpoint: dto.endpoint,
+        p256dh: dto.p256dh,
+        auth: dto.auth,
+        userAgent: dto.userAgent,
+      },
+      update: {
+        tenantId: user.tenantId,
+        userId: user.userId,
+        p256dh: dto.p256dh,
+        auth: dto.auth,
+        userAgent: dto.userAgent,
+      },
+      select: { id: true, endpoint: true, createdAt: true, updatedAt: true },
+    });
+  }
+
+  /** 注销订阅（仅本人/本租户可注销） */
+  async removePushSubscription(user: AuthUser, endpoint: string) {
+    const existing = await this.prisma.pushSubscription.findUnique({ where: { endpoint } });
+    if (!existing || existing.tenantId !== user.tenantId || existing.userId !== user.userId) {
+      throw new NotFoundException({ code: E.NOT_FOUND, message: '订阅不存在或不可见' });
+    }
+    await this.prisma.pushSubscription.delete({ where: { endpoint } });
+    return { removed: true };
+  }
+
   // ===================== 内部工具 =====================
 
-  /** 按偏好路由外发：读取偏好（含默认 '*'）→ 免打扰判定 → 逐通道投递 → 失败落退避元数据 + notification.failed 事件 */
+  /**
+   * 按偏好路由外发：读偏好（含默认 '*'）→ 免打扰判定（挂起待补发，D-12）→ 逐通道投递。
+   * push 通道无订阅记录 → 视为不可达，不落投递记录；投递失败落退避元数据 + notification.failed。
+   */
   private async routeOutbound(notification: {
     id: string;
     tenantId: string;
@@ -193,17 +280,42 @@ export class NotificationsService {
     data: unknown;
   }): Promise<void> {
     const pref = await this.loadPreference(notification.userId, notification.type);
-    const wanted = NOTIFICATION_CHANNELS_FILTER(pref?.channels);
+    const wanted = enabledOutboundChannels(pref?.channels);
     if (wanted.length === 0) return;
-    if (this.inQuietHours((pref?.quietHours ?? []) as unknown as QuietHourRange[])) {
-      this.logger.debug(`免打扰时段内，跳过外发 notification=${notification.id}`);
-      return; // 站内通知已落库，外发静默跳过（TODO：免打扰结束后是否补发，产品口径待定）
+    const user = await this.prisma.user.findUnique({
+      where: { id: notification.userId },
+      select: { email: true, timezone: true },
+    });
+    const timezone = user?.timezone ?? null;
+    const quietHours = (pref?.quietHours ?? []) as unknown as QuietHourRange[];
+    const now = new Date();
+    if (inQuietHours(quietHours, now, timezone)) {
+      const until = quietHoursEnd(quietHours, now, timezone);
+      if (until) {
+        // 站内已落库；外发挂起，窗口结束后由重试扫描补发（D-12）
+        await this.prisma.notificationDelivery.createMany({
+          data: wanted.map(channel => ({ notificationId: notification.id, channel, status: 'pending', attempts: 0, nextRetryAt: until })),
+        });
+        this.logger.debug(`免打扰挂起外发 notification=${notification.id} 至 ${until.toISOString()}`);
+      }
+      return;
     }
-    const outbound: OutboundNotification = { ...notification, channel: 'in_app' };
     for (const channel of wanted) {
+      if (channel === 'push') {
+        const subscriptions = await this.prisma.pushSubscription.count({
+          where: { tenantId: notification.tenantId, userId: notification.userId },
+        });
+        if (subscriptions === 0) continue;
+      }
       const delivery = await this.prisma.notificationDelivery.create({
         data: { notificationId: notification.id, channel, status: 'pending', attempts: 0 },
       });
+      const outbound: OutboundNotification = {
+        ...notification,
+        channel,
+        recipientEmail: user?.email ?? null,
+        timezone,
+      };
       try {
         await this.adapters[channel].send(outbound, delivery);
         await this.prisma.notificationDelivery.update({ where: { id: delivery.id }, data: { status: 'sent', sentAt: new Date() } });
@@ -219,15 +331,27 @@ export class NotificationsService {
             nextRetryAt: retryAt,
           },
         });
-        this.eventBus?.emit(NOTIFICATION_EVENTS.FAILED, {
-          notificationId: notification.id,
-          deliveryId: delivery.id,
-          channel,
-          attempts,
-          nextRetryAt: retryAt,
-        });
+        this.emitFailed(notification, delivery.id, channel, attempts, retryAt);
       }
     }
+  }
+
+  /** 发布 notification.failed（§8.1 信封契约；终败 nextRetryAt=null） */
+  private emitFailed(
+    notification: { id: string; tenantId: string; userId: string },
+    deliveryId: string,
+    channel: OutboundChannel,
+    attempts: number,
+    retryAt: Date | null,
+  ): void {
+    this.eventBus?.emit(NOTIFICATION_EVENTS.FAILED, {
+      ...buildEventEnvelope(randomUUID(), notification.tenantId, { id: 'system', type: 'system' }, new Date().toISOString()),
+      notificationId: notification.id,
+      deliveryId,
+      channel,
+      attempts,
+      nextRetryAt: retryAt ? retryAt.toISOString() : null,
+    });
   }
 
   /** 加载偏好（优先事件级，其次通配默认 '*'） */
@@ -240,33 +364,4 @@ export class NotificationsService {
       where: { userId_eventType: { userId, eventType: '*' } },
     });
   }
-
-  /** 免打扰判定（支持跨午夜区间） */
-  private inQuietHours(quietHours: QuietHourRange[], now = new Date()): boolean {
-    const day = now.getDay();
-    const minutes = now.getHours() * 60 + now.getMinutes();
-    for (const qh of quietHours) {
-      if (!qh.days?.length || !qh.days.includes(day)) continue;
-      const s = this.toMinutes(qh.start);
-      const e = this.toMinutes(qh.end);
-      if (s <= e) {
-        if (minutes >= s && minutes < e) return true;
-      } else if (minutes >= s || minutes < e) {
-        return true; // 跨午夜（如 21:00-08:00）
-      }
-    }
-    return false;
-  }
-
-  private toMinutes(hhmm: string): number {
-    const [h, m] = hhmm.split(':').map(Number);
-    return h * 60 + m;
-  }
-}
-
-/** 通道开关过滤（channels jsonb → 启用外发通道列表） */
-function NOTIFICATION_CHANNELS_FILTER(channels: unknown): OutboundChannel[] {
-  if (!channels || typeof channels !== 'object') return [];
-  const c = channels as Record<string, unknown>;
-  return (['email', 'push', 'im'] as OutboundChannel[]).filter(ch => c[ch] === true);
 }

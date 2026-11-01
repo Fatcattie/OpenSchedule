@@ -53,13 +53,14 @@ import {
 import { useMutation, useQuery } from '@tanstack/react-query'
 import dayjs, { type Dayjs } from 'dayjs'
 import { Link, useNavigate } from 'react-router-dom'
-import { mockMe, mockUsers } from '@/api/mock/data'
 import { taskApi } from '@/api/taskApi'
 import { useAiRules } from '@/hooks/useAiRules'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
+import { useTaskReview } from '@/hooks/useTaskReview'
+import { useDirectory, useMe } from '@/hooks/useWorkspaceIdentity'
 import { readIndustryAndType, useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
 import { generateSopFlow, toSopFlow, generateTaskReport } from '@/utils/aiRules'
-import { archiveSopFromTask, effectiveSop, syncSopStep } from '@/utils/sopLibrary'
+import { effectiveSop, syncSopStep } from '@/utils/sopLibrary'
 import { findDescendantIds, spansMoreThanOneDay, toWorkspaceTask } from '@/utils/taskTree'
 import SopFlowTree from '@/components/workspace/SopFlowTree'
 import {
@@ -86,7 +87,6 @@ import {
 
 const { Title, Text, Paragraph } = Typography
 
-type WorkspaceRole = 'manager' | 'member'
 
 /** 完成标签（需求 6） */
 const COMPLETION_TAGS = ['按计划完成', '提前完成', '延期完成', '部分完成', '超预期完成']
@@ -98,9 +98,6 @@ const statusLabels: Record<TaskStatus, string> = {
   done: '已完成',
   cancelled: '已取消',
 }
-
-const userName = (id: string | null) =>
-  id ? (mockUsers.find((u) => u.id === id)?.displayName ?? id) : '未指派'
 
 function ImageGallery({ images }: { images: string[] }) {
   return (
@@ -128,8 +125,12 @@ export interface TaskExecutionPanelProps {
 export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) {
   const navigate = useNavigate()
   const [tasks, setTasks] = useWorkspaceTasks()
-  const [role] = useLocalStorageState<WorkspaceRole>('workspace_role', 'manager')
+  const role = useCurrentRole()
   const { rules } = useAiRules()
+  const review = useTaskReview()
+  const currentUser = useMe()
+  const { teamMembers, nameOf } = useDirectory()
+  const userName = (id: string | null) => (id ? (nameOf(id) ?? id) : '未指派')
 
   const [logForm] = Form.useForm()
   const [commentForm] = Form.useForm()
@@ -190,25 +191,25 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
   const task = tasks.find((t) => t.id === taskId)
 
   const isManager = role === 'manager'
-  const isOwner = task?.assigneeId === mockMe.id
-  const isCreator = task?.createdBy === mockMe.id
-  /** 第四批：项目负责人（kind='project' 的项目任务，其 assigneeId/createdBy === mockMe） */
+  const isOwner = task?.assigneeId === currentUser.id
+  const isCreator = task?.createdBy === currentUser.id
+  /** 第四批：项目负责人（kind='project' 的项目任务，其 assigneeId/createdBy === 当前用户） */
   const isProjectOwner = useMemo(() => {
     if (!task?.projectId) return false
     const p = tasks.find((x) => x.id === task.projectId && x.kind === 'project')
     if (!p) return false
-    return p.assigneeId === mockMe.id || p.createdBy === mockMe.id
-  }, [task, tasks])
-  /** 第四批：父级任务负责人（链路上承接人 === mockMe）——递归 ancestor assignee */
+    return p.assigneeId === currentUser.id || p.createdBy === currentUser.id
+  }, [task, tasks, currentUser.id])
+  /** 第四批：父级任务负责人（链路上承接人 === 当前用户）——递归 ancestor assignee */
   const isAncestorOwner = useMemo(() => {
     if (!task?.parentId) return false
     let cursor: WorkspaceTask | undefined = tasks.find((t) => t.id === task.parentId)
     while (cursor) {
-      if (cursor.assigneeId === mockMe.id) return true
+      if (cursor.assigneeId === currentUser.id) return true
       cursor = cursor.parentId ? tasks.find((t) => t.id === cursor!.parentId) : undefined
     }
     return false
-  }, [task, tasks])
+  }, [task, tasks, currentUser.id])
   /** 第四批：父级任务承接人或项目负责人或任务承接人都可发起子任务相关变更（管理审核才生效） */
   const canProposeSubtaskChange = isManager || isOwner || isProjectOwner || isAncestorOwner
   const canEditContent = isManager || isCreator
@@ -237,7 +238,7 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
     return people
   }, [task, tasks])
 
-  const canComment = isManager || participants.has(mockMe.id)
+  const canComment = isManager || participants.has(currentUser.id)
 
   /** 需求 7：AI 根据执行页全部信息生成总结 */
   const reportMutation = useMutation({
@@ -479,8 +480,8 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
     const log: ExecutionLog = {
       id: `log-${Date.now()}`,
       taskId,
-      authorId: mockMe.id,
-      authorName: mockMe.displayName,
+      authorId: currentUser.id,
+      authorName: currentUser.displayName,
       content: values.content,
       attachments: logAttachments,
       createdAt: new Date().toISOString(),
@@ -495,8 +496,8 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
     const comment: ExecutionComment = {
       id: `cmt-${Date.now()}`,
       taskId,
-      authorId: mockMe.id,
-      authorName: mockMe.displayName,
+      authorId: currentUser.id,
+      authorName: currentUser.displayName,
       content: values.content,
       attachments: commentAttachments,
       createdAt: new Date().toISOString(),
@@ -518,7 +519,7 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
       pendingContent: {
         title: values.title,
         description: values.description,
-        submittedBy: mockMe.displayName,
+        submittedBy: currentUser.displayName,
         submittedAt: new Date().toISOString(),
       },
       approvalStatus: 'pending',
@@ -529,23 +530,15 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
     message.success('内容变更已提交，等待管理人员审核')
   }
 
-  const approveContent = (approved: boolean) => {
-    patch((t) => {
-      if (!t.pendingContent) return t
-      if (!approved) {
-        return { ...t, pendingContent: null, approvalStatus: 'rejected', updatedAt: new Date().toISOString() }
-      }
-      return {
-        ...t,
-        title: t.pendingContent.title,
-        description: t.pendingContent.description,
-        pendingContent: null,
-        approvalStatus: 'approved',
-        updatedAt: new Date().toISOString(),
-      }
-    })
-    message.success(approved ? '内容变更已通过并生效' : '内容变更已驳回')
+  /** 审核区（D-07 二期）：内容变更 / 完成提报 / 承接人推荐统一走审核命令，留痕与副作用由服务端执行 */
+  const decide = async (approved: boolean, successText: [string, string]) => {
+    const res = await review(taskId, approved ? { action: 'approve', opinion: 'agree' } : { action: 'reject', opinion: 'reject' })
+    if (!res) return
+    const extra = approved && res.sopArchived ? '，SOP 已沉淀到「SOP 与经验」' : ''
+    message.success((approved ? successText[0] : successText[1]) + extra)
   }
+
+  const approveContent = (approved: boolean) => decide(approved, ['内容变更已通过并生效', '内容变更已驳回'])
 
   /** 需求 6：提报完成必须带标签、精确到分钟的完成时间与总结 */
   const submitCompletion = (values: {
@@ -581,26 +574,8 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
     message.success('完成提报已提交，等待管理人员审核')
   }
 
-  const approveCompletion = (approved: boolean) => {
-    patch((t) => {
-      if (!approved) {
-        return { ...t, completion: null, approvalStatus: 'rejected', updatedAt: new Date().toISOString() }
-      }
-      return {
-        ...t,
-        status: 'done',
-        completedAt: t.completion?.completedAt ? dayjs(t.completion.completedAt).toISOString() : new Date().toISOString(),
-        approvalStatus: 'approved',
-        updatedAt: new Date().toISOString(),
-      }
-    })
-    // 需求 6：完成审核通过 = 任务闭环，SOP 以标题+总结+流程图沉淀到「SOP 与经验」
-    if (approved) {
-      const doc = archiveSopFromTask(tasks, { ...task, status: 'done' })
-      if (doc) message.info(`SOP 已沉淀：「${doc.title}」可在「SOP 与经验」查看与应用`)
-    }
-    message.success(approved ? '审核通过，任务已完成' : '完成提报已驳回')
-  }
+  // 需求 6：完成审核通过 = 任务闭环，SOP 以标题+总结+流程图沉淀到「SOP 与经验」（服务端执行）
+  const approveCompletion = (approved: boolean) => decide(approved, ['审核通过，任务已完成', '完成提报已驳回'])
 
   const changeStatus = (status: TaskStatus) => {
     patch((t) => ({ ...t, status, updatedAt: new Date().toISOString() }))
@@ -630,9 +605,9 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
       id: `sub-${Date.now()}`, tenantId: 'tenant-001', projectId: task.projectId, parentId: task.id,
       title: values.title, description: values.description ?? null,
       status: 'todo',
-      priority: 'medium', assigneeId: values.mode === 'self' ? mockMe.id : null,
+      priority: 'medium', assigneeId: values.mode === 'self' ? currentUser.id : null,
       dueAt: null, estimatedHours: 2, actualHours: null, completedAt: null, startedAt: null,
-      createdBy: mockMe.id, tags: ['子任务'], sortOrder: 0, workflowColumnId: null, isAiGenerated: false,
+      createdBy: currentUser.id, tags: ['子任务'], sortOrder: 0, workflowColumnId: null, isAiGenerated: false,
       version: 1, createdAt: now, updatedAt: now,
       taskMode: task.taskMode, kind: 'task', needReview: false, reviewStatus: 'none',
       proposalStatus: 'none', participants: [], reviewOfTaskId: null,
@@ -756,9 +731,9 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
       id: `t-sop-${Date.now()}`, tenantId: 'tenant-001', projectId: task.projectId, parentId: task.id,
       title: values.title, description: values.description ?? null,
       status: 'todo', priority: task.priority,
-      assigneeId: values.mode === 'self' ? mockMe.id : null,
+      assigneeId: values.mode === 'self' ? currentUser.id : null,
       dueAt: task.dueAt, estimatedHours: 2, actualHours: null, completedAt: null, startedAt: null,
-      createdBy: mockMe.id, tags: ['子任务', '流程节点生成'], sortOrder: 0,
+      createdBy: currentUser.id, tags: ['子任务', '流程节点生成'], sortOrder: 0,
       workflowColumnId: null, isAiGenerated: false, version: 1, createdAt: now, updatedAt: now,
       taskMode: task.taskMode, kind: 'task', needReview: false, reviewStatus: 'none',
       proposalStatus: needsApproval ? 'pending' : 'none', participants: [], reviewOfTaskId: null,
@@ -1171,7 +1146,7 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
                       <Form.Item name="assigneeId" label="推荐承接人" rules={[{ required: true, message: '请选择推荐承接人' }]}>
                         <Select
                           placeholder="选择推荐的承接人，管理审核后生效"
-                          options={mockUsers.filter((u) => u.id !== mockMe.id).map((u) => ({ value: u.id, label: u.displayName }))}
+                          options={teamMembers.filter((u) => u.id !== currentUser.id).map((u) => ({ value: u.id, label: u.displayName }))}
                         />
                       </Form.Item>
                     ) : null
@@ -1351,7 +1326,7 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
                   <Text type="secondary" style={{ fontSize: 12, minWidth: 84 }}>父级任务负责人：</Text>
                   <Text style={{ fontSize: 12, fontWeight: 600 }}>
                     {userName(parentTask.assigneeId)}
-                    {parentTask.assigneeId === mockMe.id && <Tag color="cyan" style={{ marginLeft: 4 }}>我</Tag>}
+                    {parentTask.assigneeId === currentUser.id && <Tag color="cyan" style={{ marginLeft: 4 }}>我</Tag>}
                   </Text>
                 </Space>
               )}
@@ -1472,27 +1447,10 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
                     推荐承接人：{userName(task.recommendedAssigneeId)}
                   </Text>
                   <Space>
-                    <Button
-                      type="primary"
-                      onClick={() => {
-                        patch((t) => ({
-                          ...t,
-                          assigneeId: t.recommendedAssigneeId,
-                          approvalStatus: 'approved',
-                          updatedAt: new Date().toISOString(),
-                        }))
-                        message.success('承接人已生效')
-                      }}
-                    >
+                    <Button type="primary" onClick={() => decide(true, ['承接人已生效', ''])}>
                       通过并指派
                     </Button>
-                    <Button
-                      danger
-                      onClick={() => {
-                        patch((t) => ({ ...t, approvalStatus: 'rejected', updatedAt: new Date().toISOString() }))
-                        message.success('已驳回')
-                      }}
-                    >
+                    <Button danger onClick={() => decide(false, ['', '已驳回'])}>
                       驳回
                     </Button>
                   </Space>
@@ -1590,7 +1548,7 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
           <Form.Item name="assigneeId" label="新的承接人" rules={[{ required: true, message: '请选择承接人' }]}>
             <Select
               placeholder="选择新的承接人"
-              options={mockUsers.map((u) => ({ value: u.id, label: u.displayName }))}
+              options={teamMembers.map((u) => ({ value: u.id, label: u.displayName }))}
             />
           </Form.Item>
           <Text type="secondary" style={{ fontSize: 12 }}>
@@ -1617,7 +1575,7 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
             <Input.TextArea rows={3} />
           </Form.Item>
           <Form.Item name="assigneeId" label="承接人">
-            <Select allowClear placeholder="选择承接人" options={mockUsers.map((u) => ({ value: u.id, label: u.displayName }))} />
+            <Select allowClear placeholder="选择承接人" options={teamMembers.map((u) => ({ value: u.id, label: u.displayName }))} />
           </Form.Item>
         </Modal>
       </Form>
@@ -1669,7 +1627,7 @@ export default function TaskExecutionPanel({ taskId }: TaskExecutionPanelProps) 
                 <Form.Item name="assigneeId" label="推荐承接人" rules={[{ required: true, message: '请选择推荐承接人' }]}>
                   <Select
                     placeholder="选择推荐的承接人，管理审核后生效"
-                    options={mockUsers.filter((u) => u.id !== mockMe.id).map((u) => ({ value: u.id, label: u.displayName }))}
+                    options={teamMembers.filter((u) => u.id !== currentUser.id).map((u) => ({ value: u.id, label: u.displayName }))}
                   />
                 </Form.Item>
               ) : null

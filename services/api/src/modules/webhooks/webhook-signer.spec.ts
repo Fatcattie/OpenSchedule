@@ -1,6 +1,7 @@
 /**
  * webhook-signer.spec.ts —— Webhook 签名单测
  */
+import { describe, expect, it } from 'vitest'
 import {
   generateSigningSecret,
   computeSignature,

@@ -1,0 +1,1 @@
+{"version":3,"file":"aws-sdk.d.ts","sourceRoot":"","sources":["../../../../src/orchestrion/config/aws-sdk.ts"],"names":[],"mappings":"AAYA,eAAO,MAAM,YAAY;;;QAGX,IAAI;QAAkB,YAAY;QAAiB,QAAQ;;;;;;;GAatC,CAAC;AAEpC,eAAO,MAAM,iBAAiB,UAA+B,CAAC;AAE9D,eAAO,MAAM,cAAc;aACzB,oBAAoB,EAAE,+BAA+B;aACrD,sBAAsB,EAAE,wCAAwC;aAChE,0BAA0B,EAAE,yCAAyC;CAC7D,CAAC"}

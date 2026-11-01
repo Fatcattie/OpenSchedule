@@ -1,0 +1,50 @@
+# ============================================================
+# Caddy 反向代理 + 自动 HTTPS（R10 生产唯一对外入口）
+# 挂载位置：deploy/docker-compose.prod.yml → caddy 服务 /etc/caddy/Caddyfile
+# 域名与 ACME 邮箱来自环境变量 DOMAIN / ACME_EMAIL（缺失即 compose 启动失败）
+#
+# 路由契约（与前端 apps/web/src/api/config.ts 的 axios baseURL 对齐）：
+#   /api/*      → api:3000   （REST 前缀 /api/v1/*）
+#   /health     → api:3000   （存活检查）
+#   /metrics    → 403        （公网拒绝；Prometheus 在同 compose 网络内直连 api:3000）
+#   /grafana/*  → grafana:3000（profile=observability 未启用时 502，属预期）
+#   其余        → web:80     （nginx 静态 SPA + 前端路由回退）
+# ============================================================
+
+{
+	email {$ACME_EMAIL}
+	admin off
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# 指标端点不对外：仅内网 Prometheus 抓取
+	@metrics path /metrics
+	respond @metrics 403
+
+	# 后端（NestJS 内部监听 3000；容器网络内可达）
+	@backend path /api/* /health
+	reverse_proxy @backend api:3000
+
+	# Grafana（可观测性 profile；未启用时上游不可达 → 502）
+	@grafana path /grafana/*
+	reverse_proxy @grafana grafana:3000
+
+	# 前端静态资源（nginx）
+	reverse_proxy web:80
+
+	# 安全响应头（HSTS 由 Caddy 在 HTTPS 下下发；nginx 侧不重复设置）
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

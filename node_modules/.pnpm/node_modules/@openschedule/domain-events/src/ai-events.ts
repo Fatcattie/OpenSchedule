@@ -1,0 +1,30 @@
+/**
+ * AI 协作域事件（§8.1 事件目录：ai.proposal.expired → BC-07 通知提议人）。
+ * 当前 proposals.service 尚未发布事件，本类型是订阅接线（R3）的目标契约。
+ * AiProposal 状态机（§2.3 INV-6/7）：pending → approved → applied | rejected | expired。
+ */
+import type { DomainEventEnvelope } from './envelope';
+
+export const AI_PROPOSAL_EVENTS = {
+  /** expiresAt 到期自动 expired（默认 72h，可配置）→ 通知提议人（INV-7） */
+  EXPIRED: 'ai.proposal.expired',
+} as const;
+
+export type AiProposalEventName = (typeof AI_PROPOSAL_EVENTS)[keyof typeof AI_PROPOSAL_EVENTS];
+
+/** 提议类型（ai_proposals.type，与 AI 能力面对齐：首发 decompose） */
+export type AiProposalType = 'decompose' | 'evaluate' | 'emergency' | 'weekly';
+
+export interface AiProposalEventPayloads {
+  [AI_PROPOSAL_EVENTS.EXPIRED]: DomainEventEnvelope & {
+    proposalId: string;
+    type: AiProposalType;
+    /** 提议创建者（= 接收超时提醒的人） */
+    proposerId: string;
+  };
+}
+
+export type AiProposalDomainEvent<K extends AiProposalEventName = AiProposalEventName> = {
+  name: K;
+  payload: AiProposalEventPayloads[K];
+};

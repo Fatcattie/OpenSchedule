@@ -44,6 +44,9 @@ export interface ProposalDetail {
   status: string
   source: string
   relatedProjectId: string | null
+  /** 生成引擎：ai = 租户模型经 AI 服务拆解；rules = 规则引擎/模板 */
+  engine: 'ai' | 'rules'
+  aiModel?: string
   summary: string
   tasks: any[]
   dependencies?: any[]

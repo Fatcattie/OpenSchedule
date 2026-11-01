@@ -532,6 +532,9 @@ export interface DecomposeSuggestion {
   status: 'pending' | 'applied' | 'rejected'
   source: string
   relatedProjectId: string | null
+  /** 生成引擎：ai = 团队 AI 模型（经 AI 服务）；rules = 规则引擎/模板（旧数据缺省视为 rules） */
+  engine?: 'ai' | 'rules'
+  aiModel?: string
   summary: string
   tasks: DecomposeTask[]
   dependencies: Array<{ fromIndex: number; toIndex: number; type: string; lagDays: number }>

@@ -1,5 +1,5 @@
 # OpenSchedule AI 服务（services/ai）
-# FastAPI + LangGraph + LiteLLM；Python 3.12；Pydantic v2 strict 模式
+# FastAPI + LangGraph（直连租户配置的 OpenAI 兼容模型）；Python 3.12；Pydantic v2 strict 模式
 # 职责：拆解/评估/应急/执行（Phase 1 仅拆解草稿闭环）；铁律：AI 提议、人确认；永不直连业务库
 
 [build-system]
@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 [project]
 name = "openschedule-ai-service"
 version = "0.1.0"
-description = "OpenSchedule AI 服务：拆解/评估/应急/执行（FastAPI + LangGraph + LiteLLM）；AI 提议、人确认；永不直连业务库"
+description = "OpenSchedule AI 服务：拆解/评估/应急/执行（FastAPI + LangGraph）；AI 提议、人确认；永不直连业务库"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -18,8 +18,9 @@ dependencies = [
     "pydantic>=2.8",           # v2 strict schema（L1 校验基础）
     "pydantic-settings>=2.3",  # 配置类（读取 .env）
     "langgraph>=0.2.30",       # 图编排（plan→validate→emit；Phase 3 interrupt 审批）
-    "httpx>=0.27",             # 调 LiteLLM + 回调主服务 /internal/ai/results
+    "httpx>=0.27",             # 调模型厂商（OpenAI 兼容）+ 回调主服务 /internal/ai/results
     "python-dotenv>=1.0",      # .env 加载
+    "redis>=5.0",
 ]
 
 [project.optional-dependencies]

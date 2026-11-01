@@ -265,7 +265,11 @@ def _compute_depths(result: DecomposeResult) -> list[int]:
             return 0  # 防御：父环场景避免无限递归（结构检查已报错）
         seen.add(i)
         parent = result.tasks[i].parent_idx
-        depth = 0 if parent is None else depth_of(parent, seen) + 1
+        # 越界 parent 已由 _check_structure 报错；此处防御性按根处理，避免 depth_of 越界崩溃
+        if parent is None or not (0 <= parent < len(result.tasks)):
+            depth = 0
+        else:
+            depth = depth_of(parent, seen) + 1
         memo[i] = depth
         return depth
 

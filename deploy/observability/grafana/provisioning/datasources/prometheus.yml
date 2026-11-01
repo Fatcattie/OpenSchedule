@@ -1,0 +1,15 @@
+# Grafana 数据源（自动 provision，R9）
+# 与 deploy/observability/grafana/dashboards/*.json 中的 uid 对应。
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: openschedule-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST

@@ -1,0 +1,1 @@
+{"version":3,"file":"diagnosticsChannel.d.ts","sourceRoot":"","sources":["../../../src/utils/diagnosticsChannel.ts"],"names":[],"mappings":"AACA,OAAO,KAAK,sBAAsB,MAAM,0BAA0B,CAAC;AAanE,yFAAyF;AACzF,eAAO,MAAM,OAAO,EAAE,OAAO,sBAAsB,CAAC,OASlB,CAAC;AAEnC,iGAAiG;AACjG,eAAO,MAAM,SAAS,EAAE,OAAO,sBAAsB,CAAC,SAIlB,CAAC;AAErC;;;;GAIG;AACH,eAAO,MAAM,cAAc,EAAE,OAAO,sBAAsB,CAAC,cAahB,CAAC"}

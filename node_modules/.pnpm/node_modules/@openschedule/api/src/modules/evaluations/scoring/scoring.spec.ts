@@ -1,6 +1,7 @@
 /**
  * 评分引擎单测（B17）：技能 Jaccard、完成率/准时率、负载分、复杂度档与适配、冷启动中性分、总分合成。
  */
+import { describe, expect, it } from 'vitest'
 import {
   calculateRecommendation,
   complexityFitScore,
@@ -59,8 +60,7 @@ describe('评分引擎（B17）', () => {
       const s = computeMemberStats(tasks, 'u1');
       expect(s.completedCount).toBe(3);
       expect(s.completionRate).toBe(3 / 4); // done 3 / (done+in_progress) 4
-      expect(s.onTimeRate).toBe(0.5); // 有 dueAt 的 done 2 个，准时 1 个
-      expect(s.activeLoad).toBe(1);
+      expect(s.onTimeRate).toBe(0.5); // 有 dueAt 的 done 2 个，准时 1 个      expect(s.activeLoad).toBe(1);
     });
 
     it('done 全无 dueAt → 准时率中性 0.5（分母为 0）', () => {

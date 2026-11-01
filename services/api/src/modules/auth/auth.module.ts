@@ -5,12 +5,13 @@
  */
 import { Module } from '@nestjs/common';
 import { RbacModule } from '../rbac/rbac.module';
+import { AutomationModule } from '../automation/automation.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { RefreshTokenStore } from './refresh-token.store';
 
 @Module({
-  imports: [RbacModule],
+  imports: [RbacModule, AutomationModule],
   controllers: [AuthController],
   providers: [AuthService, RefreshTokenStore],
   exports: [AuthService],

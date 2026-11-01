@@ -1,0 +1,1006 @@
+openapi: 3.1.0
+info:
+  title: OpenSchedule Authentication and Personnel API
+  version: 1.0.0
+  description: |
+    Binding HTTP contract for the real authentication and personnel-management
+    flow. This contract implements PRD requirements R1, R2, R3, R5 and R6, and
+    covers functional requirements FR-001, FR-002, FR-003, FR-004, FR-005,
+    FR-006, FR-007, FR-008 and FR-009.
+    Server-side authorization is authoritative; hiding a route or button is not
+    an authorization mechanism.
+servers:
+  - url: /api
+    description: Same-origin API prefix used by the current web proxy
+  - url: /api/v1
+    description: Versioned NestJS API prefix used by the backend bootstrap
+
+# Machine-readable traceability keeps every PRD requirement reviewable from the contract.
+x-requirements:
+  FR-001:
+    summary: Fixed super_admin, admin, and member role enum and matrix
+    sources:
+      - docs/authorization/personnel-rbac.md
+    paths: [/users, "/users/{userId}", "/users/{userId}/status"]
+  FR-002:
+    summary: Server-side authentication and object-level authorization
+    sources:
+      - docs/authorization/personnel-rbac.md
+    paths: [/auth/session, /users, "/users/{userId}", "/users/{userId}/status"]
+  FR-003:
+    summary: Persistent user lifecycle and protected user fields
+    sources:
+      - output/openschedule-architecture.md
+    paths: [/users, "/users/{userId}", "/users/{userId}/status"]
+  FR-004:
+    summary: Real login, session, and logout lifecycle
+    sources:
+      - output/openschedule-architecture.md
+    paths: [/auth/login, /auth/session, /auth/logout]
+  FR-005:
+    summary: Real personnel CRUD API
+    sources:
+      - output/openschedule-architecture.md
+    paths: [/users, "/users/{userId}", "/users/{userId}/status"]
+  FR-006:
+    summary: No mock, localStorage identity, or identity-switching runtime path
+    sources:
+      - output/openschedule-architecture.md
+    paths: [/auth/session, /users]
+  FR-007:
+    summary: Route, menu, and action capability alignment
+    sources:
+      - docs/authorization/personnel-rbac.md
+    paths: [/users, "/users/{userId}", "/users/{userId}/status"]
+  FR-008:
+    summary: Authentication, authorization, and security test anchors
+    sources:
+      - docs/authorization/personnel-rbac.md
+    paths: [/auth/login, /auth/session, /users, "/users/{userId}", "/users/{userId}/status"]
+  FR-009:
+    summary: Personnel-management regression coverage
+    sources:
+      - output/openschedule-architecture.md
+    paths: [/auth/login, /auth/session, /users, "/users/{userId}", "/users/{userId}/status"]
+
+x-route-coverage:
+  - method: GET
+    path: /api/integrations/:provider/calendar/events
+    source: apps/web/src/services/imProvider.ts
+    backend: services/api/src/modules/integrations/integrations.controller.ts
+  - method: GET
+    path: /api/integrations/status
+    source: apps/web/src/services/imProvider.ts
+    backend: services/api/src/modules/integrations/integrations.controller.ts
+  - method: POST
+    path: /api/integrations/:provider/messages
+    source: apps/web/src/services/imProvider.ts
+    backend: services/api/src/modules/integrations/integrations.controller.ts
+  - method: POST
+    path: /api/integrations/:provider/calendar/events
+    source: apps/web/src/services/imProvider.ts
+    backend: services/api/src/modules/integrations/integrations.controller.ts
+
+tags:
+  - name: Authentication
+    description: Session lifecycle for authenticated users
+  - name: Personnel
+    description: Role-scoped user lifecycle management
+  - name: Integrations
+    description: Existing provider proxy routes used by the web calendar and messaging flows
+
+security: []
+
+paths:
+  /auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      x-requirements: [FR-004, FR-008, FR-009]
+      summary: Establish an authenticated session
+      description: |
+        Valid credentials for an active user create an opaque server-side
+        session. The session is returned only as an HttpOnly cookie named
+        openschedule_session; it is never included in JSON or localStorage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Session established
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/AuthRateLimited'
+
+  /auth/session:
+    get:
+      tags: [Authentication]
+      operationId: getSession
+      x-requirements: [FR-002, FR-004, FR-006, FR-008, FR-009]
+      summary: Read the current authenticated session
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Current active session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      x-requirements: [FR-004, FR-006, FR-008, FR-009]
+      summary: Revoke the current session
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: Session revoked; the session cookie is cleared
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/ClearedSessionCookie'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+
+  /users:
+    get:
+      tags: [Personnel]
+      operationId: listUsers
+      x-requirements: [FR-001, FR-002, FR-003, FR-005, FR-007, FR-008, FR-009]
+      summary: List users within the caller's authorized scope
+      description: |
+        super_admin may list all active or disabled users. admin may list only
+        member users. member is always forbidden. A role filter cannot expand
+        the caller's scope; an out-of-scope role filter is rejected.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/RoleFilter'
+        - $ref: '#/components/parameters/StatusFilter'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Authorized user collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    post:
+      tags: [Personnel]
+      operationId: createUser
+      x-requirements: [FR-001, FR-002, FR-003, FR-005, FR-007, FR-008, FR-009]
+      summary: Create a user in the caller's authorized scope
+      description: |
+        super_admin may create admin or member. admin may create member only.
+        member is forbidden. The password is accepted for credential setup but
+        is never returned or persisted in plaintext.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/UserConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Personnel]
+      operationId: getUser
+      x-requirements: [FR-001, FR-002, FR-003, FR-005, FR-007, FR-008, FR-009]
+      summary: Read one user within the caller's authorized scope
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Authorized user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+    patch:
+      tags: [Personnel]
+      operationId: updateUser
+      x-requirements: [FR-001, FR-002, FR-003, FR-005, FR-007, FR-008, FR-009]
+      summary: Update profile fields or assign a role within policy
+      description: |
+        admin may update member displayName and email only. super_admin may
+        update those fields and assign admin or member. A role assignment is
+        evaluated against the current target snapshot, never against a client
+        supplied role claim. No caller may demote, disable or delete the last
+        super_admin through this operation.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/UserConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Personnel]
+      operationId: deleteUser
+      x-requirements: [FR-001, FR-002, FR-003, FR-005, FR-007, FR-008, FR-009]
+      summary: Delete a user within the caller's authorized scope
+      description: |
+        admin may delete member only. super_admin may delete admin or member.
+        The final super_admin cannot be deleted. Implementations may use a
+        transaction-backed soft delete, but deleted users must not authenticate
+        or appear in the default collection.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: User deleted
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/UserConflict'
+
+  /users/{userId}/status:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [Personnel]
+      operationId: setUserStatus
+      x-requirements: [FR-001, FR-002, FR-003, FR-005, FR-007, FR-008, FR-009]
+      summary: Enable or disable a user within the caller's scope
+      description: |
+        admin may change status for member only. super_admin may change status
+        for admin or member. The final active super_admin cannot be disabled.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetUserStatusRequest'
+      responses:
+        '200':
+          description: Status changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/UserConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /integrations/status:
+    get:
+      tags: [Integrations]
+      operationId: getIntegrationStatus
+      summary: List configured external provider connection status
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Provider statuses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IntegrationStatus'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /integrations/{provider}/calendar/events:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationProvider'
+    get:
+      tags: [Integrations]
+      operationId: listIntegrationCalendarEvents
+      summary: List external calendar events for a provider
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: start
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: External calendar events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExternalCalendarEvent'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      tags: [Integrations]
+      operationId: createIntegrationCalendarEvent
+      summary: Push a task or project to an external calendar
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalendarEventRequest'
+      responses:
+        '201':
+          description: External event created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarEventResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /integrations/{provider}/messages:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationProvider'
+    post:
+      tags: [Integrations]
+      operationId: sendIntegrationMessage
+      summary: Send a message through an external provider
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntegrationMessageRequest'
+      responses:
+        '200':
+          description: Message delivery result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationMessageResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # Explicit full-prefix aliases keep static contract checks aligned with the
+  # current browser fetch paths while the versioned server remains canonical.
+  /api/integrations/status:
+    get:
+      tags: [Integrations]
+      operationId: getIntegrationStatusCompat
+      x-requirements: [FR-005, FR-009]
+      summary: Compatibility path for provider connection status
+      description: The canonical route is /integrations/status under the /api server.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Provider statuses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IntegrationStatus'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/integrations/{provider}/calendar/events:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationProvider'
+    get:
+      tags: [Integrations]
+      operationId: listIntegrationCalendarEventsCompat
+      x-requirements: [FR-005, FR-009]
+      summary: Compatibility path for external calendar events
+      description: The canonical route is /integrations/{provider}/calendar/events under the /api server.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: start
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: External calendar events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExternalCalendarEvent'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      tags: [Integrations]
+      operationId: createIntegrationCalendarEventCompat
+      x-requirements: [FR-005, FR-009]
+      summary: Compatibility path for external calendar event creation
+      description: The canonical route is /integrations/{provider}/calendar/events under the /api server.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalendarEventRequest'
+      responses:
+        '201':
+          description: External event created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarEventResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/integrations/{provider}/messages:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationProvider'
+    post:
+      tags: [Integrations]
+      operationId: sendIntegrationMessageCompat
+      x-requirements: [FR-005, FR-009]
+      summary: Compatibility path for provider messages
+      description: The canonical route is /integrations/{provider}/messages under the /api server.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntegrationMessageRequest'
+      responses:
+        '200':
+          description: Message delivery result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationMessageResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: openschedule_session
+      description: Opaque HttpOnly server-side session cookie; never store in localStorage.
+
+  headers:
+    SessionCookie:
+      description: Opaque session cookie with HttpOnly, Secure in production, and SameSite protection.
+      schema:
+        type: string
+    ClearedSessionCookie:
+      description: Expired session cookie.
+      schema:
+        type: string
+
+  parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: Stable server-generated user identifier.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: Session-bound CSRF token required for state-changing requests.
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 512
+    RoleFilter:
+      name: role
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/Role'
+    StatusFilter:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/UserStatus'
+    Search:
+      name: search
+      in: query
+      required: false
+      description: Prefix or token search over non-sensitive display fields.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+
+  schemas:
+    IntegrationProvider:
+      type: string
+      enum: [feishu, dingtalk]
+    IntegrationStatus:
+      type: object
+      additionalProperties: false
+      required: [provider, name, connected, channel]
+      properties:
+        provider:
+          $ref: '#/components/schemas/IntegrationProvider'
+        name:
+          type: string
+        connected:
+          type: boolean
+        channel:
+          type: string
+          enum: [mcp, openapi, mock]
+        accountName:
+          type: string
+        lastSyncAt:
+          type: string
+          format: date-time
+        error:
+          type: string
+    ExternalCalendarEvent:
+      type: object
+      additionalProperties: false
+      required: [sourceRef, eventId, summary, description, startAt, endAt, allDay]
+      properties:
+        sourceRef:
+          type: string
+        eventId:
+          type: string
+        summary:
+          type: string
+        description:
+          type: [string, 'null']
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+        allDay:
+          type: boolean
+    CalendarEventRequest:
+      type: object
+      additionalProperties: false
+      required: [title, startAt, endAt]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+        allDay:
+          type: boolean
+        taskId:
+          type: string
+        projectId:
+          type: string
+    CalendarEventResponse:
+      type: object
+      additionalProperties: false
+      required: [eventId]
+      properties:
+        eventId:
+          type: string
+    IntegrationMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [targets, title, content]
+      properties:
+        targets:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        content:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        link:
+          type: string
+          format: uri-reference
+    IntegrationMessageResponse:
+      type: object
+      additionalProperties: false
+      required: [provider, ok]
+      properties:
+        provider:
+          $ref: '#/components/schemas/IntegrationProvider'
+        ok:
+          type: boolean
+        messageId:
+          type: string
+        error:
+          type: string
+    Role:
+      type: string
+      enum: [super_admin, admin, member]
+      description: Fixed authorization role; no custom roles in this contract.
+    UserStatus:
+      type: string
+      enum: [active, disabled]
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, email, displayName, role, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        role:
+          $ref: '#/components/schemas/Role'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    Principal:
+      type: object
+      additionalProperties: false
+      required: [userId, role, status]
+      properties:
+        userId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        role:
+          $ref: '#/components/schemas/Role'
+        status:
+          const: active
+          type: string
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          minLength: 12
+          maxLength: 256
+          writeOnly: true
+    AuthSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [user, principal, csrfToken]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        principal:
+          $ref: '#/components/schemas/Principal'
+        csrfToken:
+          type: string
+          minLength: 16
+          maxLength: 512
+          description: In-memory session-bound token for subsequent state-changing requests.
+    CreateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [email, displayName, role, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        role:
+          $ref: '#/components/schemas/Role'
+        password:
+          type: string
+          minLength: 12
+          maxLength: 256
+          writeOnly: true
+    UpdateUserRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        role:
+          $ref: '#/components/schemas/Role'
+    SetUserStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/UserStatus'
+    UserResponse:
+      type: object
+      additionalProperties: false
+      required: [user]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+    UserListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        nextCursor:
+          type: [string, 'null']
+          maxLength: 512
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required: [field, issue]
+      properties:
+        field:
+          type: string
+          maxLength: 120
+        issue:
+          type: string
+          maxLength: 500
+    ErrorBody:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, requestId, details]
+          properties:
+            code:
+              type: string
+              enum:
+                - UNAUTHENTICATED
+                - FORBIDDEN
+                - CSRF_INVALID
+                - USER_NOT_FOUND
+                - USER_CONFLICT
+                - VALIDATION_ERROR
+                - INVALID_ROLE_ASSIGNMENT
+                - AUTH_RATE_LIMITED
+            message:
+              type: string
+              maxLength: 500
+            requestId:
+              type: string
+              minLength: 1
+              maxLength: 128
+            details:
+              type: array
+              items:
+                $ref: '#/components/schemas/ErrorDetail'
+
+  responses:
+    Unauthenticated:
+      description: No valid active session.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    Forbidden:
+      description: Authenticated principal is outside the action or target scope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    CsrfInvalid:
+      description: Missing or invalid session-bound CSRF token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    UserNotFound:
+      description: User is absent or not visible to the current principal.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    UserConflict:
+      description: State or unique-identifier conflict.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    ValidationError:
+      description: Request failed schema or domain validation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    AuthRateLimited:
+      description: Login attempts are temporarily rate limited.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'

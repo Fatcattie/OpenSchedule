@@ -1,0 +1,54 @@
+/**
+ * OutboxService 纯函数单测（§3.4 / R3）：退避策略 + 事件白名单与 @openschedule/domain-events 契约一致性。 * 无 DB/Nest 依赖（outboxBackoffSeconds / OUTBOX_EVENT_NAMES 为模块导出纯常量/纯函数）。 */
+import { describe, expect, it } from 'vitest'
+import { outboxBackoffSeconds, OUTBOX_EVENT_NAMES } from './outbox.service';
+
+describe('outboxBackoffSeconds', () => {
+  it('未失败（attempts=0）也按最小档 60s 起步（2^1 * 30s）', () => {
+    expect(outboxBackoffSeconds(0)).toBe(60);
+  });
+
+  it('退避随失败次数指数增长（2^N * 30s）', () => {
+    expect(outboxBackoffSeconds(1)).toBe(60); // 2^1 * 30
+    expect(outboxBackoffSeconds(2)).toBe(120); // 2^2 * 30
+    expect(outboxBackoffSeconds(3)).toBe(240);
+  });
+
+  it('封顶 30min（1800s），不再继续指数放大', () => {
+    expect(outboxBackoffSeconds(5)).toBe(960); // 2^5 * 30
+    expect(outboxBackoffSeconds(6)).toBe(1800); // 2^6 * 30 = 1920s → 封顶
+    expect(outboxBackoffSeconds(10)).toBe(1800);
+    expect(outboxBackoffSeconds(100)).toBe(1800);
+  });
+});
+
+describe('OUTBOX_EVENT_NAMES 白名单与 domain-events 契约一致（R2 事件目录，§8.1）', () => {
+  it('覆盖任务域 4 事件', () => {
+    expect(OUTBOX_EVENT_NAMES).toEqual(
+      expect.arrayContaining([
+        'task.created',
+        'task.assigned',
+        'task.status_changed',
+        'task.completed',
+      ]),
+    );
+  });
+
+  it('覆盖项目域/评论域/提醒/通知/AI 域事件', () => {
+    expect(OUTBOX_EVENT_NAMES).toEqual(
+      expect.arrayContaining([
+        'project.updated',
+        'project.archived',
+        'task.comment_created',
+        'mention.parsed',
+        'reminder.due',
+        'notification.failed',
+        'ai.proposal.expired',
+      ]),
+    );
+  });
+
+  it('事件名清单与 domain-events 全量目录同构（11 个，无漂移）', () => {
+    // 与 packages/domain-events §8.1 事件目录（11 项）对齐：新增事件必须同步本白名单（§2.5 纪律）    expect(OUTBOX_EVENT_NAMES.length).toBe(11);
+  });
+});

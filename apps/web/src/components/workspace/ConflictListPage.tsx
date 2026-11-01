@@ -23,7 +23,7 @@ import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { useTimeConflicts } from '@/hooks/useTimeConflicts'
 import { taskRoute, type ConflictCluster } from '@/utils/taskTree'
-import { mockMe, mockUsers } from '@/api/mock/data'
+import { useDirectory, useMe } from '@/hooks/useWorkspaceIdentity'
 import { TASK_KIND_META, type TaskKind, type WorkspaceTask } from '@/types'
 import TimeEditModal from '@/components/workspace/TimeEditModal'
 import { useNotifications } from '@/hooks/useNotifications'
@@ -31,10 +31,12 @@ import { useNotifications } from '@/hooks/useNotifications'
 const { Title, Text } = Typography
 
 export default function ConflictListPage() {
+  const currentUser = useMe()
+  const { teamMembers, nameOf } = useDirectory()
   const { tasks, setTasks, isManager, myConflicts, allMemberConflicts } = useTimeConflicts()
   const navigate = useNavigate()
   const { addNotification } = useNotifications()
-  const [memberId, setMemberId] = useState<string>(mockMe.id)
+  const [memberId, setMemberId] = useState<string>(currentUser.id)
   const [editTask, setEditTask] = useState<WorkspaceTask | null>(null)
   const [editOpen, setEditOpen] = useState(false)
 
@@ -45,7 +47,7 @@ export default function ConflictListPage() {
   )
   const totalItems = clusters.reduce((s, c) => s + c.items.length, 0)
   const ownerName = (uid: string) =>
-    uid === mockMe.id ? `${mockMe.displayName}（我）` : mockUsers.find((u) => u.id === uid)?.displayName ?? uid
+    uid === currentUser.id ? `${currentUser.displayName}（我）` : nameOf(uid) ?? uid
 
   const openEdit = (t: WorkspaceTask) => {
     setEditTask(t)
@@ -86,7 +88,7 @@ export default function ConflictListPage() {
                 pendingContent: {
                   title: t.title,
                   description: '',
-                  submittedBy: mockMe.displayName,
+                  submittedBy: currentUser.displayName,
                   submittedAt: now,
                   startAt,
                   endAt,
@@ -99,7 +101,7 @@ export default function ConflictListPage() {
       message.success('已提交时间调整申请，等待管理人员审核')
       addNotification({
         eventType: 'approval_pending',
-        title: `${mockMe.displayName} 申请调整「${editTask.title}」时间`,
+        title: `${currentUser.displayName} 申请调整「${editTask.title}」时间`,
         body: `${dayjs(startAt).format('MM-DD HH:mm')} ~ ${dayjs(endAt).format('MM-DD HH:mm')} · 请到审核中心处理`,
         scope: 'manager',
         data: { taskId: editTask.id, route: '/audit' },
@@ -174,7 +176,7 @@ export default function ConflictListPage() {
               style={{ width: 160 }}
               value={memberId}
               onChange={setMemberId}
-              options={mockUsers.map((u) => ({ value: u.id, label: ownerName(u.id) }))}
+              options={teamMembers.map((u) => ({ value: u.id, label: ownerName(u.id) }))}
             />
           </Space>
         ) : (
@@ -182,7 +184,7 @@ export default function ConflictListPage() {
         )}
       </div>
 
-      {isManager && memberId !== mockMe.id && (
+      {isManager && memberId !== currentUser.id && (
         <Alert
           type="info"
           showIcon

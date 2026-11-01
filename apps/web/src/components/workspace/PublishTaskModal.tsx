@@ -32,7 +32,7 @@ import { useMutation } from '@tanstack/react-query'
 import dayjs, { type Dayjs } from 'dayjs'
 import { useAiRules } from '@/hooks/useAiRules'
 import { decomposeWithRules, generateSopFlow, toSopFlow, type DecomposeResult } from '@/utils/aiRules'
-import { mockMe, mockUsers } from '@/api/mock/data'
+import { useDirectory, useMe } from '@/hooks/useWorkspaceIdentity'
 import type { DecomposeTask, Importance, RecurrenceRule, SopFlow, TaskMode, TaskPriority, UrgencyDegree, WorkspaceTask } from '@/types'
 import { IMPORTANCE_META, INDUSTRY_OPTIONS, TASK_KIND_META, TASK_PRIORITY_META, TASK_TYPE_OPTIONS, URGENCY_DEGREE_META, sopFlowFromLines, sopFlowToLines } from '@/types'
 import { detectPersonTimeConflict } from '@/utils/taskTree'
@@ -89,6 +89,8 @@ interface Props {
 }
 
 export default function PublishTaskModal({ open, editTask, initialSop, role = 'manager', allowedModes = 'full', tasks, onCancel, onSubmit }: Props) {
+  const currentUser = useMe()
+  const { teamMembers } = useDirectory()
   const [form] = Form.useForm()
   const { rules } = useAiRules()
   const [taskMode, setTaskMode] = useState<TaskMode>('team')
@@ -206,10 +208,10 @@ export default function PublishTaskModal({ open, editTask, initialSop, role = 'm
     }
     const targetId =
       taskMode === 'individual'
-        ? mockMe.id
+        ? currentUser.id
         : assignMode === 'recommend'
-          ? watchRecommendId || mockMe.id
-          : watchAssigneeId || mockMe.id
+          ? watchRecommendId || currentUser.id
+          : watchAssigneeId || currentUser.id
     const hit = detectPersonTimeConflict(
       { start: range[0].toISOString(), end: range[1].toISOString() },
       tasks,
@@ -522,11 +524,11 @@ export default function PublishTaskModal({ open, editTask, initialSop, role = 'm
             <div style={{ marginTop: 12 }}>
               {role === 'member' || assignMode === 'recommend' ? (
                 <Form.Item name="recommendAssigneeId" label="推荐承接人（管理审核后生效）" style={{ marginBottom: 0, minWidth: 240 }} rules={[{ required: true, message: '请选择推荐承接人' }]}>
-                  <Select placeholder="选择推荐承接人" options={mockUsers.map((u) => ({ value: u.id, label: u.displayName }))} />
+                  <Select placeholder="选择推荐承接人" options={teamMembers.map((u) => ({ value: u.id, label: u.displayName }))} />
                 </Form.Item>
               ) : (
                 <Form.Item name="assigneeId" label="指派成员（可选）" style={{ marginBottom: 0, minWidth: 240 }}>
-                  <Select allowClear placeholder="留空则进入待承接池" options={mockUsers.map((u) => ({ value: u.id, label: u.displayName }))} />
+                  <Select allowClear placeholder="留空则进入待承接池" options={teamMembers.map((u) => ({ value: u.id, label: u.displayName }))} />
                 </Form.Item>
               )}
             </div>

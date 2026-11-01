@@ -9,6 +9,9 @@ dist/
 build/
 coverage/
 *.tsbuildinfo
+# tsc -b 旧版产物：vite.config.js 会按 Vite 解析顺序（.js 先于 .ts）静默覆盖 vite.config.ts
+apps/web/vite.config.js
+apps/web/vite.config.d.ts
 .vite/
 .turbo/            # Turborepo 缓存（如后续启用 turbo）
 
@@ -16,6 +19,11 @@ coverage/
 .env
 .env.*
 !.env.example
+# 生产环境变量**模板**必须入库（真实值 deploy/.env.production 仍被 .env.* 排除）
+!deploy/.env.production.example
+# 演练/发布生成的证据报告不入库（属运行产物，按需粘贴摘要进 production-progress）
+deploy/drill/evidence/
+qa-load/evidence/
 
 # ---------- Prisma ----------
 # 迁移文件（services/api/prisma/migrations）必须提交——DDL 唯一权威来源；
@@ -58,6 +66,10 @@ dist-mvp-8/
 .pnpm-store/
 .DS_Store
 
+# UmaDev runtime data
+.umadev/
+output/
+opencode.json
 # ---------- 依赖快照重新纳入（必须放在所有排除规则之后） ----------
 # node_modules 为受版本控制的依赖快照：上述 dist/、build/、**/.prisma/、
 # *.log 等规则不得误伤 node_modules 内的文件，故在末尾统一重新纳入。

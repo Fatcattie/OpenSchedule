@@ -2,11 +2,11 @@
  * 智能协助：AI 生成引擎
  *
  * 双通道设计：
- * 1. 配置 VITE_AI_AGENT_ENDPOINT 后调用真实模型（与 AI 规则页共用 callAgent）。
+ * 1. 团队管理员在「设置 → AI 模型」配置后，经后端调用真实模型（与 AI 规则页共用 callAgent）。
  * 2. 未配置或调用失败时，使用本地模板生成器产出结构化骨架，界面会标注「模拟生成」，
  *    保证离线演示可用；接入真实模型时上层组件无需改动。
  */
-import { callAgent, getAgentEndpoint } from '@/utils/aiRules'
+import { callAgent } from '@/utils/aiRules'
 
 export interface GenerateResult {
   content: string
@@ -169,14 +169,11 @@ export async function generateStructuredPrompt(
   metaPrompt: string,
 ): Promise<GenerateResult> {
   const prompt = buildPromptRequest(requirement, metaPrompt)
-  const endpoint = getAgentEndpoint()
-  if (endpoint) {
-    try {
-      const text = await callAgent(prompt, endpoint)
-      if (text && text.trim()) return { content: text.trim(), source: 'agent', prompt }
-    } catch {
-      // 真实模型不可用，回退本地模板
-    }
+  try {
+    const text = await callAgent(prompt)
+    if (text && text.trim()) return { content: text.trim(), source: 'agent', prompt }
+  } catch {
+    // 团队未配置模型或调用失败，回退本地模板
   }
   return { content: localPromptTemplate(requirement), source: 'local', prompt }
 }
@@ -187,14 +184,11 @@ export async function generateSkill(
   metaSkillContent: string,
 ): Promise<GenerateResult> {
   const prompt = buildSkillRequest(requirement, metaSkillContent)
-  const endpoint = getAgentEndpoint()
-  if (endpoint) {
-    try {
-      const text = await callAgent(prompt, endpoint)
-      if (text && text.trim()) return { content: stripCodeFence(text.trim()), source: 'agent', prompt }
-    } catch {
-      // 回退本地模板
-    }
+  try {
+    const text = await callAgent(prompt)
+    if (text && text.trim()) return { content: stripCodeFence(text.trim()), source: 'agent', prompt }
+  } catch {
+    // 回退本地模板
   }
   return { content: localSkillTemplate(requirement), source: 'local', prompt }
 }

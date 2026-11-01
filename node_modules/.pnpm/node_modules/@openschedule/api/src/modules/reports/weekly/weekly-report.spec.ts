@@ -1,14 +1,12 @@
+import { describe, expect, test } from 'vitest'
 /**
- * 周报生成纯函数单测（B18）。
- * 直接测：周日期工具 / 空数据兜底 / 确定性规则生成。
- * service 层逻辑已通过 tsc 验证，此处重点测可独立的确定性规则。
- */
+ * 周报生成纯函数单测（B18）。 * 直接测：周日期工具 / 空数据兜底 / 确定性规则生成。 * service 层逻辑已通过 tsc 验证，此处重点测可独立的确定性规则。 */
 
 function toYMD(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** 获取指定日期所在周的周一（UTC 00:00） */
+/** 获取指定日期所在周的周一（UTC 00:00）*/
 function getMondayOfWeek(date: Date): Date {
   const d = new Date(date);
   d.setUTCHours(0, 0, 0, 0);
@@ -18,7 +16,7 @@ function getMondayOfWeek(date: Date): Date {
   return d;
 }
 
-/** 保留 n 位小数 */
+/** 保留 n 位小数*/
 function roundTo(n: number, digits: number): number {
   const factor = Math.pow(10, digits);
   return Math.round(n * factor) / factor;
@@ -41,9 +39,7 @@ interface TimeRow {
 }
 
 /**
- * 确定性周报生成（纯函数版，供单测）。
- * 与 reports.service.ts generateWeeklyReport 内部逻辑保持一致。
- */
+ * 确定性周报生成（纯函数版，供单测）。 * 与 reports.service.ts generateWeeklyReport 内部逻辑保持一致。 */
 function generateWeeklyReport(tasks: TaskRow[], timeEntries: TimeRow[], weekStart: Date) {
   const end = new Date(weekStart);
   end.setUTCDate(end.getUTCDate() + 7);
@@ -154,9 +150,7 @@ describe('B18 周报生成（确定性规则）', () => {
 
     // summary 数字
     expect(r.summary.totalTasks).toBe(6);
-    expect(r.summary.completedTasks).toBe(3); // t1/t2/t3 完成于本周
-    expect(r.summary.newTasks).toBe(2); // t5/t6 创建于本周
-    expect(r.summary.overdueTasks).toBe(1); // t4 未完成且 dueAt < 周末
+    expect(r.summary.completedTasks).toBe(3); // t1/t2/t3 完成于本周    expect(r.summary.newTasks).toBe(2); // t5/t6 创建于本周    expect(r.summary.overdueTasks).toBe(1); // t4 未完成且 dueAt < 周末
     expect(r.summary.totalActualHours).toBe(20); // 7+4+6+3 = 20h
     expect(r.summary.completionRate).toBe(0.5); // 3/6 = 0.5
     expect(r.summary.onTimeRate).toBe(1); // 3/3 准时

@@ -1,0 +1,447 @@
+openapi: 3.1.0
+info:
+  title: OpenSchedule User Management API (contract slice A — users routes)
+  version: 1.3.0
+  description: |
+    User-management slice of the binding frontend↔backend contract. Slice A
+    covers FR-001 (fixed super_admin/admin/member role enum and permission
+    matrix), FR-002 (server-side object-level authorization: admin manages
+    member only, super_admin manages admin and member), FR-003 (persistent
+    user lifecycle with protected fields), FR-004 (session-bound access) and
+    FR-005 (real CRUD API, no mock or localStorage identity fallback).
+    RBAC rules live in docs/authorization/personnel-rbac.md; the full contract
+    is assembled from per-route slices under services/api/src/openapi/.
+servers:
+  - url: /api
+    description: Same-origin API prefix used by the current web proxy
+  - url: /api/v1
+    description: Versioned NestJS API prefix used by the backend bootstrap
+
+x-requirements:
+  FR-001:
+    summary: Fixed super_admin, admin, and member role enum and matrix
+    paths: [/users, "/users/{userId}", "/users/{userId}/status"]
+  FR-002:
+    summary: Server-side authentication and object-level authorization
+    paths: [/users, "/users/{userId}", "/users/{userId}/status"]
+  FR-003:
+    summary: Persistent user lifecycle and protected user fields
+    paths: [/users, "/users/{userId}", "/users/{userId}/status"]
+  FR-004:
+    summary: Real Bearer-based authentication lifecycle
+    paths: [/users, "/users/{userId}", "/users/{userId}/status"]
+  FR-005:
+    summary: Real personnel CRUD API
+    paths: [/users, "/users/{userId}", "/users/{userId}/status"]
+
+security: []
+
+paths:
+  /users:
+    get:
+      tags: [Users]
+      operationId: listUsers
+      x-requirements: [FR-001, FR-002, FR-003, FR-004, FR-005]
+      summary: List users within the caller's authorized scope
+      description: |
+        super_admin may list all users; admin may list member users only;
+        member is always forbidden. A role filter cannot expand the caller's
+        scope; an out-of-scope filter is rejected (FR-001, FR-002).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RoleFilter'
+        - $ref: '#/components/parameters/StatusFilter'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Authorized user collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    post:
+      tags: [Users]
+      operationId: createUser
+      x-requirements: [FR-001, FR-002, FR-003, FR-004, FR-005]
+      summary: Create a user in the caller's authorized scope
+      description: |
+        super_admin may create admin or member; admin may create member only;
+        member is forbidden. The password is accepted for credential setup but
+        never returned or persisted in plaintext (FR-002, FR-003).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/UserConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Users]
+      operationId: getUser
+      x-requirements: [FR-001, FR-002, FR-003, FR-004, FR-005]
+      summary: Read one user within the caller's authorized scope
+      description: |
+        Object-level authorization: admin may read member only; super_admin
+        may read admin and member targets (FR-002).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Authorized user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+    patch:
+      tags: [Users]
+      operationId: updateUser
+      x-requirements: [FR-001, FR-002, FR-003, FR-004, FR-005]
+      summary: Update profile fields or assign a role within policy
+      description: |
+        admin may update member displayName and email only; super_admin may
+        update those fields and assign admin or member. Role assignment is
+        evaluated against the current target snapshot, never against a client
+        supplied role claim (FR-001, FR-002). The last active super_admin
+        cannot be demoted, disabled, or deleted through this flow (FR-003).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/UserConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Users]
+      operationId: deleteUser
+      x-requirements: [FR-001, FR-002, FR-003, FR-004, FR-005]
+      summary: Delete a user within the caller's authorized scope
+      description: |
+        admin may delete member only; super_admin may delete admin or member.
+        The final super_admin cannot be deleted. Implementations may use a
+        transaction-backed soft delete, but deleted users must not authenticate
+        or appear in the default collection (FR-002, FR-003).
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: User deleted
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/UserConflict'
+
+  /users/{userId}/status:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [Users]
+      operationId: setUserStatus
+      x-requirements: [FR-001, FR-002, FR-003, FR-004, FR-005]
+      summary: Enable or disable a user within the caller's scope
+      description: |
+        admin may change status for member only; super_admin may change status
+        for admin or member. The final active super_admin cannot be disabled,
+        and a disabled user cannot authenticate afterwards (FR-002, FR-003).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetUserStatusRequest'
+      responses:
+        '201':
+          description: Status changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/UserConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer access token (15m TTL) issued by POST /auth/login. The web client
+        auto-refreshes via POST /auth/refresh on 401. R7-6 双鉴权收敛：历史
+        HttpOnly cookie + X-CSRF-Token 路径已删除，Bearer token 不会被浏览器
+        自动附加，OWASP 视为对 CSRF 免疫。
+
+  parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: Stable server-generated user identifier.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    RoleFilter:
+      name: role
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/Role'
+    StatusFilter:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/UserStatus'
+    Search:
+      name: search
+      in: query
+      required: false
+      description: Prefix or token search over non-sensitive display fields.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+
+  schemas:
+    Role:
+      type: string
+      enum: [super_admin, admin, member]
+      description: Fixed authorization role; no custom roles in this contract (FR-001).
+    UserStatus:
+      type: string
+      enum: [active, disabled]
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, email, displayName, role, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        role:
+          $ref: '#/components/schemas/Role'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      description: Persistent user projection; password hashes and session secrets are never serialized (FR-003).
+    CreateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [email, displayName, role, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        role:
+          $ref: '#/components/schemas/Role'
+        password:
+          type: string
+          minLength: 12
+          maxLength: 256
+          writeOnly: true
+    UpdateUserRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        role:
+          $ref: '#/components/schemas/Role'
+    SetUserStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/UserStatus'
+    UserResponse:
+      type: object
+      additionalProperties: false
+      required: [user]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+    UserListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        nextCursor:
+          type: [string, 'null']
+          maxLength: 512
+    ErrorBody:
+      type: object
+      additionalProperties: false
+      required: [code, message, details, traceId, requestId]
+      properties:
+        code:
+          type: integer
+          minimum: 400
+          description: 分段业务错误码（权威定义 services/api/src/common/constants/error-codes.ts）：40001 校验 / 40101 认证 / 40301 权限 / 40401 不存在 / 40901 乐观锁 / 40902 非法状态迁移 / 42901 限流 / 50000 内部 / 502、503 依赖不可用
+        message:
+          type: string
+          maxLength: 500
+          description: 人类可读错误信息（5xx 不泄露内部细节）
+        details:
+          description: 结构化细节（默认空数组；校验错误为字段级数组；业务错误按码携带 allowed_transitions、key 等对象键）
+        traceId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 链路追踪 ID（x-trace-id 请求头透传或服务端生成）
+        requestId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 请求 ID（与服务端日志、审计记录关联）
+
+  responses:
+    Unauthenticated:
+      description: No valid active session.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    Forbidden:
+      description: Authenticated principal is outside the action or target scope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    UserNotFound:
+      description: User is absent or not visible to the current principal.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    UserConflict:
+      description: State or unique-identifier conflict.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    ValidationError:
+      description: Request failed schema or domain validation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'

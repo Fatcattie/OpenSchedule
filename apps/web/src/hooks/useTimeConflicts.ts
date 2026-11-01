@@ -9,24 +9,26 @@ import { useMemo } from 'react'
 import { useWorkspaceTasks } from './useWorkspaceTasks'
 import { useCurrentRole } from './useCurrentRole'
 import { buildPersonConflicts, type ConflictCluster } from '@/utils/taskTree'
-import { mockMe, mockUsers } from '@/api/mock/data'
+import { useDirectory, useMe } from '@/hooks/useWorkspaceIdentity'
 
 export function useTimeConflicts() {
+  const currentUser = useMe()
+  const { teamMembers } = useDirectory()
   const [tasks, setTasks] = useWorkspaceTasks()
   const role = useCurrentRole()
   const isManager = role === 'manager'
 
   /** 本人冲突簇 */
-  const myConflicts = useMemo(() => buildPersonConflicts(tasks, mockMe.id), [tasks])
+  const myConflicts = useMemo(() => buildPersonConflicts(tasks, currentUser.id), [tasks, currentUser.id])
 
   /** 所有成员各自的冲突簇（管理视角按成员筛选用） */
   const allMemberConflicts = useMemo(() => {
     const map: Record<string, ConflictCluster[]> = {}
-    mockUsers.forEach((u) => {
+    teamMembers.forEach((u) => {
       map[u.id] = buildPersonConflicts(tasks, u.id)
     })
     return map
-  }, [tasks])
+  }, [tasks, teamMembers])
 
   return { tasks, setTasks, role, isManager, myConflicts, allMemberConflicts }
 }

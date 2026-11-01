@@ -3,17 +3,7 @@
  * 包含：API Keys 管理 + Webhook 管理
  */
 import { client } from './client'
-import { USE_MOCK } from './config'
-import {
-  mockListApiKeys,
-  mockCreateApiKey,
-  mockListWebhooks,
-  mockGetWebhook,
-  mockCreateWebhook,
-  mockUpdateWebhook,
-  mockTestWebhook,
-  mockListWebhookEvents,
-} from './mock/handlers'
+import { mockOr } from './mock/dispatch'
 import type { ApiResponse } from '@/types'
 import type { ApiKey, Webhook, WebhookEvent, WebhookTestResult } from '@/types'
 
@@ -27,23 +17,26 @@ export interface CreateApiKeyInput {
 
 /** GET /api-keys */
 export async function listApiKeys(): Promise<ApiKey[]> {
-  if (USE_MOCK) return mockListApiKeys()
-  const resp = await client.get<ApiResponse<ApiKey[]>>('/api-keys')
-  return resp.data.data
+  return mockOr('mockListApiKeys', async () => {
+    const resp = await client.get<ApiResponse<ApiKey[]>>('/api-keys')
+    return resp.data.data
+  })
 }
 
 /** POST /api-keys */
 export async function createApiKey(input: CreateApiKeyInput): Promise<ApiKey & { secret: string }> {
-  if (USE_MOCK) return mockCreateApiKey(input) as any
-  const resp = await client.post<ApiResponse<ApiKey & { secret: string }>>('/api-keys', input)
-  return resp.data.data
+  return mockOr('mockCreateApiKey', async () => {
+    const resp = await client.post<ApiResponse<ApiKey & { secret: string }>>('/api-keys', input)
+    return resp.data.data
+  }, input)
 }
 
 /** DELETE /api-keys/:id */
 export async function revokeApiKey(id: string): Promise<{ id: string; revoked: boolean }> {
-  if (USE_MOCK) return { id, revoked: true }
-  const resp = await client.delete<ApiResponse<{ id: string; revoked: boolean }>>(`/api-keys/${id}`)
-  return resp.data.data
+  return mockOr('mockRevokeApiKey', async () => {
+    const resp = await client.delete<ApiResponse<{ id: string; revoked: boolean }>>(`/api-keys/${id}`)
+    return resp.data.data
+  }, id)
 }
 
 // ========== Webhooks ==========
@@ -64,61 +57,69 @@ export interface UpdateWebhookInput {
 
 /** GET /webhooks/events */
 export async function listWebhookEvents(): Promise<WebhookEvent[]> {
-  if (USE_MOCK) return mockListWebhookEvents()
-  const resp = await client.get<ApiResponse<WebhookEvent[]>>('/webhooks/events')
-  return resp.data.data as any
+  return mockOr('mockListWebhookEvents', async () => {
+    const resp = await client.get<ApiResponse<WebhookEvent[]>>('/webhooks/events')
+    return resp.data.data as any
+  })
 }
 
 /** GET /webhooks */
 export async function listWebhooks(): Promise<Webhook[]> {
-  if (USE_MOCK) return mockListWebhooks()
-  const resp = await client.get<ApiResponse<Webhook[]>>('/webhooks')
-  return resp.data.data as any
+  return mockOr('mockListWebhooks', async () => {
+    const resp = await client.get<ApiResponse<Webhook[]>>('/webhooks')
+    return resp.data.data as any
+  })
 }
 
 /** GET /webhooks/:id */
 export async function getWebhook(id: string): Promise<Webhook> {
-  if (USE_MOCK) return mockGetWebhook(id)
-  const resp = await client.get<ApiResponse<Webhook>>(`/webhooks/${id}`)
-  return resp.data.data
+  return mockOr('mockGetWebhook', async () => {
+    const resp = await client.get<ApiResponse<Webhook>>(`/webhooks/${id}`)
+    return resp.data.data
+  }, id)
 }
 
 /** POST /webhooks */
 export async function createWebhook(input: CreateWebhookInput): Promise<Webhook & { signingSecret: string }> {
-  if (USE_MOCK) return mockCreateWebhook(input) as any
-  const resp = await client.post<ApiResponse<Webhook & { signingSecret: string }>>('/webhooks', input)
-  return resp.data.data
+  return mockOr('mockCreateWebhook', async () => {
+    const resp = await client.post<ApiResponse<Webhook & { signingSecret: string }>>('/webhooks', input)
+    return resp.data.data
+  }, input)
 }
 
 /** PUT /webhooks/:id */
 export async function updateWebhook(id: string, input: UpdateWebhookInput): Promise<Webhook> {
-  if (USE_MOCK) return mockUpdateWebhook(id, input)
-  const resp = await client.put<ApiResponse<Webhook>>(`/webhooks/${id}`, input)
-  return resp.data.data
+  return mockOr('mockUpdateWebhook', async () => {
+    const resp = await client.put<ApiResponse<Webhook>>(`/webhooks/${id}`, input)
+    return resp.data.data
+  }, id, input)
 }
 
 /** DELETE /webhooks/:id */
 export async function deleteWebhook(id: string): Promise<{ id: string; deleted: boolean }> {
-  if (USE_MOCK) return { id, deleted: true }
-  const resp = await client.delete<ApiResponse<{ id: string; deleted: boolean }>>(`/webhooks/${id}`)
-  return resp.data.data
+  return mockOr('mockDeleteWebhook', async () => {
+    const resp = await client.delete<ApiResponse<{ id: string; deleted: boolean }>>(`/webhooks/${id}`)
+    return resp.data.data
+  }, id)
 }
 
 /** POST /webhooks/:id/toggle */
 export async function toggleWebhook(id: string, isActive: boolean): Promise<{ id: string; isActive: boolean }> {
-  if (USE_MOCK) return { id, isActive }
-  const resp = await client.post<ApiResponse<{ id: string; isActive: boolean }>>(
-    `/webhooks/${id}/toggle`,
-    { isActive },
-  )
-  return resp.data.data
+  return mockOr('mockToggleWebhook', async () => {
+    const resp = await client.post<ApiResponse<{ id: string; isActive: boolean }>>(
+      `/webhooks/${id}/toggle`,
+      { isActive },
+    )
+    return resp.data.data
+  }, id, isActive)
 }
 
 /** POST /webhooks/:id/test */
 export async function testWebhook(id: string): Promise<WebhookTestResult> {
-  if (USE_MOCK) return mockTestWebhook(id)
-  const resp = await client.post<ApiResponse<WebhookTestResult>>(`/webhooks/${id}/test`)
-  return resp.data.data
+  return mockOr('mockTestWebhook', async () => {
+    const resp = await client.post<ApiResponse<WebhookTestResult>>(`/webhooks/${id}/test`)
+    return resp.data.data
+  }, id)
 }
 
 export const settingsApi = {

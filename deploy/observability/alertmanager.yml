@@ -1,0 +1,36 @@
+# ============================================================
+# Alertmanager 路由与通知渠道（R9：让 alerts.yml 的 10 条规则真正"有人收到"）
+# 链路：Prometheus（rule firing）→ alertmanager:9093 → alert-bridge:9094 → 飞书/钉钉/企业微信/通用 webhook
+# 通道地址与签名密钥全部在 alert-bridge 的环境变量里（ALERT_*），本文件不含任何凭据。
+#
+# 分组/节流口径：
+#   - 同名告警 30s 内聚合成一条（group_wait），组内新增告警 5m 内合并（group_interval）
+#   - critical 每 1h 重复提醒，warning 每 4h（repeat_interval），避免刷屏又不被遗忘
+#   - ApiDown 触发时抑制同实例的其它 API 告警（进程挂了，延迟/错误率告警没有增量信息）
+# 校验：amtool check-config deploy/observability/alertmanager.yml
+# ============================================================
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: im-bridge
+  group_by: ['alertname', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: ['severity="critical"']
+      receiver: im-bridge
+      repeat_interval: 1h
+
+receivers:
+  - name: im-bridge
+    webhook_configs:
+      - url: http://alert-bridge:9094/alertmanager
+        send_resolved: true
+        max_alerts: 20
+
+inhibit_rules:
+  - source_matchers: ['alertname="ApiDown"']
+    target_matchers: ['service="openschedule-api"', 'alertname!="ApiDown"']
+    equal: ['service']

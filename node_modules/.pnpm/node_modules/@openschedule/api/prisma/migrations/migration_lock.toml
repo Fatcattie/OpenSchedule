@@ -1,0 +1,3 @@
+# Prisma migration history lock
+# Keep the provider explicit so migrate deploy/diff can discover the connector.
+provider = "postgresql"

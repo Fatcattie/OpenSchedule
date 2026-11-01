@@ -1,0 +1,215 @@
+# ============================================================
+# OpenSchedule CD 发布流水线（R10：CD 流水线 —— 镜像 + 迁移 job + staging 自动 / prod gate）
+#
+# 触发：推送 v* tag（例：v0.1.0）→ 构建并推送三镜像到 GHCR → staging 自动发布
+#       → prod 需在 GitHub Environment「production」审批后发布（保护规则 = 人工 gate）
+# 也支持手动 workflow_dispatch（可指定 tag，用于回滚到旧版本 = 重发旧 tag）。
+#
+# 与 ci.yml 的分工：ci.yml 是**门禁**（lint/build/test/audit/migration），本文件只负责**发布**。
+# 前置：仓库 Settings → Environments 建 staging / production（production 加 Required reviewers）。
+# 说明：迁移 job 复用 api 镜像内的 prisma CLI（prisma 为 dependencies，随镜像发布），
+#       与 ci.yml 的 migration job 同源脚本（deploy/postgres/*.sh）。
+# ============================================================
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "要发布的镜像 tag（回滚时填旧版本，如 v0.0.9）"
+        required: true
+        type: string
+
+concurrency:
+  # 同一环境串行发布，避免两次发布交叉滚动
+  group: release-${{ github.event.inputs.image_tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_TAG: ${{ github.event.inputs.image_tag || github.ref_name }}
+
+jobs:
+  # ---------- 1. 构建 + 推送三镜像（api / web / ai） ----------
+  build-images:
+    name: Build & push images (${{ github.event.inputs.image_tag || github.ref_name }})
+    runs-on: ubuntu-latest
+    outputs:
+      registry: ${{ steps.meta.outputs.registry }}
+      tag: ${{ env.IMAGE_TAG }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.image_tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        name: Resolve image registry
+        run: echo "registry=${REGISTRY,,}/${{ github.repository_owner }}" >> "$GITHUB_OUTPUT"
+
+      # 生产镜像必须在 CI 构建（生产机只拉不可变 tag，不 build）
+      - name: Build & push api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/api/Dockerfile
+          target: runner
+          push: true
+          tags: ${{ steps.meta.outputs.registry }}/openschedule-api:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build & push web (prod target)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          target: prod
+          push: true
+          tags: ${{ steps.meta.outputs.registry }}/openschedule-web:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Build & push ai
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/ai/Dockerfile
+          target: runner
+          push: true
+          tags: ${{ steps.meta.outputs.registry }}/openschedule-ai:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=ai
+          cache-to: type=gha,mode=max,scope=ai
+
+  # ---------- 2. 迁移 job（先于应用滚动；幂等） ----------
+  # 上线顺序：迁移（向后兼容）→ 应用 → 观察；回滚时不回滚迁移（expand/contract 约定）
+  migrate:
+    name: Migrate (${{ needs.build-images.outputs.tag }})
+    needs: build-images
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.environment }}
+    strategy:
+      matrix:
+        # staging 自动跑；production 受环境保护规则（required reviewers）阻塞
+        environment: [staging]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REGISTRY: ${{ needs.build-images.outputs.registry }}
+          IMAGE_TAG: ${{ needs.build-images.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # 用发布镜像内的 prisma CLI 执行（与运行时同版本，避免本地/镜像漂移）
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker run --rm \
+            -e DATABASE_URL="$DATABASE_URL" \
+            "$REGISTRY/openschedule-api:$IMAGE_TAG" \
+            npx prisma migrate deploy
+          docker run --rm \
+            -e DATABASE_URL="$DATABASE_URL" \
+            "$REGISTRY/openschedule-api:$IMAGE_TAG" \
+            npx prisma migrate status
+
+  # ---------- 3. 部署（staging 自动；production 需审批） ----------
+  deploy:
+    name: Deploy → ${{ matrix.environment }}
+    needs: [build-images, migrate]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        environment: [staging]
+    environment:
+      name: ${{ matrix.environment }}
+      url: ${{ vars.APP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy stack (compose pull + migrate + up)
+        env:
+          REGISTRY: ${{ needs.build-images.outputs.registry }}
+          IMAGE_TAG: ${{ needs.build-images.outputs.tag }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" bash -s <<REMOTE
+            set -euo pipefail
+            cd "\$HOME/openschedule"
+            git fetch --all --tags && git checkout "$IMAGE_TAG" 2>/dev/null || true
+            export REGISTRY="$REGISTRY" IMAGE_TAG="$IMAGE_TAG"
+            docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml pull api web ai
+            docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml --profile tools run --rm migrate
+            docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml up -d --remove-orphans
+            docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml ps
+          REMOTE
+
+      - name: Smoke (health + version)
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          set -euo pipefail
+          # 发布后冒烟：health 全绿 + 首页 200（失败即视为本次发布失败，触发回滚处置）
+          curl -fsS "$APP_URL/health" | tee /dev/stderr | grep -q '"status"'
+          code="$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL/")"
+          test "$code" = "200"
+
+  # ---------- 4. 生产发布（人工审批 gate；复用同一镜像 tag） ----------
+  deploy-production:
+    name: Deploy → production (needs approval)
+    needs: [build-images, migrate, deploy]
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard (must be a release tag)
+        env:
+          IMAGE_TAG: ${{ needs.build-images.outputs.tag }}
+        run: |
+          set -euo pipefail
+          case "$IMAGE_TAG" in v*) echo "tag ok: $IMAGE_TAG" ;; *) echo "生产发布仅接受 v* tag：$IMAGE_TAG" >&2; exit 1 ;; esac
+      - name: Deploy production stack
+        env:
+          REGISTRY: ${{ needs.build-images.outputs.registry }}
+          IMAGE_TAG: ${{ needs.build-images.outputs.tag }}
+          DEPLOY_HOST: ${{ secrets.PROD_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.PROD_DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.PROD_DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" bash -s <<REMOTE
+            set -euo pipefail
+            cd "\$HOME/openschedule"
+            git fetch --all --tags && git checkout "$IMAGE_TAG" 2>/dev/null || true
+            export REGISTRY="$REGISTRY" IMAGE_TAG="$IMAGE_TAG"
+            # 发布前备份（回滚兜底）：备份失败即中止发布
+            docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml --profile ops up -d pg-backup
+            docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml pull api web ai
+            docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml --profile tools run --rm migrate
+            docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml up -d --remove-orphans
+            docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml ps
+          REMOTE

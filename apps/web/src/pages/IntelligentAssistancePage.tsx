@@ -13,7 +13,7 @@ import { useMetaConfig } from '@/hooks/useMetaConfig'
 import PromptLibrary from '@/components/intelligent/PromptLibrary'
 import SkillLibrary from '@/components/intelligent/SkillLibrary'
 import MetaSettingsModal from '@/components/intelligent/MetaSettingsModal'
-import { getAgentEndpoint } from '@/utils/aiRules'
+import { useAiStatus } from '@/hooks/useAiStatus'
 
 const { Title, Text } = Typography
 
@@ -23,7 +23,7 @@ export default function IntelligentAssistancePage() {
   const [panel, setPanel] = useState<PanelKey>('prompt')
   const [metaOpen, setMetaOpen] = useState(false)
   const { config, updateMetaPrompt, updateMetaSkill, reset } = useMetaConfig()
-  const agentReady = Boolean(getAgentEndpoint())
+  const agentReady = useAiStatus().enabled
 
   return (
     <div>
@@ -44,7 +44,7 @@ export default function IntelligentAssistancePage() {
           </Title>
           <Text type="secondary">
             提示词与技能的统一仓库：AI 辅助创建、团队推荐分享、一键复制与下载。
-            {!agentReady && '（当前未配置模型端点，AI 生成使用本地模拟模板）'}
+            {!agentReady && '（团队尚未配置 AI 模型，AI 生成使用本地模拟模板；管理员可在「设置 → AI 模型」配置）'}
           </Text>
         </div>
         <Space wrap>

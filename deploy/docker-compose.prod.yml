@@ -1,0 +1,386 @@
+# ============================================================
+# OpenSchedule 生产编排栈（R10；ADR D-02 = A「单机 compose 起步，5–50 人团队规模」）
+# 与开发栈（deploy/docker-compose.yml）分层：本文件是**独立**栈，不叠加 dev 文件。
+#
+# 用法（仓库根目录）：
+#   cp deploy/.env.production.example deploy/.env.production   # 填密钥（该文件已被 .gitignore 排除）
+#   docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml config   # 校验
+#   docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml run --rm migrate   # 迁移 job
+#   docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml up -d              # 启动
+#   docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml --profile observability up -d
+#   docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml --profile ops up -d pg-backup
+#
+# 生产硬化要点（对应方案 chapter_04 §4.1 与 production-ddd-design §3.7）：
+#   1. 仅 caddy 对外发布端口（80/443）；pg/redis/minio/api/ai 一律不映射宿主端口
+#   2. 镜像按不可变 tag 拉取（IMAGE_TAG:? 缺失即失败），不在生产机上 build
+#   3. 关键密钥用 ${VAR:?} fail-fast：缺失即拒绝启动，杜绝 change-me 默认值上生产
+#   4. 服务一律 restart: unless-stopped + 健康检查 + 资源上限 + 日志轮转（防单机磁盘打满）
+#   5. 迁移与备份是**独立 job**（profile: tools/ops），不随 api 启动自动跑
+#   6. METRICS_ENABLED=true 且 /metrics 只在内网（Prometheus 同网络直连 api:3000）
+# ============================================================
+name: openschedule-prod
+
+# —— 可复用的锚点 ——
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+x-restart: &restart unless-stopped
+
+services:
+  # ---------- PostgreSQL 16（主存储；不对外暴露端口） ----------
+  postgres:
+    image: postgres:16-alpine
+    restart: *restart
+    logging: *logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+
+  # ---------- Redis 7（队列/延迟提醒/WS 广播；AOF 开启） ----------
+  redis:
+    image: redis:7-alpine
+    restart: *restart
+    logging: *logging
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768m
+
+  # ---------- MinIO（S3 兼容；生产可换 OSS/COS，仅改 STORAGE_* 配置） ----------
+  minio:
+    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+    restart: *restart
+    logging: *logging
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+
+  # ---------- 主后端（NestJS；生产镜像，无源码挂载） ----------
+  api:
+    image: ${REGISTRY:?REGISTRY is required}/openschedule-api:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: *restart
+    logging: *logging
+    pull_policy: always
+    env_file:
+      - path: ./.env.production
+        required: true
+    environment:
+      NODE_ENV: production
+      APP_ENV: production
+      APP_PORT: "3000"
+      # 迁移由 migrate job 单独执行；应用启动不再自动 DDL（方案 §3.1）
+      DB_AUTO_MIGRATE: "false"
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_PUBLIC_BASE_URL: https://${DOMAIN}/storage/${STORAGE_BUCKET:-openschedule}
+      AI_SERVICE_URL: http://ai:8300
+      METRICS_ENABLED: "true"
+      # pino 级别与慢查询阈值（R9）
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SLOW_QUERY_MS: ${SLOW_QUERY_MS:-500}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+
+  # ---------- 前端 SPA（nginx 静态托管；prod 目标） ----------
+  web:
+    image: ${REGISTRY:?REGISTRY is required}/openschedule-web:${IMAGE_TAG:?IMAGE_TAG is required}
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      target: prod
+    restart: *restart
+    logging: *logging
+    pull_policy: always
+    # 运行时注入（deploy/web/40-runtime-config.sh → /runtime-config.js）；镜像本身不含环境差异
+    environment:
+      WEB_SENTRY_DSN: ${WEB_SENTRY_DSN:-}
+      APP_ENV: production
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-${IMAGE_TAG}}
+    depends_on:
+      api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+
+  # ---------- AI 服务（FastAPI + LangGraph；永不直连业务库） ----------
+  ai:
+    image: ${REGISTRY:?REGISTRY is required}/openschedule-ai:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: *restart
+    logging: *logging
+    pull_policy: always
+    env_file:
+      - path: ./.env.production
+        required: true
+    environment:
+      APP_ENV: production
+      APP_PORT: "8300"
+      # AI 只回调主服务内部 API（方案铁律：AI 提议、人确认）
+      MAIN_SERVICE_INTERNAL_URL: http://api:3000
+      # R11：run 状态与回调死信必须可跨重启恢复 → 生产强制 redis（连不上 fail-fast）
+      AI_RUN_STORE: redis
+      AI_STATE_REDIS_URL: redis://redis:6379/3
+      AI_STATE_TTL_SECONDS: "3600"
+      AI_STATE_MAX_FRAMES: "200"
+      AI_DLQ_MAX_ENTRIES: "200"
+      # 模型端点 / key / 模型名不在部署配置里：团队管理员在 Web「设置 → AI 模型」配置（库内加密），
+      # 主服务随每次拆解请求下发；AI 服务直连厂商 OpenAI 兼容接口，不落盘（D-14，已移除 LiteLLM）
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+
+  # ---------- 反向代理 + TLS 终结（唯一对外入口） ----------
+  caddy:
+    image: caddy:2.8-alpine
+    restart: *restart
+    logging: *logging
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN is required}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+
+  # ============================================================
+  # 运维 job（不常驻；按需 --profile tools / ops 拉起）
+  # ============================================================
+
+  # ---------- 迁移 job（部署前置；幂等） ----------
+  # run --rm migrate  → prisma migrate deploy（含全部迁移，含幂等守卫）
+  migrate:
+    image: ${REGISTRY:?REGISTRY is required}/openschedule-api:${IMAGE_TAG:?IMAGE_TAG is required}
+    profiles: ["tools"]
+    restart: "no"
+    logging: *logging
+    env_file:
+      - path: ./.env.production
+        required: true
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+    command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ---------- 备份 job（每日 pg_dump + 保留期清理；R10 备份） ----------
+  # 恢复演练步骤见 docs/ops/runbook.md（restore.sh + verify-restore.sh）
+  pg-backup:
+    image: postgres:16-alpine
+    profiles: ["ops"]
+    restart: *restart
+    logging: *logging
+    env_file:
+      - path: ./.env.production
+        required: true
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_RETAIN_DAYS: ${BACKUP_RETAIN_DAYS:-14}
+    volumes:
+      - pgbackups:/backups
+      - ./postgres/backup.sh:/usr/local/bin/os-backup.sh:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        mkdir -p /backups
+        while true; do
+          ts="$$(date -u +%Y%m%dT%H%M%SZ)"
+          if /usr/local/bin/os-backup.sh "/backups/openschedule-$$ts.dump"; then
+            echo "[pg-backup] $$ts 备份完成"
+          else
+            echo "[pg-backup] $$ts 备份失败（保留上一份完好备份）" >&2
+          fi
+          find /backups -name 'openschedule-*.dump' -mtime +"$${BACKUP_RETAIN_DAYS}" -delete || true
+          sleep "$${BACKUP_INTERVAL_SECONDS}"
+        done
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+
+  # ---------- 可观测性（R9 栈；profile=observability） ----------
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    profiles: ["observability"]
+    restart: *restart
+    logging: *logging
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - promdata:/prometheus
+    depends_on:
+      api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+
+  # 告警路由：Prometheus → Alertmanager → alert-bridge → 飞书/钉钉/企业微信（通道凭据在 .env.production 的 ALERT_*）
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    profiles: ["observability"]
+    restart: *restart
+    logging: *logging
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanagerdata:/alertmanager
+    depends_on:
+      alert-bridge:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+
+  alert-bridge:
+    image: node:22-alpine
+    profiles: ["observability"]
+    restart: *restart
+    logging: *logging
+    command: ["node", "/app/server.mjs"]
+    environment:
+      ALERT_FEISHU_WEBHOOK: ${ALERT_FEISHU_WEBHOOK:-}
+      ALERT_FEISHU_SECRET: ${ALERT_FEISHU_SECRET:-}
+      ALERT_DINGTALK_WEBHOOK: ${ALERT_DINGTALK_WEBHOOK:-}
+      ALERT_DINGTALK_SECRET: ${ALERT_DINGTALK_SECRET:-}
+      ALERT_WECOM_WEBHOOK: ${ALERT_WECOM_WEBHOOK:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    volumes:
+      - ./observability/alert-bridge/server.mjs:/app/server.mjs:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9094/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128m
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    profiles: ["observability"]
+    restart: *restart
+    logging: *logging
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_SERVER_ROOT_URL: https://${DOMAIN}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768m
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  pgbackups:
+  promdata:
+  grafanadata:
+  alertmanagerdata:
+  caddydata:
+  caddyconfig:

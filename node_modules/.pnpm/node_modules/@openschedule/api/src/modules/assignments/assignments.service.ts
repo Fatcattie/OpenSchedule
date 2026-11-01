@@ -3,10 +3,10 @@
  * 领取=T1 状态迁移（todo→in_progress，复用 tasks 模块 applyTransition）；转移=assignee 变更 + 审计，不改状态。
  * 模块无独立表（读 tasks，§2 §3 模块表），写操作单事务 + 审计 + 通知 + 事件。
  */
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Project, Task } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
+import { OutboxService, type OutboxEventName } from '../../common/outbox/outbox.service';
 import { getAllowedTransitionsForActor, TaskStatus } from '../../common/constants/task-status';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -28,7 +28,7 @@ export class AssignmentsService {
     private readonly audit: AuditService,
     private readonly tasks: TasksService,
     private readonly notifications: NotificationsService,
-    @Optional() private readonly eventBus?: EventEmitter2,
+    private readonly outbox: OutboxService,
   ) {}
 
   /**
@@ -65,13 +65,21 @@ export class AssignmentsService {
         throw new ConflictException({ code: E.ILLEGAL_TRANSITION, message: '任务已被他人领取或已发生版本变更，请刷新后重试' });
       }
       const claimedTask = await tx.task.findUniqueOrThrow({ where: { id: task.id } });
-      return this.tasks.applyTransition(tx, claimedTask, TaskStatus.IN_PROGRESS, {
+      const applied = await this.tasks.applyTransition(tx, claimedTask, TaskStatus.IN_PROGRESS, {
         ctx: { userId: user.userId, assigneeId: user.userId, projectOwnerId: project.ownerId, createdBy: claimedTask.createdBy, isTenantAdmin: isTenantAdmin(user) },
         expectedVersion: dto.version,
         action: 'task.claim',
       });
+      // R3 事务性 Outbox：task.assigned 与领取同事务落库（task.status_changed 已由 applyTransition 覆盖，不重复发）
+      await this.outbox.publish(user.tenantId, ASSIGNMENT_EVENTS.ASSIGNED as OutboxEventName, {
+        taskId: task.id,
+        projectId: project.id,
+        assigneeId: user.userId,
+        actor: { id: user.userId, type: 'user' },
+      }, tx);
+      return applied;
     });
-    // 事务提交后：T1 副作用通知项目负责人 + 事件（工程决策 11）
+    // 事务提交后：T1 副作用通知项目负责人（站内同步通知；领域事件已走 Outbox）
     if (project.ownerId !== user.userId) {
       await this.notifications.notify({
         tenantId: user.tenantId,
@@ -81,8 +89,6 @@ export class AssignmentsService {
         data: { taskId: task.id, projectId: project.id, status: TaskStatus.IN_PROGRESS },
       });
     }
-    this.eventBus?.emit(ASSIGNMENT_EVENTS.ASSIGNED, { taskId: task.id, projectId: project.id, tenantId: user.tenantId, assigneeId: user.userId });
-    this.eventBus?.emit(ASSIGNMENT_EVENTS.STATUS_CHANGED, { taskId: task.id, projectId: project.id, tenantId: user.tenantId, from: task.status, to: TaskStatus.IN_PROGRESS });
     return result;
   }
 
@@ -122,6 +128,14 @@ export class AssignmentsService {
         },
         tx,
       );
+      // R3 事务性 Outbox：task.assigned（转移）与 assignee 变更同事务落库
+      await this.outbox.publish(user.tenantId, ASSIGNMENT_EVENTS.ASSIGNED as OutboxEventName, {
+        taskId: task.id,
+        projectId: project.id,
+        assigneeId: dto.targetUserId,
+        transferredBy: user.userId,
+        actor: { id: user.userId, type: 'user' },
+      }, tx);
       return updated;
     });
     await this.notifications.notify({
@@ -131,7 +145,6 @@ export class AssignmentsService {
       title: `任务「${result.title}」已转移给你`,
       data: { taskId: task.id, projectId: project.id, reason: dto.reason },
     });
-    this.eventBus?.emit(ASSIGNMENT_EVENTS.ASSIGNED, { taskId: task.id, projectId: project.id, tenantId: user.tenantId, assigneeId: dto.targetUserId, transferredBy: user.userId });
     return result;
   }
 

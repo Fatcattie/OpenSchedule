@@ -48,7 +48,7 @@ export class MockImAdapter implements ImAdapter {
   }
 
   async sendMessage(payload: SendMessagePayload): Promise<SendMessageResult> {
-    return { ok: true, messageId: `mock_msg_${this.provider}_${Date.now()}` }
+    return { ok: true, messageId: `mock_msg_${this.provider}_${Date.now()}`, channel: 'mock' }
   }
 
   async testConnection(): Promise<ConnectionTestResult> {
@@ -70,15 +70,23 @@ export class McpGatewayAdapter implements ImAdapter {
 
   private async post<T>(path: string, body: unknown): Promise<T | null> {
     try {
-      const resp = await fetch(`${this.gatewayUrl}/mcp/${this.provider}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!resp.ok) return null
-      return (await resp.json()) as T
+      // R4 出站超时：5s AbortController，防挂起网关阻塞请求（网关 URL 为 env 控制，非用户输入）
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      try {
+        const resp = await fetch(`${this.gatewayUrl}/mcp/${this.provider}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        })
+        if (!resp.ok) return null
+        return (await resp.json()) as T
+      } finally {
+        clearTimeout(timer)
+      }
     } catch {
-      // 网关不可用时交由调用方降级
+      // 网关不可用/超时时交由调用方降级
       return null
     }
   }
@@ -99,7 +107,7 @@ export class McpGatewayAdapter implements ImAdapter {
 
   async sendMessage(payload: SendMessagePayload): Promise<SendMessageResult> {
     const r = await this.post<SendMessageResult>('/messages', payload)
-    return r ?? this.fallback.sendMessage(payload)
+    return r ? { ...r, channel: 'mcp' } : this.fallback.sendMessage(payload)
   }
 
   async testConnection(): Promise<ConnectionTestResult> {

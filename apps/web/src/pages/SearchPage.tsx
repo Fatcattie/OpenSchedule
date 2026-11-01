@@ -8,8 +8,8 @@ import { SearchOutlined } from '@ant-design/icons'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
-import { mockMe } from '@/api/mock/data'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
+import { useMe } from '@/hooks/useWorkspaceIdentity'
 import { searchWorkspace, type WorkspaceSearchHit } from '@/utils/searchWorkspace'
 import { taskRoute } from '@/utils/taskTree'
 import EmptyView from '@/components/EmptyView'
@@ -41,9 +41,10 @@ const GROUP_ORDER: { type: WorkspaceSearchHit['type']; label: string }[] = [
 ]
 
 export default function SearchPage() {
+  const currentUser = useMe()
   const navigate = useNavigate()
   const [tasks] = useWorkspaceTasks()
-  const [role] = useLocalStorageState<'manager' | 'member'>('workspace_role', 'manager')
+  const role = useCurrentRole()
   const isManager = role === 'manager'
   const [searchParams] = useSearchParams()
   const urlKeyword = searchParams.get('q') ?? ''
@@ -64,7 +65,7 @@ export default function SearchPage() {
   const hits = useMemo(
     () =>
       query.trim()
-        ? searchWorkspace(tasks, query, { userId: mockMe.id, displayName: mockMe.displayName, isManager }, type)
+        ? searchWorkspace(tasks, query, { userId: currentUser.id, displayName: currentUser.displayName, isManager }, type)
         : [],
     [tasks, query, type, isManager],
   )

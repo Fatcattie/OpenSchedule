@@ -1,6 +1,7 @@
 /**
  * B19 重叠检测单测（纯函数）
  */
+import { describe, expect, test } from 'vitest'
 import {
   detectTimeConflicts,
   detectResourceConflicts,
@@ -13,7 +14,7 @@ import {
 describe('B19 重叠检测（纯函数）', () => {
   // ===== 维度 1：时间冲突 =====
   describe('时间冲突检测', () => {
-    test('空项目：无任务 → 0 冲突', () => {
+    test('空项目：无任务 A0 冲突', () => {
       expect(detectTimeConflicts([])).toHaveLength(0)
     })
 
@@ -56,7 +57,7 @@ describe('B19 重叠检测（纯函数）', () => {
       expect(result[0].severity).toBe('low')
     })
 
-    test('三任务两两重叠 → 合并为 1 组（并查集）', () => {
+    test('三任务两两重任务 A合并为 1 组（并查集）', () => {
       // t1: 18-22, t2: 20-24, t3: 22-26 → 都和至少一个重叠
       // 但 t1 和 t3 只在 22 号交接，算 1 天重叠（t1.end=22, t3.start=22）
       const tasks: TaskForOverlap[] = [
@@ -109,8 +110,7 @@ describe('B19 重叠检测（纯函数）', () => {
         { id: 't2', title: 'T2', assigneeId: 'u1', start: '2026-08-18', end: '2026-08-22', estimatedHours: 40, status: 'todo' },
       ]
       const result = detectResourceConflicts(tasks, 8)
-      expect(result.length).toBe(5) // 5 天全部争抢
-      expect(result[0].severity).toBe('high')
+      expect(result.length).toBe(5) // 5 天全部争抢      expect(result[0].severity).toBe('high')
       expect(result[0].totalHours).toBeCloseTo(16, 1)
     })
 
@@ -173,8 +173,8 @@ describe('B19 重叠检测（纯函数）', () => {
 
     test('单下游共享不算 hub（需 ≥2）', () => {
       const tasks: TaskForOverlap[] = [
-        { id: 't1', title: '前', assigneeId: 'u1', start: '2026-08-18', end: '2026-08-19', estimatedHours: 8, status: 'todo' },
-        { id: 't2', title: '后', assigneeId: 'u2', start: '2026-08-20', end: '2026-08-22', estimatedHours: 16, status: 'todo' },
+        { id: 't1', title: '张三', assigneeId: 'u1', start: '2026-08-18', end: '2026-08-19', estimatedHours: 8, status: 'todo' },
+        { id: 't2', title: '前置', assigneeId: 'u2', start: '2026-08-20', end: '2026-08-22', estimatedHours: 16, status: 'todo' },
       ]
       const deps: DependencyForOverlap[] = [
         { id: 'd1', prevTaskId: 't1', nextTaskId: 't2', isShared: true, type: 'FS' },

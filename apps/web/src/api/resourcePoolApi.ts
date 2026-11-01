@@ -2,7 +2,7 @@
  * resourcePoolApi.ts —— 跨项目资源池 API
  */
 import { client } from './client'
-import { USE_MOCK } from './config'
+import { mockOr } from './mock/dispatch'
 import type {
   ResourcePoolOverview,
   PoolResourceConflict,
@@ -11,54 +11,48 @@ import type {
   RebalanceSuggestion,
 } from '@/types'
 
-// ==================== Mock ====================
-import {
-  mockGetResourcePoolOverview,
-  mockGetResourceMember,
-  mockGetResourceConflicts,
-  mockGetResourceMatrix,
-  mockGenerateRebalance,
-} from './mock/handlers'
-
-// Mock 开关统一由 config.ts 管理（默认开启，除非显式 VITE_USE_MOCK=false）
-
 // ==================== API ====================
 
 /** 资源池概览 */
 export async function getResourcePoolOverview(projectIds?: string[]): Promise<ResourcePoolOverview> {
-  if (USE_MOCK) return mockGetResourcePoolOverview()
-  const params = projectIds?.length ? { projectIds: projectIds.join(',') } : {}
-  const { data } = await client.get<ResourcePoolOverview>('/resource-pool/overview', { params })
-  return data
+  return mockOr('mockGetResourcePoolOverview', async () => {
+    const params = projectIds?.length ? { projectIds: projectIds.join(',') } : {}
+    const { data } = await client.get<ResourcePoolOverview>('/resource-pool/overview', { params })
+    return data
+  })
 }
 
 /** 单个成员详情 */
 export async function getResourceMember(assigneeId: string): Promise<ResourceMember | null> {
-  if (USE_MOCK) return mockGetResourceMember(assigneeId)
-  const { data } = await client.get<{ data: ResourceMember | null }>(`/resource-pool/member/${assigneeId}`)
-  return data.data
+  return mockOr('mockGetResourceMember', async () => {
+    const { data } = await client.get<{ data: ResourceMember | null }>(`/resource-pool/member/${assigneeId}`)
+    return data.data
+  }, assigneeId)
 }
 
 /** 冲突清单 */
 export async function getResourceConflicts(projectIds?: string[]): Promise<PoolResourceConflict[]> {
-  if (USE_MOCK) return mockGetResourceConflicts()
-  const params = projectIds?.length ? { projectIds: projectIds.join(',') } : {}
-  const { data } = await client.get<{ data: PoolResourceConflict[] }>('/resource-pool/conflicts', { params })
-  return data.data
+  return mockOr('mockGetResourceConflicts', async () => {
+    const params = projectIds?.length ? { projectIds: projectIds.join(',') } : {}
+    const { data } = await client.get<{ data: PoolResourceConflict[] }>('/resource-pool/conflicts', { params })
+    return data.data
+  })
 }
 
 /** 成员×项目矩阵 */
 export async function getResourceMatrix(projectIds?: string[]): Promise<ResourceMatrix> {
-  if (USE_MOCK) return mockGetResourceMatrix()
-  const params = projectIds?.length ? { projectIds: projectIds.join(',') } : {}
-  const { data } = await client.get<ResourceMatrix>('/resource-pool/matrix', { params })
-  return data
+  return mockOr('mockGetResourceMatrix', async () => {
+    const params = projectIds?.length ? { projectIds: projectIds.join(',') } : {}
+    const { data } = await client.get<ResourceMatrix>('/resource-pool/matrix', { params })
+    return data
+  })
 }
 
 /** 生成再平衡建议 */
 export async function generateRebalance(projectIds?: string[]): Promise<RebalanceSuggestion> {
-  if (USE_MOCK) return mockGenerateRebalance()
-  const params = projectIds?.length ? { projectIds: projectIds.join(',') } : {}
-  const { data } = await client.post<RebalanceSuggestion>('/resource-pool/rebalance', {}, { params })
-  return data
+  return mockOr('mockGenerateRebalance', async () => {
+    const params = projectIds?.length ? { projectIds: projectIds.join(',') } : {}
+    const { data } = await client.post<RebalanceSuggestion>('/resource-pool/rebalance', {}, { params })
+    return data
+  })
 }

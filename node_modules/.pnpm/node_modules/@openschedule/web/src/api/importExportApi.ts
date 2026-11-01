@@ -4,8 +4,7 @@
  * 响应 {imported, failed, errors:[{line,reason}], created}，line=CSV 物理行号（表头=第 1 行，首数据行=第 2 行）。
  */
 import { client } from './client'
-import { USE_MOCK } from './config'
-import { mockExportTasksCsv, mockImportTasksCsv } from './mock/handlers'
+import { mockOr } from './mock/dispatch'
 import type { ApiResponse } from '@/types'
 
 /** 导入失败明细（line 为 CSV 物理行号：表头=第 1 行，首数据行=第 2 行） */
@@ -34,13 +33,14 @@ export interface ImportResult {
  * priority 取值 urgent/high/medium/low；due_at 为 ISO8601；非法行进 errors 明细（line=物理行号）
  */
 export async function importTasksCsv(file: File, projectId: string): Promise<ImportResult> {
-  if (USE_MOCK) return mockImportTasksCsv(file, projectId)
-  const form = new FormData()
-  form.append('file', file)
-  const resp = await client.post<ApiResponse<ImportResult>>('/import/tasks', form, {
-    params: { project_id: projectId },
-  })
-  return resp.data.data
+  return mockOr('mockImportTasksCsv', async () => {
+    const form = new FormData()
+    form.append('file', file)
+    const resp = await client.post<ApiResponse<ImportResult>>('/import/tasks', form, {
+      params: { project_id: projectId },
+    })
+    return resp.data.data
+  }, file, projectId)
 }
 
 /**
@@ -48,12 +48,13 @@ export async function importTasksCsv(file: File, projectId: string): Promise<Imp
  * 说明：API 层返回 Blob，页面侧用 downloadBlob 触发下载，便于 mock 分支形态对齐
  */
 export async function exportTasksCsv(projectId?: string): Promise<Blob> {
-  if (USE_MOCK) return mockExportTasksCsv(projectId)
-  const resp = await client.get<Blob>('/export/tasks', {
-    params: projectId ? { project_id: projectId } : undefined,
-    responseType: 'blob',
-  })
-  return resp.data
+  return mockOr('mockExportTasksCsv', async () => {
+    const resp = await client.get<Blob>('/export/tasks', {
+      params: projectId ? { project_id: projectId } : undefined,
+      responseType: 'blob',
+    })
+    return resp.data
+  }, projectId)
 }
 
 /** 触发浏览器下载 blob（a[download] 方案：兼容性好、不经过路由） */

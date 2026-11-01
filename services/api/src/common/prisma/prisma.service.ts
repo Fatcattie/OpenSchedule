@@ -5,11 +5,13 @@
  */
 import { Injectable } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
+import { slowQueryExtension } from './slow-query.extension';
 import { tenantContext } from '../tenant/tenant-context.service';
 
 /**
  * 强制租户隔离的业务模型（tenant_id NOT NULL 铁律表，§3.1）。
  * roles/templates 等 tenant_id 可空的表不在此列，由业务代码显式过滤。
+ * R1 补全：ai_proposal_tasks / 模板自动化 / API Key / Webhook / Calendar 全量纳入结构化隔离。
  */
 export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'MemberProfile',
@@ -21,11 +23,21 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'TaskDependency',
   'TaskComment',
   'AiProposal',
+  'AiProposalTask',
   'Notification',
   'NotificationPreference',
   'Reminder',
   'Attachment',
   'AuditLog',
+  'ProjectTemplate',
+  'AutomationRule',
+  'ApiKey',
+  'Webhook',
+  'CalendarAccount',
+  'CalendarEventMapping',
+  'OutboxEvent',
+  'WorkspaceItem',
+  'TenantLlmConfig',
 ]);
 
 /** 需要注入 tenant_id 的查询操作 */
@@ -107,8 +119,8 @@ export class PrismaService extends PrismaClient {
       log,
       errorFormat: 'minimal',
     });
-    // 构造时返回带租户过滤扩展的客户端（constructor return 覆盖模式）。
+    // 构造时返回带扩展的客户端（constructor return 覆盖模式）：租户过滤（外层）+ 慢查询日志（内层）。
     // 注意：本类不能再声明实例字段/方法（会被丢弃）；Prisma 6 惰性连接，无需 onModuleInit。
-    return this.$extends(tenantFilterExtension) as this;
+    return this.$extends(tenantFilterExtension).$extends(slowQueryExtension) as this;
   }
 }

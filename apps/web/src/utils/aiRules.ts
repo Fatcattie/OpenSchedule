@@ -5,10 +5,11 @@
  * - 需求 1：拆解不再是关键词硬编码，而是按「行业类型 × 任务类型」匹配经验模板生成
  * - 需求 2：所有 AI 场景的提示词都由规则页集中维护，此处只负责渲染与执行
  *
- * Agent 接入：配置环境变量 VITE_AI_AGENT_ENDPOINT 后走真实模型，
+ * 模型接入：团队管理员在「设置 → AI 模型」配置后，经后端 POST /ai/complete 调真实模型（key 不出服务端）；
  * 未配置或调用失败时自动回退到本地规则引擎，保证功能始终可用。
  */
 import dayjs from 'dayjs'
+import { aiComplete, getAiStatus } from '@/api/llmApi'
 import type { AiRule, AiScene, DecomposeTask, RuleMatchInput, SopFlow, SopNode } from '@/types'
 import { newSopNodeId } from '@/types'
 
@@ -282,25 +283,15 @@ export function fallbackDecompose(req: DecomposeRequest): DecomposeTask[] {
   })
 }
 
-/** Agent 服务地址（配置后走真实模型，未配置则用本地规则引擎） */
-export function getAgentEndpoint(): string {
-  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env
-  return env?.VITE_AI_AGENT_ENDPOINT ?? ''
+/** 团队是否已接入真实模型（GET /ai/status，30s 缓存；失败按未接入处理） */
+export async function isAgentReady(): Promise<boolean> {
+  return (await getAiStatus()).enabled
 }
 
-/** 调用 Agent：POST { prompt }，返回模型文本 */
-export async function callAgent(prompt: string, endpoint: string): Promise<string> {
-  const resp = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
-  })
-  if (!resp.ok) throw new Error(`Agent 服务返回 ${resp.status}`)
-  const data = (await resp.json()) as unknown
-  if (typeof data === 'string') return data
-  const bag = data as Record<string, unknown>
-  const text = bag.content ?? bag.text ?? bag.result ?? bag.output
-  return typeof text === 'string' ? text : JSON.stringify(data)
+/** 调用团队模型：未接入时抛错，由调用方回退本地规则引擎 */
+export async function callAgent(prompt: string): Promise<string> {
+  if (!(await isAgentReady())) throw new Error('团队未配置 AI 模型')
+  return aiComplete(prompt)
 }
 
 /** 从模型输出中解析子任务数组，解析失败时回退到规则结果 */
@@ -361,10 +352,9 @@ export async function decomposeWithRules(
       })
     : ''
 
-  const endpoint = getAgentEndpoint()
-  if (endpoint && prompt) {
+  if (prompt) {
     try {
-      const text = await callAgent(prompt, endpoint)
+      const text = await callAgent(prompt)
       const parsed = parseAgentTasks(text, local)
       if (parsed.length > 0) return { tasks: parsed, rule, source: 'agent', prompt }
     } catch {
@@ -453,10 +443,9 @@ export async function generateTaskReport(
       })
     : ''
 
-  const endpoint = getAgentEndpoint()
-  if (endpoint && prompt) {
+  if (prompt) {
     try {
-      const text = await callAgent(prompt, endpoint)
+      const text = await callAgent(prompt)
       const parsed = parseReportJson(text)
       if (parsed) return { ...parsed, source: 'agent', prompt }
     } catch {
@@ -537,10 +526,9 @@ export async function generateSopFlow(req: SopGenRequest, rules: AiRule[]): Prom
         extra: req.extra ?? '',
       })
     : ''
-  const endpoint = getAgentEndpoint()
-  if (endpoint && prompt) {
+  if (prompt) {
     try {
-      const text = await callAgent(prompt, endpoint)
+      const text = await callAgent(prompt)
       const steps = parseSopJson(text)
       if (steps) return { steps, rule, source: 'agent', prompt }
     } catch {

@@ -1,0 +1,79 @@
+{
+  "ranAt": "2026-10-18T08:36:19.682Z",
+  "api": "http://localhost:3000/api/v1",
+  "web": "http://localhost:5173",
+  "steps": [
+    {
+      "step": "注册租户（API 201 + 发双令牌）",
+      "ok": true,
+      "detail": "http=201",
+      "at": "2026-10-18T08:36:01.468Z"
+    },
+    {
+      "step": "代建成员（API 201）",
+      "ok": true,
+      "detail": "http=201 body={\"data\":{\"id\":\"01a14e27-5018-77e3-95ee-d768ab1a9492\",\"email\":\"smoke.member.1792312560822@example.com\",\"displayName\":\"冒烟成员\",\"avatarUrl\":null,\"locale\":\"zh-CN\",\"timezone\":\"Asia/Shanghai\",\"role\":\"tenant.m",
+      "at": "2026-10-18T08:36:01.875Z"
+    },
+    {
+      "step": "成员首次登录标记强制改密",
+      "ok": true,
+      "detail": "http=201 mustChangePassword=true",
+      "at": "2026-10-18T08:36:02.109Z"
+    },
+    {
+      "step": "成员改密（API 201）",
+      "ok": true,
+      "detail": "http=201",
+      "at": "2026-10-18T08:36:02.518Z"
+    },
+    {
+      "step": "管理 UI 登录落地 /workspace",
+      "ok": true,
+      "detail": "url=http://localhost:5173/workspace",
+      "at": "2026-10-18T08:36:05.480Z"
+    },
+    {
+      "step": "发布后任务进入待承接池（assigneeId=null, status=todo）",
+      "ok": true,
+      "detail": "status=todo assigneeId=null",
+      "at": "2026-10-18T08:36:08.981Z"
+    },
+    {
+      "step": "成员承接任务（UI 承接按钮 + 成功提示）",
+      "ok": true,
+      "detail": "已承接：冒烟任务-1792312560822",
+      "at": "2026-10-18T08:36:13.232Z"
+    },
+    {
+      "step": "承接落库（assigneeId=成员, status=in_progress）",
+      "ok": true,
+      "detail": "assigneeId=01a14e27-5018-77e3-95ee-d768ab1a9492 expect=01a14e27-5018-77e3-95ee-d768ab1a9492 status=in_progress",
+      "at": "2026-10-18T08:36:13.317Z"
+    },
+    {
+      "step": "成员提报完成 → approvalStatus=pending（服务端落库）",
+      "ok": true,
+      "detail": "approvalStatus=pending approvalType=completion",
+      "at": "2026-10-18T08:36:16.059Z"
+    },
+    {
+      "step": "审核通过闭环（status=done, approvalStatus=approved, 有审核留痕）",
+      "ok": true,
+      "detail": "status=done approvalStatus=approved auditLogs=1",
+      "at": "2026-10-18T08:36:19.115Z"
+    },
+    {
+      "step": "通讯录包含管理+成员（D-07-2 角色投影）",
+      "ok": true,
+      "detail": "http=200 items=2",
+      "at": "2026-10-18T08:36:19.331Z"
+    },
+    {
+      "step": "冒烟主流程",
+      "ok": true,
+      "detail": "tenant=01a14e27-4d83-7763-a047-9ad61a573edb owner=01a14e27-4d6d-75d2-9c6c-70c9ec6f029c member=01a14e27-5018-77e3-95ee-d768ab1a9492 task=冒烟任务-1792312560822",
+      "at": "2026-10-18T08:36:19.387Z"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 /**
  * SettingsPage —— 系统设置页（B22）
- * 含 API Keys / Webhook / 通知偏好 / 演示偏好
+ * 含 AI 模型 / API Keys / Webhook / 通知偏好 / 演示偏好
  */
 import { useEffect, useState } from 'react'
 import {
@@ -14,7 +14,6 @@ import {
   DatePicker,
   Tag,
   Switch,
-  Segmented,
   List,
   Empty,
   Space,
@@ -36,16 +35,15 @@ import {
   CopyOutlined,
   WarningOutlined,
   BellOutlined,
-  UserOutlined,
-  SettingOutlined,
   ExperimentOutlined,
+  RobotOutlined,
 } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { settingsApi } from '@/api/settingsApi'
 import type { WebhookEvent, Webhook } from '@/types'
 import { getNotificationPreferences, updateNotificationPreferences } from '@/api/notificationApi'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
-import type { WorkspaceRole } from '@/hooks/useCurrentRole'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
+import LlmSettingsTab from '@/components/settings/LlmSettingsTab'
 
 
 const { Title, Text } = Typography
@@ -63,9 +61,10 @@ const ALL_SCOPES = [
 ]
 
 export default function SettingsPage() {
-  const [activeKey, setActiveKey] = useState('api-keys')
+  const [activeKey, setActiveKey] = useState('ai-model')
 
   const items = [
+    { key: 'ai-model', label: <span><RobotOutlined /> AI 模型</span>, children: <LlmSettingsTab /> },
     { key: 'api-keys', label: <span><KeyOutlined /> API Keys</span>, children: <ApiKeysTab /> },
     { key: 'webhooks', label: <span><ApiOutlined /> Webhook</span>, children: <WebhooksTab /> },
     { key: 'notifications', label: <span><BellOutlined /> 通知偏好</span>, children: <NotificationPreferencesTab /> },
@@ -79,7 +78,7 @@ export default function SettingsPage() {
         系统设置
       </Title>
       <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 20 }}>
-        开放 API、Webhook、通知偏好与演示偏好
+        AI 模型、开放 API、Webhook、通知偏好与演示偏好
       </Text>
 
       <Card bodyStyle={{ padding: 0 }}>
@@ -162,27 +161,22 @@ function NotificationPreferencesTab() {
 // ========== 演示偏好 Tab ==========
 
 function DemoPreferencesTab() {
-  const [role, setRole] = useLocalStorageState<WorkspaceRole>('workspace_role', 'manager')
+  const role = useCurrentRole()
 
   return (
     <div style={{ padding: '0 16px 16px' }}>
       <Alert
         type="info"
         showIcon
-        message="演示角色"
-        description="工作台界面不再展示角色切换器，角色由当前用户推导；此处仅用于在演示环境中临时预览不同角色的界面。"
+        message="当前角色"
+        description="角色由当前 Bearer 会话的 /auth/me.roles 服务端声明推导，不再支持 localStorage 角色切换。"
         style={{ marginBottom: 16 }}
       />
       <Form layout="vertical">
-        <Form.Item label="当前演示角色">
-          <Segmented
-            value={role}
-            onChange={(v) => setRole(v as WorkspaceRole)}
-            options={[
-              { value: 'manager', label: <Space><SettingOutlined />管理人员</Space> },
-              { value: 'member', label: <Space><UserOutlined />普通人员</Space> },
-            ]}
-          />
+        <Form.Item label="当前服务端角色">
+          <Tag color={role === 'manager' ? 'blue' : 'gold'}>
+            {role === 'manager' ? '管理人员' : '普通人员'}
+          </Tag>
         </Form.Item>
       </Form>
     </div>

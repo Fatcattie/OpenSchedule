@@ -1,17 +1,26 @@
 /**
- * IM 通道适配器（TODO 占位：企微/飞书/钉钉群机器人 webhook 各自签名实现；租户级地址存 DB，全局 base 走 env，§3.7）。
+ * IM 通道适配器（R5-2）：委托 integrations 模块的 im-adapters（feishu/dingtalk，
+ * MCP 网关模式真实出站 / mock 模式本地演示，切换见 INTEGRATION_*_MODE）。
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { IntegrationsService } from '../../integrations/integrations.service';
+import { buildImMessage, expectsRealImDelivery, resolveImProvider } from './im-message';
 import { DeliveryRecord, NotificationAdapter, OutboundNotification } from './notification-adapter.interface';
 
 @Injectable()
 export class ImAdapter implements NotificationAdapter {
   readonly channel = 'im' as const;
-  private readonly logger = new Logger(ImAdapter.name);
 
-  async send(notification: OutboundNotification, delivery: DeliveryRecord): Promise<void> {
-    // TODO(Phase 1 末)：企微/飞书/钉钉 webhook 签名（HMAC/SHA 时间戳校验）与租户级配置读取
-    this.logger.warn(`[TODO] IM 通道未实现：notification=${notification.id} delivery=${delivery.id}`);
-    throw new Error('IM_ADAPTER_NOT_IMPLEMENTED');
+  constructor(private readonly integrations: IntegrationsService) {}
+
+  async send(notification: OutboundNotification, _delivery: DeliveryRecord): Promise<void> {
+    if (!notification.recipientEmail) throw new Error('IM_RECIPIENT_MISSING');
+    const provider = resolveImProvider(process.env);
+    const payload = buildImMessage(notification, notification.recipientEmail);
+    const result = await this.integrations.sendMessage(provider, payload);
+    if (!result.ok) throw new Error(`IM_DELIVERY_FAILED: ${result.error ?? 'unknown'}`);
+    if (result.channel === 'mock' && expectsRealImDelivery(process.env, provider)) {
+      throw new Error('IM_GATEWAY_UNREACHABLE');
+    }
   }
 }

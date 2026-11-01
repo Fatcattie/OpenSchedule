@@ -1,0 +1,56 @@
+import { describe, expect, it } from 'vitest'
+import { ConflictException, BadRequestException } from '@nestjs/common';
+import { TaskStatus } from '../../common/constants/task-status';
+import { assertPersonalTransition, buildPersonalTaskContext } from './personal-task.policy';
+import type { AuthUser } from '../../common/auth/auth-user.interface';
+
+const member: AuthUser = {
+  userId: 'u1',
+  tenantId: 't1',
+  roles: [{ key: 'tenant.member', scope: 'tenant', scopeResourceId: null, permissions: [] }],
+};
+
+describe('personal-task.policy', () => {
+  describe('buildPersonalTaskContext（self-scoped）', () => {
+    it('属主 = assignee / 负责人 / 创建者三合一', () => {
+      const ctx = buildPersonalTaskContext(member);
+      expect(ctx.assigneeId).toBe(member.userId);
+      expect(ctx.projectOwnerId).toBe(member.userId);
+      expect(ctx.createdBy).toBe(member.userId);
+      expect(ctx.userId).toBe(member.userId);
+    });
+  });
+
+  describe('assertPersonalTransition', () => {
+    it('todo → in_progress 属主可执行（T1，assignee 非空）', () => {
+      expect(() => assertPersonalTransition(TaskStatus.TODO, TaskStatus.IN_PROGRESS, member)).not.toThrow();
+    });
+
+    it('in_progress → done 需 actual_hours（T4，缺失抛 40001）', () => {
+      expect(() => assertPersonalTransition(TaskStatus.IN_PROGRESS, TaskStatus.DONE, member)).toThrow(BadRequestException);
+      expect(() =>
+        assertPersonalTransition(TaskStatus.IN_PROGRESS, TaskStatus.DONE, member, { actualHours: 1.5 }),
+      ).not.toThrow();
+    });
+
+    it('done → todo 重开需 reason（T9，缺失抛 40001）', () => {
+      expect(() => assertPersonalTransition(TaskStatus.DONE, TaskStatus.TODO, member)).toThrow(BadRequestException);
+      expect(() =>
+        assertPersonalTransition(TaskStatus.DONE, TaskStatus.TODO, member, { reason: '需要重做' }),
+      ).not.toThrow();
+    });
+
+    it('todo → cancelled 属主可执行（T8，reason 必填）', () => {
+      expect(() => assertPersonalTransition(TaskStatus.TODO, TaskStatus.CANCELLED, member)).toThrow(BadRequestException);
+      expect(() =>
+        assertPersonalTransition(TaskStatus.TODO, TaskStatus.CANCELLED, member, { reason: '不再需要' }),
+      ).not.toThrow();
+    });
+
+    it('非法迁移 done → blocked 抛 40902（T4 允许状态之外）', () => {
+      expect(() => assertPersonalTransition(TaskStatus.DONE, TaskStatus.BLOCKED, member, { reason: 'x' })).toThrow(
+        ConflictException,
+      );
+    });
+  });
+});

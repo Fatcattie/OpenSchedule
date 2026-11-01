@@ -1,0 +1,124 @@
+# ============================================================
+# Prometheus 告警规则（R9：把 /metrics 的 RED/慢查询/系统事件变成可告警信号）
+# 指标全部来自 api 的 GET /metrics（见 services/api/src/common/observability/metrics.ts）。
+# 规则清单：
+#   ApiDown                 抓取失败 1m（进程不可达或 METRICS_ENABLED=false）        critical
+#   ApiHighErrorRate        5xx 比例 > 5%（5m）                                      critical
+#   ApiHighLatencyP95       p95 延迟 > 1s（5m）                                      warning
+#   ApiInFlightSaturation   在途请求 > 200（5m，线程/连接池即将耗尽）                 warning
+#   DbSlowQuerySpike        慢查询速率 > 0.2/s（10m，SLOW_QUERY_MS 持续被突破）       warning
+#   RedisDegraded           Redis 进入降级冷却（15m 内出现 redis_degraded 事件）      critical
+#   ApiEventLoopLagHigh     事件循环 p99 延迟 > 0.5s（5m）                            warning
+#   ApiHeapUsedHigh         堆使用率 > 90%（10m）                                     warning
+# R11（AI 服务指标，job=openschedule-ai）：
+#   AiCallbackDeadLetters   15m 内出现回调死信（主服务回调失败/验签失败）              critical
+#   AiRunStoreDegraded      run 状态/死信存储退化为 memory（重启即丢，生产不可接受）   warning
+# 未配置 alertmanager 时规则只处于 firing 状态（Prometheus UI → Alerts 可见）。
+# ============================================================
+groups:
+  - name: openschedule-api
+    rules:
+      - alert: ApiDown
+        expr: up{job="openschedule-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: openschedule-api
+        annotations:
+          summary: 'OpenSchedule API 抓取失败'
+          description: 'Prometheus 连续 1 分钟无法抓取 {{ $labels.instance }}。确认进程存活，且 METRICS_ENABLED 不为 false（否则 /metrics 返回 404）。'
+
+      - alert: ApiHighErrorRate
+        expr: |
+          sum(rate(openschedule_http_requests_total{status=~"5.."}[5m]))
+            /
+          sum(rate(openschedule_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: openschedule-api
+        annotations:
+          summary: '5xx 比例超过 5%'
+          description: '近 5 分钟 5xx 占比 {{ $value | humanizePercentage }}。结合 /metrics 的 route 标签定位接口，并查 Sentry（SENTRY_DSN 配置时自动上报 5xx）。'
+
+      - alert: ApiHighLatencyP95
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(openschedule_http_request_duration_seconds_bucket[5m]))) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: openschedule-api
+        annotations:
+          summary: 'p95 请求延迟超过 1s'
+          description: 'p95 = {{ $value | humanizeDuration }}。结合 db_slow_query 日志与 openschedule_db_slow_queries_total 判断是否为慢查询导致。'
+
+      - alert: ApiInFlightSaturation
+        expr: max(openschedule_http_requests_in_flight) > 200
+        for: 5m
+        labels:
+          severity: warning
+          service: openschedule-api
+        annotations:
+          summary: '在途请求数持续过高'
+          description: '在途请求 {{ $value }}，接近连接/线程池上限，后续请求将排队。'
+
+      - alert: DbSlowQuerySpike
+        expr: sum(rate(openschedule_db_slow_queries_total[10m])) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          service: openschedule-api
+        annotations:
+          summary: '慢查询持续出现'
+          description: '慢查询速率 {{ $value }}/s（阈值 SLOW_QUERY_MS，默认 200ms）。按 model/operation 标签定位；同时检查索引与查询计划。'
+
+      - alert: RedisDegraded
+        expr: increase(openschedule_system_events_total{event="redis_degraded"}[15m]) > 0
+        labels:
+          severity: critical
+          service: openschedule-api
+        annotations:
+          summary: 'Redis 不可用，API 进入降级运行'
+          description: '近 15 分钟出现 {{ $value }} 次 Redis 降级（限流退化为进程内 Map、提醒退化为 DB 兜底扫描、队列禁用）。多实例部署下限流窗口不再全局一致，需尽快恢复 Redis。'
+
+      - alert: ApiEventLoopLagHigh
+        expr: max(openschedule_nodejs_eventloop_lag_p99_seconds) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: openschedule-api
+        annotations:
+          summary: '事件循环 p99 延迟超过 0.5s'
+          description: 'p99 = {{ $value }}s。通常意味着单进程 CPU 饱和或存在同步阻塞（如大 JSON 序列化/加解密）。'
+
+      - alert: ApiHeapUsedHigh
+        expr: |
+          sum(openschedule_nodejs_heap_size_used_bytes)
+            /
+          sum(openschedule_nodejs_heap_size_total_bytes) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          service: openschedule-api
+        annotations:
+          summary: 'Node 堆使用率超过 90%'
+          description: '堆使用率 {{ $value | humanizePercentage }}，存在 OOM 风险；检查批处理规模与缓存上限。'
+
+      - alert: AiCallbackDeadLetters
+        expr: increase(openschedule_ai_dead_letters_recorded_total[15m]) > 0
+        labels:
+          severity: critical
+          service: openschedule-ai
+        annotations:
+          summary: 'AI 回调主服务出现死信'
+          description: '近 15 分钟新增 {{ $value }} 条回调死信（重试耗尽或永久 4xx）。查 `GET /ai/dead-letters` 的 last_error；修复主服务/验签后逐条 `POST /ai/dead-letters/{id}/replay`（幂等键保证重复重放安全）。'
+
+      - alert: AiRunStoreDegraded
+        expr: openschedule_ai_run_store_mode{mode="memory"} == 1
+        for: 15m
+        labels:
+          severity: warning
+          service: openschedule-ai
+        annotations:
+          summary: 'AI run/死信未落 Redis（降级 memory）'
+          description: 'AI 进程重启后 run 帧与死信将丢失。检查 AI_STATE_REDIS_URL 与 redis 健康；生产必须 AI_RUN_STORE=redis（启动即 fail-fast）。查 /metrics 的 openschedule_ai_dead_letter_store_mode。'

@@ -3,7 +3,10 @@
  */
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { AuditService } from '../../common/audit/audit.service'
 import { AuthUser } from '../../common/decorators/current-user.decorator'
+import { assertSafeOutboundUrl } from '../../common/security/url-guard'
+import { CredentialCipher } from '../../common/security/credential-cipher'
 import { generateSigningSecret, computeSignature } from './webhook-signer'
 
 // 支持的事件类型列表（v1）
@@ -19,7 +22,11 @@ export const SUPPORTED_EVENTS = [
 
 @Injectable()
 export class WebhooksService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cipher: CredentialCipher,
+    private audit: AuditService,
+  ) {}
 
   /** 支持的事件类型列表 */
   listEvents() {
@@ -60,8 +67,12 @@ export class WebhooksService {
     if (input.events.length === 0) {
       throw new BadRequestException('至少订阅一个事件')
     }
+    // R4 SSRF 防护：URL 解析后不得指向内网/环回/元数据地址（§3.3）
+    await this.assertSafeUrl(input.url)
 
-    const secret = generateSigningSecret()
+    // R4 凭据治理：secret 以 AES-256-GCM 密文落库（schema secret 列注释既有契约）；明文只作一次性返回
+    const secretPlain = generateSigningSecret()
+    const secret = this.cipher.encrypt(secretPlain)
 
     const hook = await this.prisma.webhook.create({
       data: {
@@ -78,11 +89,21 @@ export class WebhooksService {
       },
     })
 
-    // 仅创建时返回一次 secret
+    // R4 审计：webhook.create（after 绝不写 secret 明文/密文）
+    await this.audit.record({
+      tenantId: user.tenantId,
+      actorId: user.userId,
+      action: 'webhook.create',
+      resourceType: 'webhook',
+      resourceId: hook.id,
+      after: { name: hook.name, url: hook.url, events: hook.events, isActive: hook.isActive },
+    })
+
+    // 仅创建时返回一次明文 secret（前端保存后不再可见）
     return {
       data: {
         ...hook,
-        signingSecret: secret, // 仅展示一次
+        signingSecret: secretPlain, // 一次性明文，仅本次响应
       },
     }
   }
@@ -102,6 +123,8 @@ export class WebhooksService {
         }
       }
     }
+    // R4 SSRF 防护：URL 变更时同样校验（§3.3）
+    if (input.url !== undefined) await this.assertSafeUrl(input.url)
 
     const data: any = {}
     for (const f of ['name', 'url', 'events', 'isActive']) {
@@ -112,6 +135,16 @@ export class WebhooksService {
       where: { id },
       data,
       select: { id: true, name: true, url: true, events: true, isActive: true, updatedAt: true },
+    })
+    // R4 审计：webhook.update（after 绝不写 secret 明文/密文）
+    await this.audit.record({
+      tenantId: user.tenantId,
+      actorId: user.userId,
+      action: 'webhook.update',
+      resourceType: 'webhook',
+      resourceId: id,
+      before: { name: hook.name, url: hook.url, events: hook.events, isActive: hook.isActive },
+      after: updated,
     })
     return { data: updated }
   }
@@ -125,6 +158,15 @@ export class WebhooksService {
       where: { id },
       data: { deletedAt: new Date() },
     })
+    // R4 审计：webhook.remove
+    await this.audit.record({
+      tenantId: user.tenantId,
+      actorId: user.userId,
+      action: 'webhook.remove',
+      resourceType: 'webhook',
+      resourceId: id,
+      before: { name: hook.name, url: hook.url, events: hook.events },
+    })
     return { data: { id, deleted: true } }
   }
 
@@ -137,6 +179,16 @@ export class WebhooksService {
       where: { id },
       data: { isActive },
       select: { id: true, isActive: true },
+    })
+    // R4 审计：webhook.toggle
+    await this.audit.record({
+      tenantId: user.tenantId,
+      actorId: user.userId,
+      action: 'webhook.toggle',
+      resourceType: 'webhook',
+      resourceId: id,
+      before: { isActive: hook.isActive },
+      after: updated,
     })
     return { data: updated }
   }
@@ -161,7 +213,8 @@ export class WebhooksService {
       data: { message: 'Hello from OpenSchedule Webhook!' },
     }
     const body = JSON.stringify(payload)
-    const signature = computeSignature(hook.secret, body, now)
+    // R4 凭据治理：secret 密文存储，取用时解密还原明文算签名（不落日志）
+    const signature = computeSignature(this.cipher.decrypt(hook.secret), body, now)
 
     // v1 只返回测试数据，不实际发送
     return {
@@ -176,6 +229,15 @@ export class WebhooksService {
         },
         note: 'v1 仅返回模拟数据，不实际发送 HTTP 请求。生产环境会 POST 到目标 URL。',
       },
+    }
+  }
+
+  /** R4 SSRF 防护：URL 校验失败转 BadRequest（内网/环回/元数据/非 http） */
+  private async assertSafeUrl(url: string): Promise<void> {
+    try {
+      await assertSafeOutboundUrl(url)
+    } catch (err) {
+      throw new BadRequestException((err as Error).message || 'Webhook URL 不安全')
     }
   }
 }

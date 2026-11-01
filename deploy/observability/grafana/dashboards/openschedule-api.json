@@ -1,0 +1,200 @@
+{
+  "uid": "openschedule-api",
+  "title": "OpenSchedule API（RED + 慢查询 + 运行时）",
+  "description": "R9 观测性看板：指标来自 api 的 GET /metrics（openschedule_* 序列）。配套告警见 deploy/observability/alerts.yml。",
+  "tags": ["openschedule", "api", "r9"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "editable": true,
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "请求速率（按路由）",
+      "description": "RED 的 Rate：rate(openschedule_http_requests_total[5m])",
+      "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+          "expr": "sum by (route) (rate(openschedule_http_requests_total[5m]))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "5xx 比例（5m）",
+      "description": "> 5% 持续 5 分钟触发 ApiHighErrorRate 告警",
+      "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+          "expr": "sum(rate(openschedule_http_requests_total{status=~\"5..\"}[5m])) / sum(rate(openschedule_http_requests_total[5m]))",
+          "legendFormat": "5xx"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "在途请求",
+      "description": "> 200 持续 5 分钟触发 ApiInFlightSaturation 告警",
+      "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+          "expr": "max(openschedule_http_requests_in_flight)",
+          "legendFormat": "in-flight"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 100 },
+              { "color": "red", "value": 200 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "请求延迟分位（p50 / p95 / p99）",
+      "description": "RED 的 Duration：histogram_quantile(…_duration_seconds_bucket)",
+      "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(openschedule_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(openschedule_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(openschedule_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "慢查询速率（按 model / operation）",
+      "description": "与 db_slow_query 日志同源；阈值见 SLOW_QUERY_MS（默认 200ms）",
+      "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+          "expr": "sum by (model, operation) (rate(openschedule_db_slow_queries_total[5m]))",
+          "legendFormat": "{{model}}.{{operation}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "系统事件（1h 增量，如 redis_degraded）",
+      "description": "Redis 降级等系统级事件；> 0 触发 RedisDegraded 告警",
+      "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+          "expr": "sum by (event) (increase(openschedule_system_events_total[1h]))",
+          "legendFormat": "{{event}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "事件循环延迟（p50 / p99）",
+      "description": "运行时默认指标：p99 > 0.5s 持续 5 分钟触发 ApiEventLoopLagHigh",
+      "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+          "expr": "max(openschedule_nodejs_eventloop_lag_p50_seconds)",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+          "expr": "max(openschedule_nodejs_eventloop_lag_p99_seconds)",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Node 堆占用",
+      "description": "used / total；使用率 > 90% 持续 10 分钟触发 ApiHeapUsedHigh",
+      "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+          "expr": "sum(openschedule_nodejs_heap_size_used_bytes)",
+          "legendFormat": "used"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "openschedule-prometheus" },
+          "expr": "sum(openschedule_nodejs_heap_size_total_bytes)",
+          "legendFormat": "total"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+    }
+  ]
+}

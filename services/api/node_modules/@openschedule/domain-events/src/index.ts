@@ -1,0 +1,43 @@
+/**
+ * @openschedule/domain-events — 领域事件 payload 契约单一来源（production-ddd-design.md §8.1）。
+ *
+ * 消费方：services/api（发布/订阅）、services/ai（回调契约参照）、apps/web（WS 帧类型）。
+ * 纪律：新增事件必须 ① 本包定义类型 ② 补 §8.1 事件目录表 ③ 消费方集成测试。
+ */
+export * from './envelope';
+export * from './task-events';
+export * from './project-events';
+export * from './comment-events';
+export * from './notification-events';
+export * from './reminder-events';
+export * from './ai-events';
+
+import type { TaskEventName, TaskEventPayloads } from './task-events';
+import type { ProjectEventName, ProjectEventPayloads } from './project-events';
+import type { CommentEventName, CommentEventPayloads } from './comment-events';
+import type { NotificationEventName, NotificationEventPayloads } from './notification-events';
+import type { ReminderEventName, ReminderEventPayloads } from './reminder-events';
+import type { AiProposalEventName, AiProposalEventPayloads } from './ai-events';
+
+/** 全量事件名集合（§8.1 事件目录的代码化，R3 订阅接线检查清单） */
+export type DomainEventName =
+  | TaskEventName
+  | ProjectEventName
+  | CommentEventName
+  | NotificationEventName
+  | ReminderEventName
+  | AiProposalEventName;
+
+/** 事件名 → payload 的全量映射（订阅 @OnEvent 两侧共用） */
+export interface DomainEventPayloads
+  extends TaskEventPayloads,
+    ProjectEventPayloads,
+    CommentEventPayloads,
+    NotificationEventPayloads,
+    ReminderEventPayloads,
+    AiProposalEventPayloads {}
+
+export type DomainEvent<K extends DomainEventName = DomainEventName> = {
+  name: K;
+  payload: DomainEventPayloads[K];
+};

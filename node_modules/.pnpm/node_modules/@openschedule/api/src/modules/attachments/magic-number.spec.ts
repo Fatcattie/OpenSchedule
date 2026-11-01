@@ -1,0 +1,75 @@
+/**
+ * magic-number 嗅测（§3.3 / R4）：容器族识别与伪造扩展名拒绝。
+ * 纯函数，无依赖。
+ */
+import { describe, expect, it } from 'vitest'
+import { sniffContainer, assertContentMatchesDeclaredMime } from './magic-number';
+
+describe('sniffContainer', () => {
+  it('识别 JPEG/PNG/GIF/WebP/PDF', () => {
+    expect(sniffContainer(Buffer.from([0xff, 0xd8, 0xff, 0x01]))).toBe('jpeg');
+    expect(sniffContainer(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe('png');
+    expect(sniffContainer(Buffer.from('GIF89a', 'ascii'))).toBe('gif');
+    const webp = Buffer.concat([Buffer.from('RIFF', 'ascii'), Buffer.alloc(4, 0), Buffer.from('WEBP', 'ascii')]);
+    expect(sniffContainer(webp)).toBe('webp');
+    expect(sniffContainer(Buffer.from('%PDF-1.7', 'ascii'))).toBe('pdf');
+  });
+
+  it('识别 ZIP 容器（zip 与 OOXML 共用 PK\x03\x04 前缀）', () => {
+    expect(sniffContainer(Buffer.from([0x50, 0x4b, 0x03, 0x04]))).toBe('zip');
+  });
+
+  it('识别 7z / OLE2（旧 Office）', () => {
+    expect(sniffContainer(Buffer.from('377abcaf271c', 'hex'))).toBe('7z');
+    expect(sniffContainer(Buffer.from('d0cf11e0a1b11ae1', 'hex'))).toBe('ole2');
+  });
+
+  it('识别 HEIC/HEIF（ftyp 主品牌 heic / mif1），非 HEIF 品牌（avif/isom）不误判', () => {
+    const ftyp = (brand: string) => Buffer.concat([Buffer.from([0x00, 0x00, 0x00, 0x18]), Buffer.from(`ftyp${brand}`, 'ascii'), Buffer.alloc(4)]);
+    expect(sniffContainer(ftyp('heic'))).toBe('heif');
+    expect(sniffContainer(ftyp('mif1'))).toBe('heif');
+    expect(sniffContainer(ftyp('avif'))).toBeNull();
+    expect(sniffContainer(ftyp('isom'))).toBeNull();
+  });
+
+  it('未知字节返回 null', () => {
+    expect(sniffContainer(Buffer.from([0x00, 0x01, 0x02, 0x03]))).toBeNull();
+  });
+});
+
+describe('assertContentMatchesDeclaredMime', () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const pdf = Buffer.from('%PDF-1.7 some bytes', 'binary');
+  const pngBuffer = Buffer.concat([png, Buffer.alloc(4, 0)]);
+
+  it('同族通过', () => {
+    expect(assertContentMatchesDeclaredMime(pngBuffer, 'image/png')).toBeNull();
+    expect(assertContentMatchesDeclaredMime(pdf, 'application/pdf')).toBeNull();
+  });
+
+  it('伪造扩展名（PNG 字节标成 pdf）被拒', () => {
+    expect(assertContentMatchesDeclaredMime(pngBuffer, 'application/pdf')).toMatch('不符');
+  });
+
+  it('伪造扩展名（pdf 字节标成 png）被拒', () => {
+    expect(assertContentMatchesDeclaredMime(pdf, 'image/png')).toMatch('不符');
+  });
+
+  it('ZIP 容器族内：zip 声明通过 OOXML 字节（容器一致）', () => {
+    const zipBytes = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(4)]);
+    expect(assertContentMatchesDeclaredMime(zipBytes, 'application/zip')).toBeNull();
+    expect(assertContentMatchesDeclaredMime(zipBytes, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')).toBeNull();
+  });
+
+  it('HEIC：真实 ftyp 字节通过，伪造（JPEG 字节标成 image/heic）被拒', () => {
+    const heic = Buffer.concat([Buffer.from([0x00, 0x00, 0x00, 0x18]), Buffer.from('ftypheic', 'ascii'), Buffer.alloc(4)]);
+    expect(assertContentMatchesDeclaredMime(heic, 'image/heic')).toBeNull();
+    expect(assertContentMatchesDeclaredMime(heic, 'image/heif')).toBeNull();
+    expect(assertContentMatchesDeclaredMime(Buffer.from([0xff, 0xd8, 0xff, 0x01]), 'image/heic')).toMatch('不符');
+    expect(assertContentMatchesDeclaredMime(pngBuffer, 'image/heif')).toMatch('不符');
+  });
+
+  it('白名单外 MIME 直接放行（由 attachment-policy 白名单兜底，本层不重复拦）', () => {
+    expect(assertContentMatchesDeclaredMime(pngBuffer, 'application/octet-stream')).toBeNull();
+  });
+});

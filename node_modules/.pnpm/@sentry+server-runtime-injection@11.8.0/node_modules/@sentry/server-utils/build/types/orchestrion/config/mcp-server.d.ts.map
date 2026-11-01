@@ -1,0 +1,1 @@
+{"version":3,"file":"mcp-server.d.ts","sourceRoot":"","sources":["../../../../src/orchestrion/config/mcp-server.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,qBAAqB,EAAE,MAAM,aAAa,CAAC;AAwCzD,eAAO,MAAM,eAAe,yBAAiF,CAAC;AAE9G,eAAO,MAAM,oBAAoB,UAAkC,CAAC;AAEpE,eAAO,MAAM,iBAAiB;aAI5B,yBAAyB,EAAE,+DAA+D;aAC1F,yBAAyB,EAAE,4DAA4D;CAC/E,CAAC"}

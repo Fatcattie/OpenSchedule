@@ -2,26 +2,15 @@
  * PersonalProfilePage —— 个人资料
  *
  * 支持设置：名称、头像、电话、住址、邮箱、个人简介、座右铭；
- * 同时支持修改密码（本地模拟，仅做前端校验）。
+ * 修改密码走真实 API（R7 清零本地模拟点：POST /auth/change-password，R6-1 首次登录强制改密同端点）。
  */
 import { useState } from 'react'
-import {
-  Avatar,
-  Button,
-  Card,
-  Col,
-  Descriptions,
-  Form,
-  Input,
-  Modal,
-  Row,
-  Space,
-  Typography,
-  Upload,
-  message,
-} from 'antd'
+import { Alert, Avatar, Button, Card, Col, Descriptions, Form, Input, Modal, Row, Space, Typography, Upload, message } from 'antd'
 import { EditOutlined, LockOutlined, UploadOutlined, UserOutlined } from '@ant-design/icons'
+import { useSearchParams } from 'react-router-dom'
 import { useUsers } from '@/hooks/useUsers'
+import { authApi } from '@/api/authApi'
+import { getErrorMessage } from '@/api/errors'
 
 const { Title, Text } = Typography
 
@@ -36,11 +25,15 @@ function fileToBase64(file: File): Promise<string> {
 
 export default function PersonalProfilePage() {
   const { me, updateMe } = useUsers()
+  const [searchParams] = useSearchParams()
+  // R6-1：登录页 mustChangePassword 跳转携带 forceChangePassword=1 → 顶部提示 + 自动弹出改密弹窗
+  const forceChangePassword = searchParams.get('forceChangePassword') === '1'
   const [editOpen, setEditOpen] = useState(false)
-  const [pwdOpen, setPwdOpen] = useState(false)
+  const [pwdOpen, setPwdOpen] = useState(forceChangePassword)
   const [form] = Form.useForm()
   const [pwdForm] = Form.useForm()
   const [avatar, setAvatar] = useState<string | null>(me.avatarUrl)
+  const [pwdSubmitting, setPwdSubmitting] = useState(false)
 
   const handleEdit = (values: {
     displayName: string
@@ -58,15 +51,23 @@ export default function PersonalProfilePage() {
     message.success('个人资料已保存')
   }
 
-  const handleChangePassword = (values: { oldPassword: string; newPassword: string; confirmPassword: string }) => {
+  const handleChangePassword = async (values: { oldPassword: string; newPassword: string; confirmPassword: string }) => {
     if (values.newPassword !== values.confirmPassword) {
       message.error('两次输入的新密码不一致')
       return
     }
-    // 前端模拟：不校验旧密码（本地无真实密码存储），直接提示成功
-    setPwdOpen(false)
-    pwdForm.resetFields()
-    message.success('密码已修改（本地演示）')
+    // R7：改密走真实 API（POST /auth/change-password；首次登录强制改密同端点，R6-1）
+    setPwdSubmitting(true)
+    try {
+      await authApi.changePassword(values.oldPassword, values.newPassword)
+      setPwdOpen(false)
+      pwdForm.resetFields()
+      message.success('密码已修改')
+    } catch (e) {
+      message.error(getErrorMessage(e))
+    } finally {
+      setPwdSubmitting(false)
+    }
   }
 
   const beforeUpload = async (file: File) => {
@@ -90,6 +91,16 @@ export default function PersonalProfilePage() {
 
   return (
     <div style={{ padding: 24, maxWidth: 960, margin: '0 auto' }}>
+      {forceChangePassword && (
+        <Alert
+          type="warning"
+          showIcon
+          icon={<LockOutlined />}
+          message="首次登录需要修改密码"
+          description="这是管理员为你创建的临时密码，请先完成改密后再继续使用。"
+          style={{ marginBottom: 16 }}
+        />
+      )}
       <Title level={3} style={{ marginBottom: 24 }}>个人资料</Title>
 
       <Row gutter={[24, 24]}>
@@ -119,7 +130,13 @@ export default function PersonalProfilePage() {
                 }}>
                   编辑资料
                 </Button>
-                <Button icon={<LockOutlined />} onClick={() => setPwdOpen(true)}>修改密码</Button>
+              <Button
+                icon={<LockOutlined />}
+                type={forceChangePassword ? 'primary' : 'default'}
+                onClick={() => setPwdOpen(true)}
+              >
+                {forceChangePassword ? '立即修改密码' : '修改密码'}
+              </Button>
               </Space>
             </div>
           </Card>
@@ -194,10 +211,13 @@ export default function PersonalProfilePage() {
       </Modal>
 
       <Modal
-        title="修改密码"
+        title={forceChangePassword ? '首次登录：修改临时密码' : '修改密码'}
         open={pwdOpen}
-        onCancel={() => setPwdOpen(false)}
+        onCancel={() => { if (!forceChangePassword) setPwdOpen(false) }}
         onOk={() => pwdForm.submit()}
+        confirmLoading={pwdSubmitting}
+        closable={!forceChangePassword}
+        maskClosable={!forceChangePassword}
         okText="确认修改"
         cancelText="取消"
       >
@@ -205,7 +225,7 @@ export default function PersonalProfilePage() {
           <Form.Item name="oldPassword" label="当前密码" rules={[{ required: true, message: '请输入当前密码' }]}>
             <Input.Password />
           </Form.Item>
-          <Form.Item name="newPassword" label="新密码" rules={[{ required: true, min: 6, message: '密码至少 6 位' }]}>
+          <Form.Item name="newPassword" label="新密码" rules={[{ required: true, min: 8, message: '密码至少 8 位' }]}>
             <Input.Password />
           </Form.Item>
           <Form.Item name="confirmPassword" label="确认新密码" rules={[{ required: true, message: '请确认新密码' }]}>

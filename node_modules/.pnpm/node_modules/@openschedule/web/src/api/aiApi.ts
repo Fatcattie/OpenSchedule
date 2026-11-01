@@ -3,14 +3,7 @@
  * 草稿态 + 审批门：generate → pending → apply/reject
  */
 import { client } from './client'
-import { USE_MOCK } from './config'
-import {
-  mockCreateDecompose,
-  mockGetProposal,
-  mockListProposals,
-  mockApplyProposal,
-  mockRejectProposal,
-} from './mock/handlers'
+import { mockOr } from './mock/dispatch'
 import type { ApiResponse } from '@/types'
 import type { DecomposeSuggestion, ProposalApplyResult } from '@/types'
 
@@ -37,37 +30,42 @@ export interface ProposalListResult {
   pageSize: number
 }
 
-/** 生成拆解建议 */
+/** 生成拆解建议（团队已配置 AI 模型时后端同步等待 AI 服务，最长约 90s，故放宽超时） */
 export async function createDecompose(input: DecomposeInput): Promise<DecomposeSuggestion> {
-  if (USE_MOCK) return mockCreateDecompose(input)
-  const resp = await client.post<ApiResponse<DecomposeSuggestion>>('/proposals/decompose', input)
-  return resp.data.data
+  return mockOr('mockCreateDecompose', async () => {
+    const resp = await client.post<ApiResponse<DecomposeSuggestion>>('/proposals/decompose', input, { timeout: 120_000 })
+    return resp.data.data
+  }, input)
 }
 
 /** 我的提案列表 */
 export async function listProposals(params: ListProposalsParams = {}): Promise<ProposalListResult> {
-  if (USE_MOCK) return mockListProposals(params)
-  const resp = await client.get<ApiResponse<ProposalListResult>>('/proposals', { params })
-  return resp.data.data
+  return mockOr('mockListProposals', async () => {
+    const resp = await client.get<ApiResponse<ProposalListResult>>('/proposals', { params })
+    return resp.data.data
+  }, params)
 }
 
 /** 提案详情 */
 export async function getProposal(id: string): Promise<DecomposeSuggestion> {
-  if (USE_MOCK) return mockGetProposal(id)
-  const resp = await client.get<ApiResponse<DecomposeSuggestion>>(`/proposals/${id}`)
-  return resp.data.data
+  return mockOr('mockGetProposal', async () => {
+    const resp = await client.get<ApiResponse<DecomposeSuggestion>>(`/proposals/${id}`)
+    return resp.data.data
+  }, id)
 }
 
 /** 应用提案（确认落库） */
 export async function applyProposal(id: string): Promise<ProposalApplyResult> {
-  if (USE_MOCK) return mockApplyProposal(id)
-  const resp = await client.post<ApiResponse<ProposalApplyResult>>(`/proposals/${id}/apply`)
-  return resp.data.data
+  return mockOr('mockApplyProposal', async () => {
+    const resp = await client.post<ApiResponse<ProposalApplyResult>>(`/proposals/${id}/apply`)
+    return resp.data.data
+  }, id)
 }
 
 /** 拒绝提案 */
 export async function rejectProposal(id: string, reason?: string): Promise<{ id: string; status: string }> {
-  if (USE_MOCK) return mockRejectProposal(id, reason)
-  const resp = await client.post<ApiResponse<{ id: string; status: string }>>(`/proposals/${id}/reject`, { reason })
-  return resp.data.data
+  return mockOr('mockRejectProposal', async () => {
+    const resp = await client.post<ApiResponse<{ id: string; status: string }>>(`/proposals/${id}/reject`, { reason })
+    return resp.data.data
+  }, id, reason)
 }

@@ -1,0 +1,1 @@
+{"version":3,"file":"undici-instrumentation.d.ts","sourceRoot":"","sources":["../../../../src/integrations/node-fetch/undici-instrumentation.ts"],"names":[],"mappings":"AAgEA,OAAO,KAAK,EACV,gBAAgB,EAOjB,MAAM,SAAS,CAAC;AAcjB;;;;;;;;;;;;;GAaG;AACH,wBAAgB,gBAAgB,CAAC,MAAM,GAAE,gBAAqB,GAAG,IAAI,CAcpE"}

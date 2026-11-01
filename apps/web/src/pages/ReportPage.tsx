@@ -15,8 +15,8 @@ import { useMemo, useState } from 'react'
 import { Alert, Button, Card, Col, Empty, List, Row, Space, Statistic, Tag, Typography } from 'antd'
 import { PlusOutlined, SendOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { mockMe, mockUsers } from '@/api/mock/data'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { useDirectory, useMe } from '@/hooks/useWorkspaceIdentity'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
 import { useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
 import PublishTaskModal from '@/components/workspace/PublishTaskModal'
 import type { PublishTaskPayload } from '@/components/workspace/PublishTaskModal'
@@ -24,10 +24,11 @@ import type { WorkspaceTask } from '@/types'
 import { TASK_PRIORITY_META, TASK_STATUS_META } from '@/types'
 
 const { Title, Text, Paragraph } = Typography
-type WorkspaceRole = 'manager' | 'member'
 
 export default function ReportPage() {
-  const [role] = useLocalStorageState<WorkspaceRole>('workspace_role', 'manager')
+  const currentUser = useMe()
+  const { nameOf } = useDirectory()
+  const role = useCurrentRole()
   const isManager = role === 'manager'
   const [tasks, setTasks] = useWorkspaceTasks()
   const [open, setOpen] = useState(false)
@@ -43,7 +44,7 @@ export default function ReportPage() {
       status: 'todo', priority: payload.priority,
       assigneeId: payload.assigneeId, dueAt: payload.endAt, estimatedHours: 2, actualHours: null,
       completedAt: null, startedAt: null,
-      createdBy: mockMe.id, tags: [payload.taskMode === 'individual' ? '独立任务' : payload.taskMode === 'project' ? '团队协作项目' : '团队协作', payload.industry, payload.taskType],
+      createdBy: currentUser.id, tags: [payload.taskMode === 'individual' ? '独立任务' : payload.taskMode === 'project' ? '团队协作项目' : '团队协作', payload.industry, payload.taskType],
       sortOrder: 0, workflowColumnId: null, isAiGenerated: false, version: 1, createdAt: now, updatedAt: now,
       taskMode: payload.taskMode, kind: 'task', needReview: payload.taskMode === 'team' ? payload.needReview : false,
       reviewStatus: 'none', proposalStatus: needApproval ? 'pending' : 'none',
@@ -63,7 +64,7 @@ export default function ReportPage() {
 
   /** 第五批需求 3：成员版概览 —— 我的提报统计 */
   const myReports = useMemo(
-    () => tasks.filter((t) => t.createdBy === mockMe.id && t.approvalStatus !== 'none'),
+    () => tasks.filter((t) => t.createdBy === currentUser.id && t.approvalStatus !== 'none'),
     [tasks],
   )
   const myStats = useMemo(() => ({
@@ -136,7 +137,7 @@ export default function ReportPage() {
                   size="small"
                   dataSource={teamReports.slice(0, 30)}
                   renderItem={(t) => {
-                    const reporter = mockUsers.find((u) => u.id === t.createdBy)?.displayName ?? t.createdBy
+                    const reporter = nameOf(t.createdBy) ?? t.createdBy
                     return (
                       <List.Item actions={[
                         <Tag key="s" color={TASK_STATUS_META[t.status].color}>{TASK_STATUS_META[t.status].label}</Tag>,

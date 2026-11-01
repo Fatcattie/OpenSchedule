@@ -5,14 +5,14 @@
  * MetaSkill 默认使用 qiaomu-meta-skill 的编写规范，支持编辑内容或上传文件替换。
  */
 import { useCallback } from 'react'
-import { useLocalStorageState } from './useLocalStorageState'
+import { useWorkspaceState } from './useWorkspaceState'
 import { DEFAULT_META_CONFIG } from '@/constants/intelligentDefaults'
 import type { MetaConfig } from '@/types/intelligent'
 
 const STORAGE_KEY = 'meta_config'
 
 export function useMetaConfig() {
-  const [config, setConfig] = useLocalStorageState<MetaConfig>(STORAGE_KEY, DEFAULT_META_CONFIG)
+  const [config, setConfig] = useWorkspaceState<MetaConfig>(STORAGE_KEY, DEFAULT_META_CONFIG)
 
   const updateMetaPrompt = useCallback(
     (metaPrompt: string) => {

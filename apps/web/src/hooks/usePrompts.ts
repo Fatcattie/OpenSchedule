@@ -5,16 +5,19 @@
  * 接入后端后，将 setPrompts 的读写替换为接口调用即可，上层组件无需改动。
  */
 import { useCallback, useMemo } from 'react'
-import { useLocalStorageState } from './useLocalStorageState'
+import { useWorkspaceState } from './useWorkspaceState'
+import { USE_MOCK } from '@/api/config'
 import { newId, seedPrompts } from '@/constants/intelligentDefaults'
-import { mockMe } from '@/api/mock/data'
+import { useMe } from '@/hooks/useWorkspaceIdentity'
 import type { PromptItem, SharedEntry } from '@/types/intelligent'
 
 const STORAGE_KEY = 'prompts'
 
 export function usePrompts() {
-  const [prompts, setPrompts] = useLocalStorageState<PromptItem[]>(STORAGE_KEY, () =>
-    seedPrompts(mockMe.id, mockMe.displayName ?? '我'),
+  const currentUser = useMe()
+  // 示例种子仅 mock 演示使用（真实租户从空库开始，D-07）
+  const [prompts, setPrompts] = useWorkspaceState<PromptItem[]>(STORAGE_KEY, () =>
+    USE_MOCK ? seedPrompts(currentUser.id, currentUser.displayName ?? '我') : [],
   )
 
   const create = useCallback(
@@ -27,8 +30,8 @@ export function usePrompts() {
         content: input.content,
         tags: input.tags ?? [],
         favorite: input.favorite ?? false,
-        createdBy: input.createdBy ?? mockMe.id,
-        createdByName: input.createdByName ?? mockMe.displayName ?? '我',
+        createdBy: input.createdBy ?? currentUser.id,
+        createdByName: input.createdByName ?? currentUser.displayName ?? '我',
         createdAt: now,
         updatedAt: now,
         sharedWith: input.sharedWith ?? [],
@@ -38,7 +41,7 @@ export function usePrompts() {
       setPrompts((prev) => [item, ...prev])
       return item
     },
-    [setPrompts],
+    [setPrompts, currentUser.id, currentUser.displayName],
   )
 
   const update = useCallback(
@@ -47,21 +50,21 @@ export function usePrompts() {
         prev.map((p) => (p.id === id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p)),
       )
     },
-    [setPrompts],
+    [setPrompts, currentUser.id, currentUser.displayName],
   )
 
   const remove = useCallback(
     (id: string) => {
       setPrompts((prev) => prev.filter((p) => p.id !== id))
     },
-    [setPrompts],
+    [setPrompts, currentUser.id, currentUser.displayName],
   )
 
   const toggleFavorite = useCallback(
     (id: string) => {
       setPrompts((prev) => prev.map((p) => (p.id === id ? { ...p, favorite: !p.favorite } : p)))
     },
-    [setPrompts],
+    [setPrompts, currentUser.id, currentUser.displayName],
   )
 
   /** 推荐分享给若干员工；userIds 为空表示取消推荐 */
@@ -79,7 +82,7 @@ export function usePrompts() {
         }),
       )
     },
-    [setPrompts],
+    [setPrompts, currentUser.id, currentUser.displayName],
   )
 
   /** 复制一份到自己的库（用于「收到的推荐」保存） */
@@ -90,8 +93,8 @@ export function usePrompts() {
         ...item,
         id: newId('prompt'),
         name: `${item.name}（副本）`,
-        createdBy: mockMe.id,
-        createdByName: mockMe.displayName ?? '我',
+        createdBy: currentUser.id,
+        createdByName: currentUser.displayName ?? '我',
         createdAt: now,
         updatedAt: now,
         sharedWith: [],
@@ -101,24 +104,24 @@ export function usePrompts() {
       setPrompts((prev) => [copy, ...prev])
       return copy
     },
-    [setPrompts],
+    [setPrompts, currentUser.id, currentUser.displayName],
   )
 
   /** 我创建的（含我分享出去的） */
-  const mine = useMemo(() => prompts.filter((p) => p.createdBy === mockMe.id), [prompts])
+  const mine = useMemo(() => prompts.filter((p) => p.createdBy === currentUser.id), [prompts, currentUser.id])
 
   /** 别人推荐给我的 */
   const sharedWithMe = useMemo<SharedEntry<PromptItem>[]>(
     () =>
       prompts
-        .filter((p) => p.createdBy !== mockMe.id && p.sharedWith.includes(mockMe.id))
+        .filter((p) => p.createdBy !== currentUser.id && p.sharedWith.includes(currentUser.id))
         .map((p) => ({
           item: p,
           sharedBy: p.createdBy,
           sharedByName: p.createdByName,
-          note: p.shareNotes[mockMe.id],
+          note: p.shareNotes[currentUser.id],
         })),
-    [prompts],
+    [prompts, currentUser.id],
   )
 
   return { prompts, mine, sharedWithMe, create, update, remove, toggleFavorite, share, duplicate }

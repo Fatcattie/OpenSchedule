@@ -13,13 +13,12 @@ import { getErrorMessage } from '@/api/errors'
 import { getSummary, saveSummary, type PeriodSummary, type SummaryPeriod } from '@/api/summaryApi'
 import ErrorView from '@/components/ErrorView'
 import LoadingView from '@/components/LoadingView'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
 import { useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
-import { mockUsers } from '@/api/mock/data'
+import { useDirectory } from '@/hooks/useWorkspaceIdentity'
 import type { WorkspaceTask } from '@/types'
 
 const { Title, Text } = Typography
-type WorkspaceRole = 'manager' | 'member'
 
 const PERIOD_OPTIONS: { value: SummaryPeriod; label: string }[] = [
   { value: 'day', label: '当日' },
@@ -45,7 +44,7 @@ function periodWindow(period: SummaryPeriod) {
 }
 
 export default function SummaryPage() {
-  const [role] = useLocalStorageState<WorkspaceRole>('workspace_role', 'manager')
+  const role = useCurrentRole()
   const isManager = role === 'manager'
   return isManager ? <ManagerSummary /> : <MemberSummary />
 }
@@ -152,6 +151,7 @@ function MemberSummary() {
 
 /** 管理版：基于 useWorkspaceTasks 聚合团队周期总结 + 成员完成情况 */
 function ManagerSummary() {
+  const { teamMembers, nameOf } = useDirectory()
   const [period, setPeriod] = useState<SummaryPeriod>('week')
   const [tasks] = useWorkspaceTasks()
 
@@ -172,7 +172,7 @@ function ManagerSummary() {
     const map = new Map<string, { userId: string; name: string; done: number; overdue: number; hours: number }>()
     teamDone.forEach((t) => {
       const uid = t.assigneeId ?? t.createdBy
-      const user = mockUsers.find((u) => u.id === uid)
+      const user = teamMembers.find((u) => u.id === uid)
       if (!map.has(uid)) map.set(uid, { userId: uid, name: user?.displayName ?? '未指派', done: 0, overdue: 0, hours: 0 })
       const e = map.get(uid)!
       e.done += 1
@@ -244,7 +244,7 @@ function ManagerSummary() {
             <List.Item>
               <Space wrap>
                 <Text>{t.title}</Text>
-                <Tag color="cyan">{mockUsers.find((u) => u.id === (t.assigneeId ?? t.createdBy))?.displayName ?? '未指派'}</Tag>
+                <Tag color="cyan">{nameOf((t.assigneeId ?? t.createdBy)) ?? '未指派'}</Tag>
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   截止 {t.dueAt ? dayjs(t.dueAt).format('MM-DD') : '—'} · 完成 {dayjs(t.completedAt).format('MM-DD HH:mm')}
                 </Text>

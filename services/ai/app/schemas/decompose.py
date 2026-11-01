@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 # 依赖类型（§3.2 task_dependencies.type：FS/SS/FF/SF 四类）
 DependencyType = Literal["FS", "SS", "FF", "SF"]
@@ -33,6 +33,20 @@ class DecomposeConstraints(BaseModel):
     industry: str | None = Field(default=None, min_length=1, max_length=100)  # 行业/场景
 
 
+class LlmTarget(BaseModel):
+    """租户模型配置（OpenAI 兼容端点）：由主服务按请求下发（管理员在设置页配置，库内加密）。
+
+    AI 服务**不落盘、不记日志、不回传**：`api_key` 为 SecretStr，且在 DecomposeRequest 上 exclude，
+    run 存储/图状态序列化/回调体都不会带出明文。
+    """
+
+    model_config = ConfigDict(strict=True)
+
+    base_url: str = Field(min_length=8, max_length=500, pattern=r"^https?://")
+    api_key: SecretStr = Field(min_length=1, max_length=500)
+    model: str = Field(min_length=1, max_length=100)
+
+
 class DecomposeRequest(BaseModel):
     """POST /ai/decompose 请求体（§3.5.2）。"""
 
@@ -44,6 +58,8 @@ class DecomposeRequest(BaseModel):
     constraints: DecomposeConstraints = Field(default_factory=DecomposeConstraints)
     granularity: Granularity = "中"
     perspective: Perspective = "角色"
+    # 租户模型配置；缺省 = 未配置 → 确定性模板降级。exclude：model_dump 永不带出
+    llm: LlmTarget | None = Field(default=None, exclude=True)
 
 
 class TaskDependency(BaseModel):

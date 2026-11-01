@@ -1,0 +1,40 @@
+# ============================================================
+# Prometheus 抓取配置（R9 观测性：api 的 /metrics）
+# 使用方式（仓库根目录）：
+#   pnpm docker:obs    # 等价：docker compose --env-file .env -f deploy/docker-compose.yml --profile observability up -d prometheus grafana
+# 前置：api 容器 METRICS_ENABLED=true（根 .env/.env.example 默认 true）；
+#       关闭时 /metrics 返回 404 → up{job="openschedule-api"} == 0 → 触发 ApiDown 告警。
+# ============================================================
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    stack: openschedule
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# 告警投递：firing 规则推给 Alertmanager（路由/分组/抑制见 alertmanager.yml，IM 通道见 alert-bridge）
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  - job_name: openschedule-api
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      # compose 网络内服务名；本地直接跑 API 时改为 host.docker.internal:3000
+      - targets: ['api:3000']
+        labels:
+          service: openschedule-api
+
+  # R11：AI 服务指标（死信累计/积压、run 存储形态）；/metrics 公开但 AI 不发布宿主端口
+  - job_name: openschedule-ai
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ['ai:8300']
+        labels:
+          service: openschedule-ai

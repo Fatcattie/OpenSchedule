@@ -4,11 +4,12 @@
  * 覆盖需求 6：任务闭环后（完成并审核通过），SOP 流程以任务标题、总结字段和流程图
  * 的形式总结到「SOP 与经验」看板，供后续任务参考和选择应用。
  *
- * 「SOP 与经验」看板的数据存在 localStorage `os_ws_v1_sops`（与 useLocalStorageState 对齐），
- * 本工具直接读写同一份存储，供执行页审核通过、工作台审核中心等多处调用。
+ * 「SOP 与经验」看板的数据是工作台集合 `sops`（D-07 一期：真实模式存后端 /workspace/sops，mock 模式存 localStorage），
+ * 本工具经 updateWorkspaceValue 写入同一集合，供执行页审核通过、工作台审核中心等多处调用。
  */
 import type { SopFlow, SopNode, TaskCompletion, WorkspaceTask } from '@/types'
 import { sopFlowTitles } from '@/types'
+import { updateWorkspaceValue } from '@/hooks/useWorkspaceState'
 
 /** 与 CollaborationWorkspacePage.SopDocument 对齐（后三个字段为沉淀增强字段，旧数据可缺省） */
 export interface SopLibraryDoc {
@@ -27,26 +28,11 @@ export interface SopLibraryDoc {
   sourceTaskId?: string
 }
 
-/** 与协作工作台「SOP 与经验」看板共用同一份 localStorage（键名 `sops`），保证任务闭环沉淀后即时出现在看板 */
-const SOP_KEY = 'sops'
-
-export function readSopLibrary(): SopLibraryDoc[] {
-  try {
-    const raw = localStorage.getItem(SOP_KEY)
-    if (raw != null) return JSON.parse(raw) as SopLibraryDoc[]
-  } catch {
-    // 解析失败按空库处理
-  }
-  return []
-}
-
-export function writeSopLibrary(docs: SopLibraryDoc[]): void {
-  try {
-    localStorage.setItem(SOP_KEY, JSON.stringify(docs))
-  } catch {
-    // 忽略写入异常
-  }
-}
+/**
+ * 与协作工作台「SOP 与经验」看板共用的集合名，保证任务闭环沉淀后即时出现在看板。
+ * （此前本工具直接读写 localStorage 的 `sops`，而看板实际键为 `os_ws_v1_sops`，沉淀从未显示到看板，D-07 一期一并修正）
+ */
+export const SOP_COLLECTION = 'sops'
 
 /** 查找任务自身或最近祖先持有的 SOP（继承语义），返回 [流程, 来源任务] */
 export function effectiveSop(
@@ -83,8 +69,7 @@ export function archiveSopFromTask(tasks: WorkspaceTask[], task: WorkspaceTask):
     flow: flow ? JSON.parse(JSON.stringify(flow.steps)) as SopNode[] : undefined,
     archivedAt: new Date().toISOString(),
   }
-  const list = readSopLibrary().filter((d) => d.sourceTaskId !== task.id)
-  writeSopLibrary([doc, ...list])
+  updateWorkspaceValue<SopLibraryDoc[]>(SOP_COLLECTION, (list) => [doc, ...list.filter((d) => d.sourceTaskId !== task.id)], [])
   return doc
 }
 

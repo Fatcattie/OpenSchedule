@@ -1,0 +1,28 @@
+/**
+ * 提醒域事件：reminder.due（§8.1 事件目录）。订阅者：BC-07 通知路由、BC-06 AI 应急输入。
+ * reminderType 与 schema Reminder.reminder_type 取值一致：due/start/custom/deadline_approach。
+ */
+import type { DomainEventEnvelope } from './envelope';
+
+export const REMINDER_EVENTS = {
+  DUE: 'reminder.due',
+} as const;
+
+export type ReminderEventName = (typeof REMINDER_EVENTS)[keyof typeof REMINDER_EVENTS];
+
+export type ReminderType = 'due' | 'start' | 'custom' | 'deadline_approach';
+
+export interface ReminderEventPayloads {
+  [REMINDER_EVENTS.DUE]: DomainEventEnvelope & {
+    reminderId: string;
+    /** 关联团队任务；个人提醒无任务时省略 */
+    taskId?: string;
+    userId: string;
+    reminderType: ReminderType;
+  };
+}
+
+export type ReminderDomainEvent<K extends ReminderEventName = ReminderEventName> = {
+  name: K;
+  payload: ReminderEventPayloads[K];
+};

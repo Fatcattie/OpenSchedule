@@ -3,12 +3,16 @@
  */
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { AuditService } from '../../common/audit/audit.service'
 import { AuthUser } from '../../common/decorators/current-user.decorator'
 import { generateApiKey, hashApiKey, getKeyPrefix } from './api-key'
 
 @Injectable()
 export class ApiKeysService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private audit: AuditService,
+  ) {}
 
   async list(user: AuthUser) {
     const keys = await this.prisma.apiKey.findMany({
@@ -44,6 +48,15 @@ export class ApiKeysService {
     })
 
     // 仅创建时返回一次完整明文 Key
+    // R4 审计：api_key.create（after 只含 keyPrefix 摘要/范围，绝不落完整明文）
+    await this.audit.record({
+      tenantId: user.tenantId,
+      actorId: user.userId,
+      action: 'api_key.create',
+      resourceType: 'api_key',
+      resourceId: record.id,
+      after: { name: record.name, keyPrefix: record.keyPrefix, scopes: record.scopes, expiresAt: record.expiresAt },
+    })
     return {
       data: {
         ...record,
@@ -61,6 +74,17 @@ export class ApiKeysService {
     await this.prisma.apiKey.update({
       where: { id },
       data: { revokedAt: new Date(), revokedBy: user.userId },
+    })
+
+    // R4 审计：api_key.revoke（before 只含 keyPrefix，绝不落 hash/明文）
+    await this.audit.record({
+      tenantId: user.tenantId,
+      actorId: user.userId,
+      action: 'api_key.revoke',
+      resourceType: 'api_key',
+      resourceId: id,
+      before: { name: key.name, keyPrefix: key.keyPrefix, scopes: key.scopes },
+      after: { revokedAt: new Date(), revokedBy: user.userId },
     })
 
     return { data: { id, revoked: true } }

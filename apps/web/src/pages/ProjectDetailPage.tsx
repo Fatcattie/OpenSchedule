@@ -41,8 +41,8 @@ import {
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import type { ColumnsType } from 'antd/es/table'
-import { mockMe, mockUsers } from '@/api/mock/data'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { useDirectory, useMe } from '@/hooks/useWorkspaceIdentity'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
 import { useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
 import { taskRoute } from '@/utils/taskTree'
 import type { ApprovalStatus, TaskPriority, WorkspaceTask } from '@/types'
@@ -50,13 +50,14 @@ import { APPROVAL_STATUS_META, TASK_PRIORITY_META, TASK_STATUS_META } from '@/ty
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
-type WorkspaceRole = 'manager' | 'member'
 
 export default function ProjectDetailPage() {
+  const currentUser = useMe()
+  const { teamMembers, nameOf } = useDirectory()
   const navigate = useNavigate()
   const { projectId = '' } = useParams()
   const [tasks, setTasks] = useWorkspaceTasks()
-  const [role] = useLocalStorageState<WorkspaceRole>('workspace_role', 'manager')
+  const role = useCurrentRole()
   const isManager = role === 'manager'
 
   const project = useMemo(() => tasks.find((t) => t.id === projectId && t.kind === 'project'), [tasks, projectId])
@@ -69,7 +70,7 @@ export default function ProjectDetailPage() {
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.createdAt.localeCompare(b.createdAt))
   }, [tasks, project])
 
-  const isProjectOwner = project ? project.createdBy === mockMe.id || project.assigneeId === mockMe.id : false
+  const isProjectOwner = project ? project.createdBy === currentUser.id || project.assigneeId === currentUser.id : false
   /** 需求 6：仅管理/项目负责人可增删改项目内任务 */
   const canManage = isManager || isProjectOwner
 
@@ -79,7 +80,7 @@ export default function ProjectDetailPage() {
   const [editForm] = Form.useForm()
 
   const userName = (id: string | null) =>
-    id ? (mockUsers.find((u) => u.id === id)?.displayName ?? id) : '未指派'
+    id ? (nameOf(id) ?? id) : '未指派'
 
   if (!project) {
     return (
@@ -111,7 +112,7 @@ export default function ProjectDetailPage() {
       assigneeId: values.assigneeId ?? null,
       dueAt: range?.[1]?.toISOString() ?? null, estimatedHours: 2, actualHours: null,
       completedAt: null, startedAt: null,
-      createdBy: mockMe.id, tags: ['项目任务'], sortOrder: projTasks.length + 1,
+      createdBy: currentUser.id, tags: ['项目任务'], sortOrder: projTasks.length + 1,
       workflowColumnId: null, isAiGenerated: false, version: 1, createdAt: now, updatedAt: now,
       taskMode: 'team', kind: 'task', needReview: false, reviewStatus: 'none',
       proposalStatus: needsApproval ? 'pending' : 'none', participants: [], reviewOfTaskId: null,
@@ -159,7 +160,7 @@ export default function ProjectDetailPage() {
                 ...t,
                 approvalStatus: 'pending' as ApprovalStatus,
                 approvalType: 'content' as const,
-                pendingContent: { title: values.title, description: values.description ?? '', submittedBy: mockMe.id, submittedAt: now },
+                pendingContent: { title: values.title, description: values.description ?? '', submittedBy: currentUser.id, submittedAt: now },
                 updatedAt: now,
               }
             : t,
@@ -331,7 +332,7 @@ export default function ProjectDetailPage() {
 
       <Card size="small" style={{ marginBottom: 16 }}>
         <Descriptions column={{ xs: 1, sm: 2, md: 4 }} size="small" colon={false}>
-          <Descriptions.Item label="项目负责人">{userName(project.assigneeId)}（{project.createdBy === mockMe.id ? '我' : userName(project.createdBy)} 创建）</Descriptions.Item>
+          <Descriptions.Item label="项目负责人">{userName(project.assigneeId)}（{project.createdBy === currentUser.id ? '我' : userName(project.createdBy)} 创建）</Descriptions.Item>
           <Descriptions.Item label="周期">
             {project.startAt && project.endAt
               ? `${dayjs(project.startAt).format('YYYY-MM-DD')} ~ ${dayjs(project.endAt).format('YYYY-MM-DD')}`
@@ -394,7 +395,7 @@ export default function ProjectDetailPage() {
             </Col>
             <Col span={16}>
               <Form.Item name="assigneeId" label="承接人">
-                <Select allowClear placeholder="待承接（可不指派）" options={mockUsers.map((u) => ({ value: u.id, label: u.displayName }))} />
+                <Select allowClear placeholder="待承接（可不指派）" options={teamMembers.map((u) => ({ value: u.id, label: u.displayName }))} />
               </Form.Item>
             </Col>
           </Row>
@@ -426,7 +427,7 @@ export default function ProjectDetailPage() {
             <Input.TextArea rows={2} />
           </Form.Item>
           <Form.Item name="assigneeId" label="承接人">
-            <Select allowClear placeholder="待承接" options={mockUsers.map((u) => ({ value: u.id, label: u.displayName }))} />
+            <Select allowClear placeholder="待承接" options={teamMembers.map((u) => ({ value: u.id, label: u.displayName }))} />
           </Form.Item>
         </Form>
       </Modal>

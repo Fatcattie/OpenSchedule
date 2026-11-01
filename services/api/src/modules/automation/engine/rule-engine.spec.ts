@@ -1,7 +1,7 @@
 /**
- * rule-engine.spec.ts —— 自动化规则引擎单测（B20）
- * 覆盖：触发器匹配（6 类）+ 条件匹配（8 个条件）+ 动作计算（7 种动作）+ 综合场景
+ * rule-engine.spec.ts —— 自动化规则引擎单测（B20） * 覆盖：触发器匹配（6 类）+ 条件匹配（8 个条件）+ 动作计算（7 种动作）+ 综合场景
  */
+import { describe, expect, it } from 'vitest'
 import {
   matchRule,
   evaluateActions,

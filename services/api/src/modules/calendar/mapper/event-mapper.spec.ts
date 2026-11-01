@@ -1,6 +1,7 @@
 /**
  * event-mapper.spec.ts
  */
+import { describe, expect, it } from 'vitest'
 import {
   taskToCalendarEvent,
   shouldSyncTaskChange,
@@ -40,8 +41,7 @@ describe('event-mapper', () => {
       const task = makeTask()
       const event = taskToCalendarEvent(task)
 
-      // 全天格式是 date 字符串
-      expect('date' in event.start).toBe(true)
+      // 全天格式是 date 字符串      expect('date' in event.start).toBe(true)
       expect((event.start as any).date).toBe('2026-08-25')
       expect((event.end as any).date).toBe('2026-08-26')
     })
@@ -98,7 +98,7 @@ describe('event-mapper', () => {
   describe('shouldSyncTaskChange', () => {
     it('标题变了 → 要同步', () => {
       const oldTask = makeTask()
-      const newTask = makeTask({ title: '新标题' })
+      const newTask = makeTask({ title: '新标签' })
       const result = shouldSyncTaskChange(oldTask, newTask)
       expect(result.shouldSync).toBe(true)
       expect(result.changedFields).toContain('title')
@@ -140,14 +140,13 @@ describe('event-mapper', () => {
       const oldTask = makeTask({ priority: 'medium' })
       const newTask = makeTask({ priority: 'high' })
       const result = shouldSyncTaskChange(oldTask, newTask)
-      // 优先级不在 SYNC_FIELDS 里
-      expect(result.shouldSync).toBe(false)
+      // 优先级不在 SYNC_FIELDS 里      expect(result.shouldSync).toBe(false)
       expect(result.changedFields.length).toBe(0)
     })
 
     it('标签变了 → 不同步', () => {
       const oldTask = makeTask()
-      const newTask = makeTask({ tags: ['新标签'] })
+      const newTask = makeTask({ tags: ['新标题'] })
       const result = shouldSyncTaskChange(oldTask, newTask)
       expect(result.shouldSync).toBe(false)
     })

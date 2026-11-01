@@ -3,6 +3,16 @@
  */
 export type UserStatus = 'active' | 'disabled'
 
+/** 后端实时展开的租户/项目角色（/auth/me.roles）；mock 兼容字符串角色 key */
+export interface AuthRole {
+  key: string
+  scope?: string
+  scopeResourceId?: string | null
+  permissions?: string[]
+}
+
+export type AuthRoleValue = AuthRole | string
+
 export interface User {
   id: string // users.id
   email: string // users.email（登录名）
@@ -16,14 +26,18 @@ export interface User {
   address?: string
   bio?: string // 个人简介
   motto?: string
+  /** 当前用户服务端角色声明；不持久化为 UI 可编辑状态 */
+  roles?: AuthRoleValue[]
   createdAt: string // timestamptz → ISO8601 UTC
   updatedAt: string
 }
 
-/** 登录返回（规格 3.5.1：POST /auth/login 返回 access + refresh） */
+/** 登录返回（规格 3.5.1：POST /auth/login 返回 access + refresh；R6-1 新增 mustChangePassword 强制改密标志） */
 export interface AuthTokens {
   accessToken: string // JWT，TTL 15m（规格 3.7 JWT_ACCESS_TTL）
   refreshToken: string // TTL 7d
+  /** R6-1（D-05 B）：管理员代建账号首次登录为 true，客户端据此走强制改密流程（POST /auth/change-password） */
+  mustChangePassword?: boolean
 }
 
 export interface LoginInput {
@@ -48,5 +62,5 @@ export interface TenantSummary {
 export interface MeResponse {
   user: User
   tenant: TenantSummary | null
-  roles: string[]
+  roles: AuthRoleValue[]
 }

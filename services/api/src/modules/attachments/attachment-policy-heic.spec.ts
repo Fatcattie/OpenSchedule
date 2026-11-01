@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest'
 import { validateAttachmentMetadata } from './attachment-policy'
 
 describe('attachment policy — HEIC/HEIF 放宽（增量 11）', () => {

@@ -15,7 +15,7 @@ import {
   useNotifications,
 } from '@/hooks/useNotifications'
 import { useUsers } from '@/hooks/useUsers'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { useWorkspaceState } from '@/hooks/useWorkspaceState'
 import ForwardMessageModal, { type ForwardLogEntry } from '@/components/notifications/ForwardMessageModal'
 import { providerMeta } from '@/services/imProvider'
 
@@ -30,7 +30,7 @@ export default function NotificationsPage() {
   const [keyword, setKeyword] = useState('')
   const [category, setCategory] = useState<string>('all')
   const [readFilter, setReadFilter] = useState<ReadFilter>('all')
-  const [forwardLog, setForwardLog] = useLocalStorageState<ForwardLogEntry[]>('notification_forward_log', [])
+  const [forwardLog, setForwardLog] = useWorkspaceState<ForwardLogEntry[]>('notification_forward_log', [])
   const [forwardState, setForwardState] = useState<{ title: string; content: string } | null>(null)
 
   const filtered = useMemo(() => {

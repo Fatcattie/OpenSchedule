@@ -1,0 +1,1 @@
+{"version":3,"file":"koa.d.ts","sourceRoot":"","sources":["../../../../src/integrations/tracing/koa.ts"],"names":[],"mappings":"AAEA;;;;;;;;;;;;;;;;;;;;;;GAsBG;AAEH,eAAO,MAAM,oBAAoB,QAAS;IAExC,EAAE,EAAE,CAAC,KAAK,EAAE,OAAO,EAAE,QAAQ,EAAE,CAAC,GAAG,IAAI,EAAE,GAAG,EAAE,KAAK,IAAI,KAAK,OAAO,CAAC;CACrE,KAAG,IAGH,CAAC"}

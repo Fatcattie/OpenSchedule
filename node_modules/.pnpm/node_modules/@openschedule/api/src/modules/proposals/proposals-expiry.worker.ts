@@ -1,0 +1,97 @@
+/**
+ * ai.proposal.expired 过期扫描 worker（§2.5 订阅表 / R3 双保险）：
+ * ① BullMQ repeatable（REDIS_URL 可用时）承担周期主路径；② setInterval DB 扫描兜底（Redis 宕机过期扫描不丢）。
+ * 原子认领：pending + expires_at ≤ now → expired（updateMany 条件更新防双路径重复），
+ * 过期事件在事务内落 Outbox（ai.proposal.expired），并直接站内通知提议人（INV-7：到期自动 expired 并通知）。
+ */
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common'
+import { OutboxService, type OutboxEventName } from '../../common/outbox/outbox.service'
+import { PrismaService } from '../../common/prisma/prisma.service'
+import { QueueService } from '../../common/queue/queue.service'
+import { NotificationsService } from '../notifications/notifications.service'
+import { AI_PROPOSAL_EVENTS } from '@openschedule/domain-events'
+
+const EXPIRY_SCAN_INTERVAL_MS = Number(process.env.PROPOSAL_EXPIRY_INTERVAL_MS ?? 60_000)
+
+@Injectable()
+export class ProposalsExpiryWorker implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ProposalsExpiryWorker.name)
+  private timer?: NodeJS.Timeout
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outbox: OutboxService,
+    private readonly notifications: NotificationsService,
+    @Optional() private readonly queue?: QueueService,
+  ) {}
+
+  onModuleInit(): void {
+    void this.queue
+      ?.addRepeatable('proposals', 'proposals.expiry', { intervalMs: EXPIRY_SCAN_INTERVAL_MS }, EXPIRY_SCAN_INTERVAL_MS)
+      .then((ok) => ok && this.logger.log('AI 提议过期 BullMQ repeatable job 已注册'))
+    void this.queue?.startWorker('proposals', () => this.tick()).then((started) =>
+      started && this.logger.log('AI 提议过期 BullMQ worker 已启动'),
+    )
+    this.timer = setInterval(() => {
+      void this.tick().catch((err) => this.logger.warn(`AI 提议过期扫描失败: ${(err as Error).message}`))
+    }, EXPIRY_SCAN_INTERVAL_MS)
+    this.timer.unref?.()
+    this.logger.log(`AI 提议过期 worker 启动（间隔 ${EXPIRY_SCAN_INTERVAL_MS}ms）`)
+  }
+
+  onModuleDestroy(): void {
+    if (this.timer) clearInterval(this.timer)
+  }
+
+  private async tick(): Promise<void> {
+    const now = new Date()
+    const due = await this.prisma.aiProposal.findMany({
+      where: { status: 'pending', expiresAt: { lte: now } },
+      select: { id: true, tenantId: true, type: true, proposerId: true },
+      take: 100,
+    })
+    let expired = 0
+    for (const proposal of due) {
+      await this.expireOne(proposal, now)
+      expired++
+    }
+    if (expired > 0) this.logger.log(`AI 提议过期扫描：${expired} 条 pending 置 expired`)
+  }
+
+  /** 单条过期：原子认领（pending + 未过期 → expired）+ 事务内 Outbox 事件 + 站内通知提议人 */
+  private async expireOne(
+    proposal: { id: string; tenantId: string; type: string; proposerId: string | null },
+    now: Date,
+  ): Promise<void> {
+    const claimed = await this.prisma.aiProposal.updateMany({
+      where: { id: proposal.id, status: 'pending', expiresAt: { lte: now } },
+      data: { status: 'expired' },
+    })
+    if (claimed.count === 0) return // 已被另一路径过期 / 已审批（防双路径重复）
+    await this.prisma.$transaction(async (tx) => {
+      await this.outbox.publish(
+        proposal.tenantId,
+        AI_PROPOSAL_EVENTS.EXPIRED as OutboxEventName,
+        {
+          proposalId: proposal.id,
+          type: proposal.type,
+          proposerId: proposal.proposerId,
+          actor: { id: 'system', type: 'system' },
+        },
+        tx,
+      )
+    })
+    if (proposal.proposerId) {
+      await this.notifications
+        .notify({
+          tenantId: proposal.tenantId,
+          userId: proposal.proposerId,
+          type: 'ai.proposal.expired',
+          title: 'AI 提议已过期未审批',
+          body: '该提议超过审批时效已自动过期，需要时可重新发起。',
+          data: { proposalId: proposal.id },
+        })
+        .catch((err) => this.logger.warn(`AI 提议过期通知发送失败 proposal=${proposal.id}: ${(err as Error).message}`))
+    }
+  }
+}

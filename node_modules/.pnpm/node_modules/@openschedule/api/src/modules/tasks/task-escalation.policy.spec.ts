@@ -1,0 +1,34 @@
+/**
+ * task-escalation.policy 纯函数单测（§3.2 / R3）：isBlockedEscalationDue 判定边界。 */
+import { describe, expect, it } from 'vitest'
+import { isBlockedEscalationDue } from './task-escalation.policy';
+
+describe('isBlockedEscalationDue', () => {
+  const now = new Date('2026-10-01T12:00:00Z');
+  const thresholdMs = 72 * 60 * 60 * 1000;
+
+  it('未阻塞（blockedAt=null）不升级', () => {
+    expect(isBlockedEscalationDue(null, null, now, thresholdMs)).toBe(false);
+  });
+
+  it('已升级过（blockEscalatedAt 非空）不重复升级', () => {
+    const blockedAt = new Date(now.getTime() - 100 * thresholdMs);
+    const escalatedAt = new Date(now.getTime() - thresholdMs);
+    expect(isBlockedEscalationDue(blockedAt, escalatedAt, now, thresholdMs)).toBe(false);
+  });
+
+  it('阻塞不足 72h 不升级', () => {
+    const blockedAt = new Date(now.getTime() - thresholdMs + 1000);
+    expect(isBlockedEscalationDue(blockedAt, null, now, thresholdMs)).toBe(false);
+  });
+
+  it('阻塞恰好 72h（临界）升级', () => {
+    const blockedAt = new Date(now.getTime() - thresholdMs);
+    expect(isBlockedEscalationDue(blockedAt, null, now, thresholdMs)).toBe(true);
+  });
+
+  it('阻塞超过 72h 升级', () => {
+    const blockedAt = new Date(now.getTime() - 3 * thresholdMs);
+    expect(isBlockedEscalationDue(blockedAt, null, now, thresholdMs)).toBe(true);
+  });
+});

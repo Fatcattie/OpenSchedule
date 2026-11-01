@@ -1,14 +1,15 @@
 # ============================================================
-# OpenSchedule CI 骨架（方案 chapter_04 §4.5 DoD 的流水线承载）
-# 当前：lint + build + test 三个 job（Node 侧；pnpm 缓存）
-# ⚠️ 需补充项（标注 TODO，按 DoD 8 条逐步放开）：
-#   1. OpenAPI 快照进 CI：改动即 diff 失败（方案 §4.5「API 契约」）
-#   2. 跨租户隔离集成测试 ≥5 用例（tenant_id 铁律，方案 §4.5「多租户隔离」）
-#   3. 迁移可回滚验证：fresh + migrate + rollback 三步进 CI
-#   4. AI 服务 pytest（setup-python + uv，services/ai 不进 pnpm workspace）
-#      + schema 合规率 eval（strict 模式 100 次采样 ≥99%，方案 §4.5「AI 批次额外」）
-#   5. Playwright E2E（含移动端 375px 视口清单）
-# 首次提交 pnpm-lock.yaml 后，--frozen-lockfile 才可用
+# OpenSchedule CI（方案 chapter_04 §4.5 DoD 的流水线承载）
+# Lint（typecheck + OpenAPI 快照）· Build · API Test（覆盖率门禁）· Web Test（覆盖率门禁）
+# · AI Service Test · Audit（依赖漏洞，可交付范围门槛 high）· Migration（空库部署 / 漂移 / 备份恢复 / 真实库 e2e）
+# 发布流水线见 .github/workflows/release.yml（R10：三镜像 + 迁移 job + staging 自动 / production 审批 gate）
+# ⚠️ 仍待补齐：
+#   1. AI schema 合规率 eval 的**真实 LLM 采样**（离线 strict 基线已在 tests/test_decompose_schema_eval.py 随 ai-test job 执行；
+#      真实模型 ≥99% 采样需 EVAL_LLM=1 + EVAL_LLM_API_KEY，见 production-progress §R8-12）
+#   2. Playwright 主流程冒烟进流水线：`qa-e2e/smoke.mjs`（真实 UI × 真实 API）已可运行，
+#      但需 Postgres + Redis + API + web dev server 起一套栈，暂为本地/发布前手动门禁（`pnpm smoke`），
+#      移动端 375px 视口清单待补
+# 注：packages/*（domain-events / workspace-rules）的 dist 不入库，凡依赖 services/api 的 job 须先 pnpm build:packages
 # ============================================================
 name: CI
 
@@ -22,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ---------- 静态检查 ----------
+  # ---------- 静态检查 + API 契约快照 ----------
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -35,7 +36,11 @@ jobs:
           node-version: 22
           cache: pnpm            # pnpm 依赖缓存（基于 pnpm-lock.yaml）
       - run: pnpm install --frozen-lockfile
+      - run: pnpm build:packages
+      - run: pnpm --filter "./services/api" exec prisma generate
       - run: pnpm lint
+      # OpenAPI 快照门禁（方案 §4.5「API 契约」）：切片装配结果与 openapi.snapshot.json 不一致即失败
+      - run: pnpm --filter "./services/api" run openapi:check
 
   # ---------- 构建 ----------
   build:
@@ -49,25 +54,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm build:packages
+      - run: pnpm --filter "./services/api" exec prisma generate
       - run: pnpm build
 
-  # ---------- 测试 ----------
-  test:
-    name: Test
+  # ---------- 后端单测（覆盖率阈值门禁，lcov 产物归档） ----------
+  api-test:
+    name: API Test
     runs-on: ubuntu-latest
-    # TODO：放开集成测试前需在 CI 内起 postgres + redis 服务容器：
-    # services:
-    #   postgres:
-    #     image: postgres:16-alpine
-    #     env:
-    #       POSTGRES_USER: openschedule
-    #       POSTGRES_PASSWORD: openschedule
-    #       POSTGRES_DB: openschedule
-    #     options: >-
-    #       --health-cmd "pg_isready -U openschedule"
-    #       --health-interval 5s --health-timeout 5s --health-retries 10
-    #   redis:
-    #     image: redis:7-alpine
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -76,9 +70,128 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-      # TODO：AI 服务测试（Python，独立于 pnpm workspace）
-      # - uses: actions/setup-python@v5
-      #   with:
-      #     python-version: "3.12"
-      # - run: cd services/ai && pip install uv && uv sync --frozen && uv run pytest
+      - run: pnpm build:packages
+      - run: pnpm --filter "./services/api" exec prisma generate
+      # 阈值基线锁在 services/api/vitest.config.ts coverage.thresholds；含 test/ 下 domain-events 契约测试
+      - run: pnpm --filter "./services/api" run test:cov
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-coverage-lcov
+          path: services/api/coverage/lcov.info
+          if-no-files-found: error
+
+  # ---------- 前端测试（R8-2：Vitest + 覆盖率阈值门禁，lcov 产物归档） ----------
+  web-test:
+    name: Web Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # 阈值基线锁在 apps/web/vite.config.ts coverage.thresholds；低于基线即失败
+      - run: pnpm --filter "./apps/web" run test:cov
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-coverage-lcov
+          path: apps/web/coverage/lcov.info
+          if-no-files-found: error
+
+  # ---------- AI 服务测试（R8：services/ai pytest 套件；Python 独立于 pnpm workspace） ----------
+  ai-test:
+    name: AI Service Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        run: pip install uv
+      - run: uv sync --extra dev --frozen
+        working-directory: services/ai
+      - run: uv run pytest -q
+        working-directory: services/ai
+
+  # ---------- 依赖漏洞审计（生产依赖；门槛 high，按可交付范围收敛，见 scripts/audit-deployable.mjs） ----------
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      # pnpm audit 在子目录仍审整个 lockfile，故用脚本按 services/api · apps/web · packages/* 过滤后卡门槛；
+      # apps/mobile（Expo/RN 工具链，未进本仓库 build/deploy）的剩余 high 单列为接受风险，不阻断。
+      - run: node scripts/audit-deployable.mjs --audit-level high
+
+  # ---------- 迁移门禁（§3.1：fresh DB + migrate deploy + 漂移校验 + 备份恢复 + 真实库集成测试） ----------
+  migration:
+    name: Migration
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://openschedule:openschedule@localhost:5432/openschedule?schema=public
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: openschedule
+          POSTGRES_PASSWORD: openschedule
+          POSTGRES_DB: openschedule
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openschedule"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:packages
+      - run: pnpm --filter "./services/api" exec prisma generate
+      # 空库一键建库：migrate deploy 必须一次到位
+      - run: pnpm --filter "./services/api" exec prisma migrate deploy
+      # 部署后状态必须干净（无 pending）
+      - run: pnpm --filter "./services/api" exec prisma migrate status
+      # schema 与迁移目录零漂移：--exit-code 有差异即返回 2（未加时 diff 只打印不失败）
+      - name: Create shadow database for drift check
+        run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE openschedule_drift;"
+        env:
+          ADMIN_DATABASE_URL: postgresql://openschedule:openschedule@localhost:5432/postgres
+      - name: Schema drift check
+        run: pnpm --filter "./services/api" exec prisma migrate diff --from-migrations=prisma/migrations --to-schema-datamodel=prisma/schema.prisma --shadow-database-url postgresql://openschedule:openschedule@localhost:5432/openschedule_drift --exit-code
+      # 真实库集成测试：租户隔离 T-01..T-06 / 迁移基线 M-01..M-05 / 工作台存储 W-01..W-05
+      - name: API e2e (real PostgreSQL)
+        run: pnpm --filter "./services/api" run test:e2e
+      # 备份恢复演练：写入哨兵行 → pg_dump → 隔离数据库 pg_restore → 关键表/数据校验
+      - name: Seed backup sentinel
+        # updated_at 为 Prisma @updatedAt 列（库内 NOT NULL 无默认值），须显式给值
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "INSERT INTO tenants (id, name, updated_at) VALUES ('00000000-0000-4000-8000-000000000001', 'ci-backup-sentinel', now());"
+      - name: Dump migrated database
+        run: bash deploy/postgres/backup.sh /tmp/openschedule-ci.dump
+      - name: Create isolated restore database
+        run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE openschedule_restore;"
+        env:
+          ADMIN_DATABASE_URL: postgresql://openschedule:openschedule@localhost:5432/postgres
+      - name: Restore backup
+        run: bash deploy/postgres/restore.sh /tmp/openschedule-ci.dump "$DATABASE_URL"
+        env:
+          DATABASE_URL: postgresql://openschedule:openschedule@localhost:5432/openschedule_restore?schema=public
+      - name: Verify restored database
+        run: |
+          bash deploy/postgres/verify-restore.sh
+          test "$(psql "$DATABASE_URL" -At -c "SELECT count(*) FROM tenants WHERE id = '00000000-0000-4000-8000-000000000001';")" = "1"
+        env:
+          DATABASE_URL: postgresql://openschedule:openschedule@localhost:5432/openschedule_restore?schema=public

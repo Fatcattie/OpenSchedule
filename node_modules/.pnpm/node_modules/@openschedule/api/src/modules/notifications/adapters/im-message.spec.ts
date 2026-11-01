@@ -1,0 +1,40 @@
+import { describe, expect, it } from 'vitest'
+import { buildImMessage, expectsRealImDelivery, resolveImProvider } from './im-message';
+
+describe('expectsRealImDelivery 真实投递判定（防网关降级假成功）', () => {
+  it('mcp 模式且网关地址就绪 → true', () => {
+    expect(expectsRealImDelivery({ INTEGRATION_FEISHU_MODE: 'mcp', MCP_GATEWAY_URL: 'http://gw' }, 'feishu')).toBe(true);
+  });
+
+  it('mock/缺省模式或网关缺失 → false', () => {
+    expect(expectsRealImDelivery({}, 'feishu')).toBe(false);
+    expect(expectsRealImDelivery({ INTEGRATION_FEISHU_MODE: 'mock', MCP_GATEWAY_URL: 'http://gw' }, 'feishu')).toBe(false);
+    expect(expectsRealImDelivery({ INTEGRATION_FEISHU_MODE: 'mcp' }, 'feishu')).toBe(false);
+  });
+});
+
+describe('resolveImProvider IM 出口 provider 解析', () => {
+  it('缺省 → feishu', () => {
+    expect(resolveImProvider({})).toBe('feishu');
+  });
+
+  it('显式 dingtalk（含大小写/空白）', () => {
+    expect(resolveImProvider({ NOTIFICATION_IM_PROVIDER: ' DingTalk ' })).toBe('dingtalk');
+  });
+
+  it('非法值回落 feishu', () => {
+    expect(resolveImProvider({ NOTIFICATION_IM_PROVIDER: 'wecom' })).toBe('feishu');
+  });
+});
+
+describe('buildImMessage 通知→IM 消息', () => {
+  it('标题+正文合并，目标为收件人标识', () => {
+    const msg = buildImMessage({ title: '任务已阻塞', body: '已阻塞 72 小时' }, 'u@example.com');
+    expect(msg).toEqual({ targets: ['u@example.com'], title: '任务已阻塞', content: '任务已阻塞\n已阻塞 72 小时' });
+  });
+
+  it('body 为 null → content 仅标题', () => {
+    const msg = buildImMessage({ title: '提醒', body: null }, 'u@example.com');
+    expect(msg.content).toBe('提醒');
+  });
+});

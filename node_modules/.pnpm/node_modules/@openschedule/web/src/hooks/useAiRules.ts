@@ -7,13 +7,13 @@
  * 这样后续新增内置规则能自动生效，且不会覆盖用户的自定义内容。
  */
 import { useMemo } from 'react'
-import { useLocalStorageState } from './useLocalStorageState'
+import { useWorkspaceState } from './useWorkspaceState'
 import { BUILTIN_RULES } from '@/utils/aiRules'
 import type { AiRule } from '@/types'
 
 export function useAiRules() {
-  const [customRules, setCustomRules] = useLocalStorageState<AiRule[]>('ai_rules', () => [])
-  const [overrides, setOverrides] = useLocalStorageState<AiRule[]>('ai_rule_overrides', () => [])
+  const [customRules, setCustomRules] = useWorkspaceState<AiRule[]>('ai_rules', () => [])
+  const [overrides, setOverrides] = useWorkspaceState<AiRule[]>('ai_rule_overrides', () => [])
 
   const rules = useMemo(() => {
     const builtin = BUILTIN_RULES.map((r) => {

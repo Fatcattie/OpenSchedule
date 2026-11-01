@@ -11,9 +11,11 @@
  * 所有通知通过 useNotifications 写入（按角色过滤可见性，manager 全量 / member 仅 personal 相关）
  */
 import { useEffect, useMemo, useRef } from 'react'
-import { useLocalStorageState } from './useLocalStorageState'
+import { useWorkspaceState } from './useWorkspaceState'
+import { USE_MOCK } from '@/api/config'
 import { useNotifications } from './useNotifications'
-import { mockMe, mockTasks, mockUsers } from '@/api/mock/data'
+import { mockTasks } from '@/__fixtures__/mock/data'
+import { getCurrentUser, lookupMemberName } from './useWorkspaceIdentity'
 import { normalizeTasks, taskRoute, toWorkspaceTask } from '@/utils/taskTree'
 import { buildProjectTasksFromSop } from '@/utils/taskFactory'
 import { nextCyclicChild } from '@/utils/recurrence'
@@ -82,14 +84,15 @@ export const cloneTasks = (): WorkspaceTask[] => {
 
 /** 用户显示名 */
 const displayName = (uid: string | null | undefined) =>
-  uid ? (mockUsers.find((u) => u.id === uid)?.displayName ?? uid) : ''
+  uid ? (lookupMemberName(uid) ?? uid) : ''
 
 /**
  * 返回 [规范化后的任务列表, 写入函数]。
  * 写入函数接收的是原始存储值（可能缺字段），调用方只做展开与整体替换即可。
  */
 export function useWorkspaceTasks() {
-  const [stored, setStored] = useLocalStorageState<WorkspaceTask[]>('tasks', cloneTasks)
+  // 后端 /workspace/tasks 租户共享（D-07 一期）；演示种子仅 mock 模式使用
+  const [stored, setStored] = useWorkspaceState<WorkspaceTask[]>('tasks', USE_MOCK ? cloneTasks : () => [])
   const tasks = useMemo(() => normalizeTasks(stored), [stored])
   const { addNotification } = useNotifications()
 
@@ -365,7 +368,7 @@ export function useWorkspaceTasks() {
           body: `${due.format('HH:mm')} 截止，请及时完成`,
           data: { taskId: t.id, route: taskRoute(tasks, t) },
           scope: 'personal',
-          relatedUserIds: involved.length > 0 ? involved : [mockMe.id],
+          relatedUserIds: involved.length > 0 ? involved : [getCurrentUser().id],
           dedupKey: `deadline_today:${t.id}:${todayStr}`,
         })
       } else if (due.isSame(tomorrowStart, 'day')) {
@@ -376,7 +379,7 @@ export function useWorkspaceTasks() {
           body: `${due.format('MM-DD HH:mm')} 截止，请提前安排`,
           data: { taskId: t.id, route: taskRoute(tasks, t) },
           scope: 'personal',
-          relatedUserIds: involved.length > 0 ? involved : [mockMe.id],
+          relatedUserIds: involved.length > 0 ? involved : [getCurrentUser().id],
           dedupKey: `deadline_tomorrow:${t.id}:${todayStr}`,
         })
       } else if (due.isBefore(todayStart)) {
@@ -387,7 +390,7 @@ export function useWorkspaceTasks() {
           body: `${targetName} 负责 · 原截止 ${due.format('YYYY-MM-DD HH:mm')}`,
           data: { taskId: t.id, route: taskRoute(tasks, t) },
           scope: 'manager',
-          relatedUserIds: involved.length > 0 ? involved : [mockMe.id],
+          relatedUserIds: involved.length > 0 ? involved : [getCurrentUser().id],
           dedupKey: `deadline_overdue:${t.id}`,
         })
       }

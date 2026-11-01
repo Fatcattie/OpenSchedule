@@ -1,6 +1,7 @@
 /**
  * emergency-engine.spec.ts —— 临期应急建议引擎单测
  */
+import { describe, expect, it } from 'vitest'
 import { generateEmergencySuggestions } from './emergency-engine'
 
 function makeTask(overrides: Partial<any> = {}) {

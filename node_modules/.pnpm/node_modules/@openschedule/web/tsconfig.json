@@ -17,7 +17,8 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@openschedule/workspace-rules": ["../../packages/workspace-rules/src/index.ts"]
     },
     "types": ["vite/client"]
   },

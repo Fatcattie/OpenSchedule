@@ -40,15 +40,19 @@ import {
 } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import { Link, useNavigate } from 'react-router-dom'
-import { mockMe, mockProjects, mockTasks, mockUsers } from '@/api/mock/data'
-import type { ApprovalStatus, DecomposeTask, TaskPriority, WorkspaceTask } from '@/types'
+import { mockProjects, mockTasks } from '@/__fixtures__/mock/data'
+import type { DecomposeTask, TaskPriority, WorkspaceTask } from '@/types'
 import { APPROVAL_TYPE_META, INDUSTRY_OPTIONS, TASK_TYPE_OPTIONS, deriveTaskUrgency } from '@/types'
-import { clearWorkspaceStorage, useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { clearWorkspaceStorage } from '@/hooks/useLocalStorageState'
+import { useWorkspaceState } from '@/hooks/useWorkspaceState'
+import { USE_MOCK } from '@/api/config'
 import { useCurrentRole } from '@/hooks/useCurrentRole'
+import { useTaskReview } from '@/hooks/useTaskReview'
+import { useDirectory, useMe } from '@/hooks/useWorkspaceIdentity'
 import { useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
 import { buildProjectTasksFromSop, buildTaskFromPublish } from '@/utils/taskFactory'
 import { materializeRecurrence } from '@/utils/recurrence'
-import { archiveSopFromTask, type SopLibraryDoc } from '@/utils/sopLibrary'
+import { SOP_COLLECTION, archiveSopFromTask, type SopLibraryDoc } from '@/utils/sopLibrary'
 import { taskRoute } from '@/utils/taskTree'
 import PublishTaskModal, { type PublishTaskPayload } from '@/components/workspace/PublishTaskModal'
 import TaskBoardTree from '@/components/workspace/TaskBoardTree'
@@ -64,9 +68,6 @@ import SopFlowTree from '@/components/workspace/SopFlowTree'
 const { Title, Text, Paragraph } = Typography
 
 type CalendarView = 'day' | 'week' | 'month' | 'year'
-
-/** 演示环境的管理员账号（评审任务由其自动承接） */
-const MANAGER_ID = 'user-001'
 
 /** 新建任务时的协作字段默认值，各处创建任务统一展开，避免遗漏 */
 const COLLAB_DEFAULTS = {
@@ -122,6 +123,10 @@ export default function CollaborationWorkspacePage() {
   const navigate = useNavigate()
   /** 角色：由当前用户推导（演示环境默认管理员） */
   const role = useCurrentRole()
+  const review = useTaskReview()
+  const currentUser = useMe()
+  /** 评审任务默认由通讯录中第一位管理承接（无管理时进入待承接池） */
+  const { teamMembers, nameOf, defaultManagerId } = useDirectory()
   const [view, setView] = useState<CalendarView>('day')
   const [date, setDate] = useState<Dayjs>(dayjs())
   /**
@@ -138,16 +143,17 @@ export default function CollaborationWorkspacePage() {
   const [planRange, setPlanRange] = useState<{ start: string; end: string } | null>(null)
   const [experienceOpen, setExperienceOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<WorkspaceTask | null>(null)
-  const [experience, setExperience] = useLocalStorageState<ExperienceNote[]>('experience', [
+  // 演示种子仅 mock 模式使用（真实租户从空库开始，D-07）
+  const [experience, setExperience] = useWorkspaceState<ExperienceNote[]>('experience', () => USE_MOCK ? [
     { id: 'exp-1', taskTitle: '视觉规范定稿', author: '李娜', note: '先锁定可复用的设计 token，再进行页面走查，返工明显减少。', tags: ['设计', '复用'], createdAt: '今天 09:20' },
     { id: 'exp-2', taskTitle: '技术选型确认', author: '王强', note: '先做最小可运行验证，再进入正式开发，能尽早暴露部署约束。', tags: ['架构', '验证'], createdAt: '昨天 16:40' },
-  ])
+  ] : [])
   // Wiki 知识卡已迁移至「洞察与智能 / Wiki知识库」独立页（共享 useWikiKb 钩子，addExperience 仍写入）
   const [, setWikiKb] = useWikiKb()
-  const [sops, setSops] = useLocalStorageState<SopLibraryDoc[]>('sops', [
+  const [sops, setSops] = useWorkspaceState<SopLibraryDoc[]>(SOP_COLLECTION, () => USE_MOCK ? [
     { id: 'sop-1', title: '需求文档评审 SOP', sourceTask: '需求文档评审', steps: ['确认目标和不做范围', '逐条核对验收标准', '记录依赖与风险', '输出评审结论并同步负责人'], references: 3 },
     { id: 'sop-2', title: '技术选型确认 SOP', sourceTask: '技术选型确认', steps: ['列出候选方案', '完成最小可运行验证', '比较成本与维护约束', '记录决策和回滚方案'], references: 2 },
-  ])
+  ] : [])
   /** 需求 6：从「SOP 与经验」选择应用时预填到发布任务弹窗的流程 */
   const [applySop, setApplySop] = useState<SopLibraryDoc | null>(null)
   const [pomodoroTask, setPomodoroTask] = useState('需求文档评审')
@@ -168,15 +174,15 @@ export default function CollaborationWorkspacePage() {
     () =>
       tasks.filter(
         (t) =>
-          t.assigneeId === mockMe.id ||
-          t.createdBy === mockMe.id ||
-          (t.participants ?? []).includes(mockMe.id),
+          t.assigneeId === currentUser.id ||
+          t.createdBy === currentUser.id ||
+          (t.participants ?? []).includes(currentUser.id),
       ),
-    [tasks],
+    [tasks, currentUser.id],
   )
 
   const unassignedTasks = tasks.filter((t) => !t.assigneeId && t.status !== 'done' && t.status !== 'cancelled')
-  const myTasks = tasks.filter((t) => t.assigneeId === mockMe.id)
+  const myTasks = tasks.filter((t) => t.assigneeId === currentUser.id)
   const completedTasks = tasks.filter((t) => t.status === 'done')
   const inProgressTasks = tasks.filter((t) => t.status === 'in_progress')
   const blockedTasks = tasks.filter((t) => t.status === 'blocked')
@@ -184,11 +190,11 @@ export default function CollaborationWorkspacePage() {
   /** 项目健康度：成员仅看参与项目，管理看全部 */
   const projectHealthList = useMemo(() => {
     const list = mockProjects
-      .filter((p) => role === 'manager' || isProjectMember(tasks, p.id, mockMe.id))
+      .filter((p) => role === 'manager' || isProjectMember(tasks, p.id, currentUser.id))
       .map((p) => ({ project: p, health: projectHealth(tasks, p.id) }))
     const avgScore = list.length === 0 ? 100 : Math.round(list.reduce((s, item) => s + item.health.score, 0) / list.length)
     return { list, avgScore }
-  }, [tasks, role])
+  }, [tasks, role, currentUser.id])
 
   const shiftDate = (a: number) => setDate((c) => c.add(a, view === 'day' ? 'day' : view === 'week' ? 'week' : view === 'month' ? 'month' : 'year'))
 
@@ -209,71 +215,27 @@ export default function CollaborationWorkspacePage() {
     [tasks],
   )
 
-  /** 按审核类型结算：通过则落地对应变更，驳回则清理待审内容 */
-  const resolveApproval = (task: WorkspaceTask, approved: boolean) => {
-    const now = new Date().toISOString()
-    // 需求 6：完成提报审核通过 = 任务闭环，沉淀 SOP 到「SOP 与经验」看板
-    if (approved && task.approvalType === 'completion') {
-      const doc = archiveSopFromTask(tasks, task)
-      if (doc) message.info(`SOP 已沉淀：「${doc.title}」可在「SOP 与经验」查看与应用`)
-    }
-    const nextTasks = tasks.map((t) => {
-        if (t.id !== task.id) return t
-        const base: WorkspaceTask = {
-          ...t,
-          approvalStatus: (approved ? 'approved' : 'rejected') as ApprovalStatus,
-          updatedAt: now,
-        }
-        if (!approved) {
-          return { ...base, pendingContent: t.approvalType === 'reschedule' ? null : t.pendingContent }
-        }
-        switch (t.approvalType) {
-          case 'proposal':
-            return { ...base, proposalStatus: 'approved' as const }
-          case 'assign':
-            return { ...base, assigneeId: t.recommendedAssigneeId ?? t.assigneeId }
-          case 'content':
-            return t.pendingContent
-              ? {
-                  ...base,
-                  title: t.pendingContent.title,
-                  description: t.pendingContent.description,
-                  pendingContent: null,
-                }
-              : base
-          case 'completion':
-            return {
-              ...base,
-              status: 'done' as const,
-              completedAt: t.completion?.completedAt ? dayjs(t.completion.completedAt).toISOString() : now,
-            }
-          case 'reschedule':
-            return t.pendingContent
-              ? {
-                  ...base,
-                  startAt: t.pendingContent.startAt ?? t.startAt,
-                  endAt: t.pendingContent.endAt ?? t.endAt,
-                  pendingContent: null,
-                }
-              : base
-          default:
-            return base
-        }
-      })
-    setTasks(nextTasks)
-    message.success(approved ? '审核已通过' : '已驳回该申请')
+  /**
+   * 按审核类型结算（D-07 二期）：走审核命令，通过则落地对应变更（含完成闭环沉淀 SOP、项目按 SOP 生成任务），
+   * 驳回则清理待审内容——规则与审核中心、任务执行页共用同一实现，并由服务端追加审核留痕。
+   */
+  const resolveApproval = async (task: WorkspaceTask, approved: boolean) => {
+    const res = await review(task.id, approved ? { action: 'approve', opinion: 'agree' } : { action: 'reject', opinion: 'reject' })
+    if (!res) return
+    if (res.sopArchived) message.info('SOP 已沉淀，可在「SOP 与经验」查看与应用')
+    message.success(approved ? (res.generated > 0 ? `审核已通过，已按 SOP 生成 ${res.generated} 个项目内任务` : '审核已通过') : '已驳回该申请')
   }
 
   const newId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
   const claimTask = (t: WorkspaceTask) => {
-    setTasks((c) => c.map((i) => i.id === t.id ? { ...i, assigneeId: mockMe.id, status: 'in_progress', startedAt: new Date().toISOString() } : i))
+    setTasks((c) => c.map((i) => i.id === t.id ? { ...i, assigneeId: currentUser.id, status: 'in_progress', startedAt: new Date().toISOString() } : i))
     message.success(`已承接：${t.title}`)
   }
 
   /** 需求 1：管理重新指派承接人（直接生效） */
   const reassignTask = (t: WorkspaceTask, assigneeId: string) => {
-    const name = mockUsers.find((u) => u.id === assigneeId)?.displayName ?? '新承接人'
+    const name = nameOf(assigneeId) ?? '新承接人'
     setTasks((c) => c.map((i) => i.id === t.id ? { ...i, assigneeId, updatedAt: new Date().toISOString() } : i))
     message.success(`已将「${t.title}」的承接人改派为 ${name}`)
   }
@@ -287,11 +249,11 @@ export default function CollaborationWorkspacePage() {
     const isProject = payload.taskMode === 'project'
     const needApproval = role !== 'manager'
     const [main, ...subs] = buildTaskFromPublish(payload, {
-      createdBy: mockMe.id,
+      createdBy: currentUser.id,
       sortOrderBase: tasks.length,
       approval: needApproval ? { status: 'pending', type: 'proposal' } : { status: 'none' },
       // 需求 1：needReview 任务发布时自动生成的评审子任务，默认由管理员承接
-      reviewAssigneeId: MANAGER_ID,
+      reviewAssigneeId: defaultManagerId,
     })
 
     // 管理直接发布的项目：按 SOP 立即生成项目内任务
@@ -368,7 +330,7 @@ export default function CollaborationWorkspacePage() {
         priority: (s.priority as TaskPriority) ?? 'medium', assigneeId: null,
         dueAt: s.earliestFinish ? dayjs(s.earliestFinish).hour(18).toISOString() : payload.endAt,
         estimatedHours: s.estimatedHours ?? 2, actualHours: null, completedAt: null, startedAt: null,
-        createdBy: mockMe.id, tags: ['AI拆解'], sortOrder: i + 1, workflowColumnId: null, isAiGenerated: true,
+        createdBy: currentUser.id, tags: ['AI拆解'], sortOrder: i + 1, workflowColumnId: null, isAiGenerated: true,
         version: 1, createdAt: now, updatedAt: now, ...COLLAB_DEFAULTS,
         taskMode: payload.taskMode, kind: 'task', needReview: false, reviewStatus: 'none',
         proposalStatus: 'none', participants: [], reviewOfTaskId: null,
@@ -410,10 +372,10 @@ export default function CollaborationWorkspacePage() {
         id: newId('review'), tenantId: 'tenant-001', projectId: t.projectId, parentId: t.id,
         title: `${t.title} · 项目评审`,
         description: `由「${t.title}」提报完成后自动生成，管理员承接并邀请参与人`,
-        status: 'in_progress', priority: t.priority, assigneeId: MANAGER_ID,
+        status: 'in_progress', priority: t.priority, assigneeId: defaultManagerId,
         dueAt: dayjs().add(2, 'day').toISOString(), estimatedHours: 2, actualHours: null,
         completedAt: null, startedAt: now,
-        createdBy: mockMe.id, tags: ['评审'], sortOrder: 0, workflowColumnId: null, isAiGenerated: false,
+        createdBy: currentUser.id, tags: ['评审'], sortOrder: 0, workflowColumnId: null, isAiGenerated: false,
         version: 1, createdAt: now, updatedAt: now, ...COLLAB_DEFAULTS,
         taskMode: 'team', kind: 'review', needReview: false, reviewStatus: 'none',
         proposalStatus: 'none', participants: [], reviewOfTaskId: t.id,
@@ -459,7 +421,7 @@ export default function CollaborationWorkspacePage() {
       participants.forEach((uid, i) => {
         const dup = next.some((t) => t.reviewOfTaskId === reviewTask.reviewOfTaskId && t.assigneeId === uid && t.kind === 'review')
         if (dup || !reviewTask.reviewOfTaskId) return
-        const name = mockUsers.find((u) => u.id === uid)?.displayName ?? uid
+        const name = nameOf(uid) ?? uid
         created.push({
           id: newId('review'), tenantId: 'tenant-001', projectId: reviewTask.projectId,
           parentId: reviewTask.reviewOfTaskId,
@@ -467,7 +429,7 @@ export default function CollaborationWorkspacePage() {
           description: `多人评审按人拆分：${name} 独立承接本评审任务`,
           status: 'todo', priority: reviewTask.priority, assigneeId: uid,
           dueAt: reviewTask.dueAt, estimatedHours: 1, actualHours: null, completedAt: null, startedAt: null,
-          createdBy: mockMe.id, tags: ['评审'], sortOrder: 100 + i, workflowColumnId: null, isAiGenerated: false,
+          createdBy: currentUser.id, tags: ['评审'], sortOrder: 100 + i, workflowColumnId: null, isAiGenerated: false,
           version: 1, createdAt: now, updatedAt: now, ...COLLAB_DEFAULTS,
           taskMode: 'team', kind: 'review', needReview: false, reviewStatus: 'none',
           proposalStatus: 'none', participants: [], reviewOfTaskId: reviewTask.reviewOfTaskId,
@@ -508,9 +470,9 @@ export default function CollaborationWorkspacePage() {
     const plan: WorkspaceTask = {
       id: newId('plan'), tenantId: 'tenant-001', projectId: null, parentId: null,
       title: payload.title, description: payload.note || null, status: 'todo',
-      priority: 'medium', assigneeId: mockMe.id,
+      priority: 'medium', assigneeId: currentUser.id,
       dueAt: payload.endAt, estimatedHours: 1, actualHours: null, completedAt: null, startedAt: null,
-      createdBy: mockMe.id, tags: ['个人计划'], sortOrder: tasks.length + 1, workflowColumnId: null, isAiGenerated: false,
+      createdBy: currentUser.id, tags: ['个人计划'], sortOrder: tasks.length + 1, workflowColumnId: null, isAiGenerated: false,
       version: 1, createdAt: now, updatedAt: now, ...COLLAB_DEFAULTS,
       taskMode: 'individual', kind: 'plan', needReview: false, reviewStatus: 'none',
       proposalStatus: 'none', participants: [], reviewOfTaskId: null,
@@ -534,7 +496,7 @@ export default function CollaborationWorkspacePage() {
   const addExperience = (values: { note: string; tags: string }) => {
     if (!selectedTask) return
     const tags = values.tags.split(/[,，]/).map((t) => t.trim()).filter(Boolean)
-    const note: ExperienceNote = { id: `exp-${Date.now()}`, taskTitle: selectedTask.title, author: mockMe.displayName, note: values.note, tags, createdAt: '刚刚' }
+    const note: ExperienceNote = { id: `exp-${Date.now()}`, taskTitle: selectedTask.title, author: currentUser.displayName, note: values.note, tags, createdAt: '刚刚' }
     setExperience((c) => [note, ...c])
     setSops((c) => [{ id: `sop-${Date.now()}`, title: `${selectedTask.title} SOP`, sourceTask: selectedTask.title, steps: ['复盘目标与结果', values.note, '整理可复用步骤', '下次任务引用本 SOP'], references: 1 }, ...c])
     setWikiKb((c) => [{
@@ -556,7 +518,7 @@ export default function CollaborationWorkspacePage() {
     <>
       <div className="welcome-strip">
         <div className="welcome-greeting">
-          <h2>{dayjs().hour() < 12 ? '早上好' : dayjs().hour() < 18 ? '下午好' : '晚上好'}，{mockMe.displayName}</h2>
+          <h2>{dayjs().hour() < 12 ? '早上好' : dayjs().hour() < 18 ? '下午好' : '晚上好'}，{currentUser.displayName}</h2>
           <p>{dayjs().format('YYYY年MM月DD日 dddd')} · 北极星研发组 · 本周已完成 {completedTasks.filter((t) => dayjs(t.completedAt).isAfter(dayjs().startOf('week'))).length} 项任务</p>
           <div style={{ marginTop: 10 }}>
             <MoodIndexBar />
@@ -573,7 +535,7 @@ export default function CollaborationWorkspacePage() {
       </div>
 
       <div className="stat-grid">
-        <div className="stat-card"><span className="stat-label">我的任务</span><span className="stat-value" style={{ color: 'var(--accent-cyan)' }}>{myTasks.length}</span><span className="stat-sub"><span className="up">{inProgressTasks.filter((t) => t.assigneeId === mockMe.id).length} 进行中</span></span></div>
+        <div className="stat-card"><span className="stat-label">我的任务</span><span className="stat-value" style={{ color: 'var(--accent-cyan)' }}>{myTasks.length}</span><span className="stat-sub"><span className="up">{inProgressTasks.filter((t) => t.assigneeId === currentUser.id).length} 进行中</span></span></div>
         <div className="stat-card"><span className="stat-label">待承接</span><span className="stat-value" style={{ color: 'var(--accent-amber)' }}>{unassignedTasks.length}</span><span className="stat-sub"><span className="warn">{blockedTasks.length} 阻塞</span></span></div>
         <div className="stat-card"><span className="stat-label">已完成</span><span className="stat-value" style={{ color: 'var(--accent-blue)' }}>{completedTasks.length}</span><span className="stat-sub">累计 {tasks.length} 项任务</span></div>
         <div className="stat-card">
@@ -616,7 +578,7 @@ export default function CollaborationWorkspacePage() {
                         <Tag color={priorityMeta[t.priority].color}>{priorityMeta[t.priority].label}</Tag>
                         {t.status === 'blocked' && <Tag color="error">阻塞</Tag>}
                         {overdue && <Tag color="error">逾期</Tag>}
-                        {t.assigneeId ? <Text type="secondary" style={{ fontSize: 11 }}>{mockUsers.find((u) => u.id === t.assigneeId)?.displayName ?? '已指派'}</Text> : <Tag color="gold">待承接</Tag>}
+                        {t.assigneeId ? <Text type="secondary" style={{ fontSize: 11 }}>{nameOf(t.assigneeId) ?? '已指派'}</Text> : <Tag color="gold">待承接</Tag>}
                         {t.dueAt && <Text type="secondary" style={{ fontSize: 11 }}>{dayjs(t.dueAt).format('MM-DD HH:mm')}</Text>}
                       </Space>
                     </div>
@@ -671,7 +633,7 @@ export default function CollaborationWorkspacePage() {
           </Card>
           {role === 'manager' && (
             <Card title="团队负载" size="small">
-              {mockUsers.map((u) => {
+              {teamMembers.map((u) => {
                 const count = tasks.filter((t) => t.assigneeId === u.id && t.status !== 'done' && t.status !== 'cancelled').length
                 const pct = Math.min(count * 25, 100)
                 return (
@@ -708,7 +670,8 @@ export default function CollaborationWorkspacePage() {
               )}
               {/* 需求 4：两类角色均可安排个人计划 */}
               <Button block icon={<CalendarOutlined />} onClick={() => { setPlanRange(null); setPlanOpen(true) }}>安排个人计划</Button>
-              <Button type="link" size="small" danger block onClick={resetDemoData}>重置演示数据</Button>
+              {/* 演示数据仅存在于 mock 模式的 localStorage；真实模式数据在服务端，不提供一键清空 */}
+              {USE_MOCK && <Button type="link" size="small" danger block onClick={resetDemoData}>重置演示数据</Button>}
             </Space>
           </Card>
         </div>
@@ -731,7 +694,7 @@ export default function CollaborationWorkspacePage() {
       <TaskBoardTree
         tasks={boardTasks}
         role={role}
-        currentUserId={mockMe.id}
+        currentUserId={currentUser.id}
         onClaim={claimTask}
         onEdit={(t) => setEditTask(t)}
         onMerge={(t) => setMergeTask(t)}
@@ -776,9 +739,9 @@ export default function CollaborationWorkspacePage() {
                 description={
                   <Space direction="vertical" size={2}>
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      负责人：{mockUsers.find((u) => u.id === t.assigneeId)?.displayName ?? '待承接'}
+                      负责人：{nameOf(t.assigneeId) ?? '待承接'}
                       {t.recommendedAssigneeId
-                        ? ` · 推荐承接人：${mockUsers.find((u) => u.id === t.recommendedAssigneeId)?.displayName ?? '-'}`
+                        ? ` · 推荐承接人：${nameOf(t.recommendedAssigneeId) ?? '-'}`
                         : ''}
                     </Text>
                     {t.approvalType === 'content' && t.pendingContent && (

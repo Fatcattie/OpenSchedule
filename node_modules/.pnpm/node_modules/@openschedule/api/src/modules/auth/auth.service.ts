@@ -17,11 +17,15 @@ import { AuditService } from '../../common/audit/audit.service';
 import { ApiException } from '../../common/exceptions/api.exception';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RbacService } from '../rbac/rbac.service';
+import { AutomationService } from '../automation/automation.service';
 import { RefreshTokenStore } from './refresh-token.store';
 import { LoginDto } from './dto/login.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { CreateMemberDto } from './dto/create-member.dto';
+import { resolveMemberRoleKey } from './onboarding';
 
 @Injectable()
 export class AuthService {
@@ -33,6 +37,7 @@ export class AuthService {
     private readonly loader: AuthUserLoader,
     private readonly audit: AuditService,
     private readonly tokenStore: RefreshTokenStore,
+    private readonly automation: AutomationService,
   ) {}
 
   /** 注册（§3.5.1：创建账号 + 创建租户，创建者自动成为租户 Admin） */
@@ -69,6 +74,8 @@ export class AuthService {
     await this.prisma.memberProfile.create({
       data: { tenantId: tenant.id, userId: user.id },
     });
+    // R6-3：为新租户播种内置系统自动化规则（done 自动标记 + done 通知创建者，幂等）
+    await this.automation.seedTenantRules(tenant.id);
 
     const tokens = await this.issueTokens(user.id, tenant.id);
 
@@ -114,6 +121,8 @@ export class AuthService {
         ...tokens,
         user: this.publicUser(user),
         tenantId: primary.tenantId,
+        // R6-1（D-05 B）：管理员代建账号首次登录标记，客户端据此强制改密流程
+        mustChangePassword: user.mustChangePassword,
       },
     };
   }
@@ -123,7 +132,7 @@ export class AuthService {
     const payload = await this.verifyRefresh(dto.refreshToken);
 
     // 轮换：吊销旧 jti，签发新双 token（防重放）
-    this.tokenStore.revoke(payload.jti);
+    await this.tokenStore.revoke(payload.jti);
     const tokens = await this.issueTokens(payload.sub, payload.tenantId);
     await this.audit.record({ action: 'user.refresh', resourceType: 'user', resourceId: payload.sub, tenantId: payload.tenantId, actorId: payload.sub });
 
@@ -134,7 +143,7 @@ export class AuthService {
   async logout(dto: LogoutDto): Promise<{ data: { ok: true } }> {
     try {
       const payload = await this.verifyRefresh(dto.refreshToken);
-      this.tokenStore.revoke(payload.jti);
+      await this.tokenStore.revoke(payload.jti);
       await this.audit.record({ action: 'user.logout', resourceType: 'user', resourceId: payload.sub, tenantId: payload.tenantId, actorId: payload.sub });
     } catch {
       // 已过期/已吊销的 refresh 无需再吊销（幂等注销）
@@ -153,6 +162,72 @@ export class AuthService {
         roles: user.roles,
       },
     };
+  }
+
+  /**
+   * 管理员代建成员（R6-1 / D-05 B：管理员代建账号 + 首次登录改密）。
+   * - 仅租户 Admin/Owner 可调用（40301）；
+   * - 目标租户 = 操作者租户；创建 User（临时密码 + mustChangePassword=true）、MemberProfile、UserRole（默认 member）；
+   * - 不触发 owner 代建（owner = 租户创建者，§3.4 派生语义）。
+   */
+  async adminCreateMember(actor: AuthUser, dto: CreateMemberDto): Promise<{ data: unknown }> {
+    if (!this.rbac.isTenantAdmin(actor)) {
+      throw new ApiException(40301, '仅租户管理员可代建成员', HttpStatus.FORBIDDEN);
+    }
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      throw new ApiException(40001, '该邮箱已注册', HttpStatus.CONFLICT);
+    }
+
+    const roleKey = resolveMemberRoleKey(dto.role);
+    const passwordHash = await hash(dto.password, 10);
+    const user = await this.prisma.user.create({
+      data: { email, passwordHash, displayName: dto.displayName, mustChangePassword: true },
+    });
+    await this.prisma.memberProfile.create({
+      data: { tenantId: actor.tenantId, userId: user.id },
+    });
+    const roleMap = await this.rbac.ensureTenantRoles(actor.tenantId);
+    const roleId = roleMap.get(roleKey);
+    if (!roleId) {
+      throw new ApiException(50000, `租户角色种子缺失：${roleKey}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+    await this.prisma.userRole.create({
+      data: { tenantId: actor.tenantId, userId: user.id, roleId },
+    });
+
+    await this.audit.record({
+      action: 'member.create',
+      resourceType: 'user',
+      resourceId: user.id,
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      after: { email: user.email, role: roleKey },
+    });
+
+    return { data: { ...this.publicUser(user), role: roleKey } };
+  }
+
+  /** 首次登录强制改密 / 常规改密（R6-1）：校验当前密码 → 写新密 → 清除 must_change_password */
+  async changePassword(user: AuthUser, dto: ChangePasswordDto): Promise<{ data: { ok: true } }> {
+    const row = await this.prisma.user.findUnique({ where: { id: user.userId } });
+    if (!row || !row.passwordHash || !(await compare(dto.currentPassword, row.passwordHash))) {
+      throw new ApiException(40101, '当前密码错误', HttpStatus.UNAUTHORIZED);
+    }
+    const passwordHash = await hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: user.userId },
+      data: { passwordHash, mustChangePassword: false },
+    });
+    await this.audit.record({
+      action: 'user.password_change',
+      resourceType: 'user',
+      resourceId: user.userId,
+      tenantId: user.tenantId,
+      actorId: user.userId,
+    });
+    return { data: { ok: true } };
   }
 
   // ------------------------------------------------------------------
@@ -191,7 +266,7 @@ export class AuthService {
     if (payload.type !== 'refresh' || !payload.sub || !payload.jti) {
       throw new ApiException(40101, 'refresh token 格式错误', HttpStatus.UNAUTHORIZED);
     }
-    if (this.tokenStore.isRevoked(payload.jti)) {
+    if (await this.tokenStore.isRevoked(payload.jti)) {
       throw new ApiException(40101, 'refresh token 已吊销，请重新登录', HttpStatus.UNAUTHORIZED);
     }
     return payload;

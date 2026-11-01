@@ -41,6 +41,8 @@ export interface SendMessageResult {
   ok: boolean
   messageId?: string
   error?: string
+  /** 实际执行通道（调用方据此识别网关降级 mock，保证通知外发不静默假成功） */
+  channel?: ImChannel
 }
 
 export interface ConnectionTestResult {

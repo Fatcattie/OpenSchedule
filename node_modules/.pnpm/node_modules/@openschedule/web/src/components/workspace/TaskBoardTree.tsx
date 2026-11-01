@@ -36,7 +36,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { mockUsers } from '@/api/mock/data'
+import { useDirectory } from '@/hooks/useWorkspaceIdentity'
 import type { TaskStatus, WorkspaceTask } from '@/types'
 import {
   APPROVAL_TYPE_META,
@@ -93,6 +93,7 @@ export default function TaskBoardTree({
   onReassign,
   onOpenExecution,
 }: Props) {
+  const { teamMembers, nameOf } = useDirectory()
   const navigate = useNavigate()
   const [view, setView] = useState<'tree' | 'board'>('tree')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -118,7 +119,7 @@ export default function TaskBoardTree({
   )
 
   const userName = (id: string | null) =>
-    id ? (mockUsers.find((u) => u.id === id)?.displayName ?? '已指派') : null
+    id ? (nameOf(id) ?? '已指派') : null
 
   const renderActions = (task: WorkspaceTask, treeView = false) => {
     const buttons: React.ReactNode[] = []
@@ -607,7 +608,7 @@ export default function TaskBoardTree({
           >
             <Select
               placeholder="选择新的承接人"
-              options={mockUsers.map((u) => ({ value: u.id, label: u.displayName }))}
+              options={teamMembers.map((u) => ({ value: u.id, label: u.displayName }))}
             />
           </Form.Item>
         </Modal>

@@ -9,10 +9,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  Optional,
 } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, Project, Task } from '@prisma/client';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { OutboxService, type OutboxEventName } from '../../common/outbox/outbox.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../../common/audit/audit.service';
 import {
   TASK_ERROR_CODES,
@@ -22,8 +23,6 @@ import {
   assertTransitionLegal,
   checkTransitionPreconditions,
 } from '../../common/constants/task-status';
-import { PrismaService } from '../../common/prisma/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
 import { AuthUser, isTenantAdmin } from './current-user.decorator';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { CompleteTaskDto } from './dto/complete-task.dto';
@@ -65,7 +64,7 @@ export class TasksService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
-    @Optional() private readonly eventBus?: EventEmitter2,
+    private readonly outbox: OutboxService,
   ) {}
 
   // ===================== 查询 =====================
@@ -220,12 +219,13 @@ export class TasksService {
           { tenantId: user.tenantId, actorId: user.userId, action: 'task.create', resourceType: 'task', resourceId: task.id, after: task },
           tx,
         );
+        // R3 事务性 Outbox：task.created 与业务写同事务落库（§2.5 可靠性：崩溃后由 dispatchDue 重放）
+        await this.outbox.publish(user.tenantId, TASK_EVENTS.CREATED as OutboxEventName, { taskId: task.id, projectId, actor: { id: user.userId, type: 'user' } }, tx);
         list.push(task);
       }
       return list;
     });
-    // 事务提交后发布事件（工程决策 11）
-    for (const t of created) this.eventBus?.emit(TASK_EVENTS.CREATED, { taskId: t.id, projectId, tenantId: user.tenantId });
+    // 关键事件改走 Outbox（§3.4 事件零消费治理）；站内同步通知保留
     return Array.isArray(body) ? created : created[0];
   }
 
@@ -286,6 +286,15 @@ export class TasksService {
         { tenantId: user.tenantId, actorId: user.userId, action: 'task.update', resourceType: 'task', resourceId: task.id, before: task, after },
         tx,
       );
+      // R3 事务性 Outbox：task.assigned 与 assignee 变更同事务落库
+      if (assigneeChanged) {
+        await this.outbox.publish(user.tenantId, TASK_EVENTS.ASSIGNED as OutboxEventName, {
+          taskId: task.id,
+          projectId: project.id,
+          assigneeId: dto.assigneeId!,
+          actor: { id: user.userId, type: 'user' },
+        }, tx);
+      }
       return { after, assigneeChanged, assigneeId: dto.assigneeId };
     });
 
@@ -297,7 +306,6 @@ export class TasksService {
         title: `你被分配了任务「${result.after.title}」`,
         data: { taskId: task.id, projectId: project.id },
       });
-      this.eventBus?.emit(TASK_EVENTS.ASSIGNED, { taskId: task.id, projectId: project.id, tenantId: user.tenantId, assigneeId: result.assigneeId });
     }
     if (statusChanged) this.afterStatusChange(task, result.after, project, user);
     return result.after;
@@ -338,7 +346,9 @@ export class TasksService {
     const task = await this.loadTaskOr404(id, user);
     const project = await this.loadProject(task.projectId!, user.tenantId);
     const needsReview = task.reviewRequired && !task.isReviewTask;
-    let reviewCreated: Task | null = null;
+    // 通过可变 holder 传出事务内创建的评审任务：TS 控制流不跨闭包追踪 let 赋值，
+    // 直接读 let 在事务调用后仍被窄化为初始值 null（if 分支变成 never）
+    const reviewOut: { task: Task | null } = { task: null };
     const result = await this.prisma.$transaction(async tx => {
       const actualHours = dto.actualHours ?? (await this.resolveActualHours(tx, task, user.tenantId));
       const target = needsReview ? TaskStatus.PENDING_REVIEW : TaskStatus.DONE;
@@ -357,7 +367,7 @@ export class TasksService {
         });
         if (!openReview) {
           const reviewAssignee = project.ownerId ?? task.createdBy ?? user.userId; // 管理员自动承接：项目负责人优先
-          reviewCreated = await tx.task.create({
+          reviewOut.task = await tx.task.create({
             data: {
               tenantId: task.tenantId,
               projectId: task.projectId!,
@@ -379,16 +389,25 @@ export class TasksService {
             },
           });
           await this.audit.record(
-            { tenantId: task.tenantId, actorId: user.userId, action: 'task.review.created', resourceType: 'task', resourceId: reviewCreated.id, after: reviewCreated },
+            { tenantId: task.tenantId, actorId: user.userId, action: 'task.review.created', resourceType: 'task', resourceId: reviewOut.task.id, after: reviewOut.task },
             tx,
           );
+          // R3 事务性 Outbox：评审子任务创建事件（from=null，新建任务）
+          await this.outbox.publish(task.tenantId, TASK_EVENTS.STATUS_CHANGED as OutboxEventName, {
+            taskId: reviewOut.task.id,
+            projectId: project.id,
+            from: null,
+            to: TaskStatus.TODO,
+            actor: { id: user.userId, type: 'user' },
+          }, tx);
         }
       }
       return updated;
     });
     this.afterStatusChange(task, result, project, user);
     // 评审子任务就绪通知（事务提交后）
-    if (reviewCreated) {
+    const review = reviewOut.task;
+    if (review) {
       const ownerId = project.ownerId ?? task.createdBy;
       if (ownerId && ownerId !== user.userId) {
         await this.notifications.notify({
@@ -396,10 +415,9 @@ export class TasksService {
           userId: ownerId,
           type: 'task.review.pending',
           title: `评审任务已生成并分配给你：「项目评审 — ${task.title}」`,
-          data: { taskId: reviewCreated.id, parentTaskId: task.id, projectId: project.id },
+          data: { taskId: review.id, parentTaskId: task.id, projectId: project.id },
         }).catch((err: Error) => this.logger.warn(`评审通知发送失败: ${err.message}`));
       }
-      this.eventBus?.emit(TASK_EVENTS.STATUS_CHANGED, { taskId: reviewCreated.id, projectId: project.id, tenantId: task.tenantId, from: null, to: TaskStatus.TODO });
     }
     return result;
   }
@@ -532,11 +550,35 @@ export class TasksService {
       patch.completedAt = null; // T9：completed_at 置空、actual_hours 保留
     }
     if (to === TaskStatus.IN_PROGRESS && !task.startedAt) patch.startedAt = now; // 首次领取/开始时间
+    // R3 阻塞>72h 升级（§3.2）：进 blocked 记时间戳；离开 blocked 清空（已升级过不重发）
+    if (to === TaskStatus.BLOCKED) {
+      patch.blockedAt = now;
+      patch.blockEscalatedAt = null;
+    } else if (task.status === TaskStatus.BLOCKED) {
+      patch.blockedAt = null;
+      patch.blockEscalatedAt = null;
+    }
     const after = await tx.task.update({ where: { id: task.id }, data: patch });
     await this.audit.record(
       { tenantId: task.tenantId, actorId: opts.ctx.userId, action: opts.action ?? `task.transition:${task.status}->${to}`, resourceType: 'task', resourceId: task.id, before: task, after },
       tx,
     );
+    // R3 事务性 Outbox：状态迁移事件与业务写同事务落库（dispatchDue 重放到进程内 EventBus；DB 兜底可重放，§2.5）
+    await this.outbox.publish(task.tenantId, TASK_EVENTS.STATUS_CHANGED as OutboxEventName, {
+      taskId: task.id,
+      projectId: task.projectId,
+      from: task.status,
+      to,
+      actor: { id: opts.ctx.userId, type: 'user' },
+    }, tx);
+    if (to === TaskStatus.DONE) {
+      await this.outbox.publish(task.tenantId, TASK_EVENTS.COMPLETED as OutboxEventName, {
+        taskId: task.id,
+        projectId: task.projectId,
+        actualHours: this.toNum(after.actualHours),
+        actor: { id: opts.ctx.userId, type: 'user' },
+      }, tx);
+    }
     return after;
   }
 
@@ -597,20 +639,19 @@ export class TasksService {
     return { userId: user.userId, assigneeId: task.assigneeId, projectOwnerId: project.ownerId, createdBy: task.createdBy, isTenantAdmin: isTenantAdmin(user) };
   }
 
-  /** 状态变更后的副作用：事件 + 通知（事务提交后调用，工程决策 11） */
+  /** 状态变更后的同步副作用：站内通知（事务提交后调用，工程决策 11）。
+   *  领域事件（task.status_changed / task.completed）已改由 applyTransition 在事务内落 Outbox（§3.4 事件零消费治理），此处不再 emit。 */
   private afterStatusChange(before: Task, after: Task, project: Project, actor: AuthUser): void {
     const from = before.status;
     const to = after.status;
-    this.eventBus?.emit(TASK_EVENTS.STATUS_CHANGED, { taskId: after.id, projectId: after.projectId, tenantId: after.tenantId, from, to });
     if (to === TaskStatus.DONE) {
-      this.eventBus?.emit(TASK_EVENTS.COMPLETED, { taskId: after.id, projectId: after.projectId, tenantId: after.tenantId, actualHours: this.toNum(after.actualHours) });
       this.notifyExcept(actor.userId, [project.ownerId, after.createdBy, after.assigneeId], {
         type: 'task.completed',
         title: `任务「${after.title}」已完成`,
         data: { taskId: after.id, projectId: project.id },
         tenantId: after.tenantId,
       });
-      // TODO(Phase 2)：触发自动化规则（automation 模块）；关注人表就绪前通知 owner/creator/assignee
+      // TODO(R6)：触发自动化规则（automation 模块消费 task.* Outbox 重放事件；§2.5 订阅表）
     } else if (to === TaskStatus.BLOCKED) {
       // T2/T5 副作用：通知负责人
       this.notifyExcept(actor.userId, [project.ownerId], {
@@ -636,7 +677,7 @@ export class TasksService {
         tenantId: after.tenantId,
       });
     }
-    // TODO(Phase 3)：阻塞>3 天自动升级通知（偏差检测）
+    // 阻塞>72h 升级：由 task-escalation.worker（modules/tasks）周期扫描（双保险），此处不再内联
   }
 
   /** 通知多个接收人（跳过操作者本人；null 接收人跳过） */

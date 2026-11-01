@@ -24,6 +24,8 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- 运行时配置（错误上报 DSN 等）：生产由 nginx 启动脚本按环境变量生成，须先于入口脚本加载 -->
+    <script src="/runtime-config.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

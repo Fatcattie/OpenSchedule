@@ -1,0 +1,135 @@
+/**
+ * ImAdapter 真实投递集成测试（R5-2）：
+ * 本地 HTTP 服务器充当 MCP 网关，真实 fetch 出站 POST 并断言载荷；
+ * 网关降级 mock 时通知外发必须判失败（防静默假成功）。
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createServer, Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { ImAdapter } from './im.adapter';
+import { IntegrationsService } from '../../integrations/integrations.service';
+import { OutboundNotification } from './notification-adapter.interface';
+
+vi.setConfig({ testTimeout: 15_000 });
+
+interface CapturedRequest {
+  path: string;
+  body: { targets: string[]; title: string; content: string };
+}
+
+function startGateway(handler: (req: CapturedRequest) => { status: number; body: unknown }): Promise<{ server: Server; port: number; received: CapturedRequest[] }> {
+  const received: CapturedRequest[] = [];
+  const server = createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => (raw += c));
+    req.on('end', () => {
+      const captured: CapturedRequest = { path: req.url ?? '', body: JSON.parse(raw || '{}') };
+      received.push(captured);
+      const result = handler(captured);
+      res.writeHead(result.status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(result.body));
+    });
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: (server.address() as AddressInfo).port, received }));
+  });
+}
+
+const outbound = (overrides: Partial<OutboundNotification> = {}): OutboundNotification => ({
+  id: 'n1',
+  tenantId: 't1',
+  userId: 'u1',
+  type: 'task.blocked_escalation',
+  title: 'im-gateway-subject',
+  body: '阻塞已超过 72 小时',
+  data: {},
+  channel: 'im',
+  recipientEmail: 'u@example.com',
+  timezone: 'Asia/Shanghai',
+  ...overrides,
+});
+
+describe('ImAdapter 真实投递（经 integrations → MCP 网关）', () => {
+  const envBackup: Record<string, string | undefined> = {};
+  const ENV_KEYS = ['NOTIFICATION_IM_PROVIDER', 'INTEGRATION_FEISHU_MODE', 'INTEGRATION_DINGTALK_MODE', 'MCP_GATEWAY_URL'];
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      envBackup[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      if (envBackup[key] === undefined) delete process.env[key];
+      else process.env[key] = envBackup[key];
+    }
+  });
+
+  it('mcp 模式真实出站：POST /mcp/feishu/messages 载荷为目标+标题+内容', async () => {
+    const gateway = await startGateway(() => ({ status: 200, body: { ok: true, messageId: 'gw-1' } }));
+    try {
+      process.env.INTEGRATION_FEISHU_MODE = 'mcp';
+      process.env.MCP_GATEWAY_URL = `http://127.0.0.1:${gateway.port}`;
+      const adapter = new ImAdapter(new IntegrationsService());
+
+      await adapter.send(outbound(), { id: 'd1', notificationId: 'n1', channel: 'im', attempts: 0 });
+
+      expect(gateway.received).toHaveLength(1);
+      expect(gateway.received[0].path).toBe('/mcp/feishu/messages');
+      expect(gateway.received[0].body.targets).toEqual(['u@example.com']);
+      expect(gateway.received[0].body.title).toBe('im-gateway-subject');
+      expect(gateway.received[0].body.content).toContain('阻塞已超过 72 小时');
+    } finally {
+      await new Promise<void>((resolve) => gateway.server.close(() => resolve()));
+    }
+  });
+
+  it('provider=dingtalk 时走对应网关路径', async () => {
+    const gateway = await startGateway(() => ({ status: 200, body: { ok: true, messageId: 'gw-2' } }));
+    try {
+      process.env.NOTIFICATION_IM_PROVIDER = 'dingtalk';
+      process.env.INTEGRATION_DINGTALK_MODE = 'mcp';
+      process.env.MCP_GATEWAY_URL = `http://127.0.0.1:${gateway.port}`;
+      const adapter = new ImAdapter(new IntegrationsService());
+
+      await adapter.send(outbound(), { id: 'd2', notificationId: 'n1', channel: 'im', attempts: 0 });
+
+      expect(gateway.received[0].path).toBe('/mcp/dingtalk/messages');
+    } finally {
+      await new Promise<void>((resolve) => gateway.server.close(() => resolve()));
+    }
+  });
+
+  it('网关应答 ok=false → IM_DELIVERY_FAILED（落 failed 走退避重试）', async () => {
+    const gateway = await startGateway(() => ({ status: 200, body: { ok: false, error: 'channel_error' } }));
+    try {
+      process.env.INTEGRATION_FEISHU_MODE = 'mcp';
+      process.env.MCP_GATEWAY_URL = `http://127.0.0.1:${gateway.port}`;
+      const adapter = new ImAdapter(new IntegrationsService());
+
+      await expect(adapter.send(outbound(), { id: 'd3', notificationId: 'n1', channel: 'im', attempts: 0 })).rejects.toThrow('IM_DELIVERY_FAILED');
+    } finally {
+      await new Promise<void>((resolve) => gateway.server.close(() => resolve()));
+    }
+  });
+
+  it('mcp 模式但网关不可达 → 降级 mock 被识别为失败 IM_GATEWAY_UNREACHABLE', async () => {
+    process.env.INTEGRATION_FEISHU_MODE = 'mcp';
+    process.env.MCP_GATEWAY_URL = 'http://127.0.0.1:1';
+    const adapter = new ImAdapter(new IntegrationsService());
+    await expect(adapter.send(outbound(), { id: 'd4', notificationId: 'n1', channel: 'im', attempts: 0 })).rejects.toThrow('IM_GATEWAY_UNREACHABLE');
+  });
+
+  it('mock 模式（本地开发/演示）→ 视为投递成功', async () => {
+    const adapter = new ImAdapter(new IntegrationsService());
+    await expect(adapter.send(outbound(), { id: 'd5', notificationId: 'n1', channel: 'im', attempts: 0 })).resolves.toBeUndefined();
+  });
+
+  it('收件邮箱缺失 → IM_RECIPIENT_MISSING', async () => {
+    const adapter = new ImAdapter(new IntegrationsService());
+    await expect(adapter.send(outbound({ recipientEmail: null }), { id: 'd6', notificationId: 'n1', channel: 'im', attempts: 0 })).rejects.toThrow('IM_RECIPIENT_MISSING');
+  });
+});
+

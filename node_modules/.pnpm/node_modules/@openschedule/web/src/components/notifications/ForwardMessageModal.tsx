@@ -150,7 +150,7 @@ export default function ForwardMessageModal({
           type="info"
           showIcon
           message="通道说明"
-          description="当前未接入真实 MCP／OpenAPI 时使用本地模拟通道，返回成功但不实际投递；后端 /integrations 代理接通后自动切换为真实投递。"
+          description="默认走真实后端 /integrations 代理（钉钉/飞书 MCP 网关或 Mock 通道由后端配置决定）；仅在显式 VITE_USE_MOCK=true 时使用本地模拟通道。"
         />
       </Space>
     </Modal>

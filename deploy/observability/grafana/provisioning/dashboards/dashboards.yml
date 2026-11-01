@@ -1,0 +1,14 @@
+# Grafana 看板自动加载（R9）：挂载目录 /var/lib/grafana/dashboards
+apiVersion: 1
+
+providers:
+  - name: openschedule
+    orgId: 1
+    folder: OpenSchedule
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

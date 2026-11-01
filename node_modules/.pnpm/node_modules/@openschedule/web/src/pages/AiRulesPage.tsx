@@ -27,7 +27,8 @@ import {
 } from 'antd'
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { createEmptyRule, useAiRules } from '@/hooks/useAiRules'
-import { getAgentEndpoint, renderTemplate } from '@/utils/aiRules'
+import { renderTemplate } from '@/utils/aiRules'
+import { useAiStatus } from '@/hooks/useAiStatus'
 import {
   AI_SCENE_META,
   INDUSTRY_OPTIONS,
@@ -48,7 +49,7 @@ export default function AiRulesPage() {
   const [preview, setPreview] = useState<{ name: string; text: string } | null>(null)
   const [sample, setSample] = useState({ title: '开发用户登录模块', hours: 40 })
 
-  const agentEndpoint = getAgentEndpoint()
+  const aiStatus = useAiStatus()
 
   const filtered = useMemo(
     () => (scene === 'all' ? rules : rules.filter((r) => r.scene === scene)).slice().sort((a, b) => a.priority - b.priority),
@@ -195,12 +196,12 @@ export default function AiRulesPage() {
       </Row>
 
       <Alert
-        type={agentEndpoint ? 'success' : 'info'}
+        type={aiStatus.enabled ? 'success' : 'info'}
         showIcon
         message={
-          agentEndpoint
-            ? `已接入 Agent 服务：${agentEndpoint}。拆解会先调用模型，失败时自动回退本地规则引擎。`
-            : '当前使用本地规则引擎（按行业与任务类型经验模板拆解）。配置环境变量 VITE_AI_AGENT_ENDPOINT 后即可接入真实模型，提示词模板保持不变。'
+          aiStatus.enabled
+            ? `已接入团队 AI 模型：${aiStatus.providerName ?? ''} ${aiStatus.model ?? ''}。拆解会先调用模型，失败时自动回退本地规则引擎。`
+            : '当前使用本地规则引擎（按行业与任务类型经验模板拆解）。团队管理员在「设置 → AI 模型」配置后即可接入真实模型，提示词模板保持不变。'
         }
         style={{ marginBottom: 16 }}
       />

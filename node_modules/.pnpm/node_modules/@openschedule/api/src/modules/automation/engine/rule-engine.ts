@@ -78,7 +78,7 @@ export interface TaskLike {
 export interface EvalContext {
   eventType?: 'status_changed' | 'label_changed' | 'priority_changed' | 'scan_overdue' | 'scan_due_soon'
   changedFields?: {
-    status?: { old: string; new: string }
+    status?: { old: string | null; new: string }
     priority?: { old: string; new: string }
     labelsAdded?: string[]
     labelsRemoved?: string[]

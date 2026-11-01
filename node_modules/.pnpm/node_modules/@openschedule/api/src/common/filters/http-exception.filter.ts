@@ -2,11 +2,13 @@
  * 全局异常过滤器：统一错误信封 {code, message, details, traceId, requestId}（§3.1）。
  * 兼容两种抛出方式：① ApiException / Nest 内置异常携带 {code,message,details} 对象响应体（业务同事现有写法）；
  * ② 未显式带 code 的异常 → 按 HTTP 状态码推导分段码（400→40001 ... 409→40901、429→42901、502/503 原样）。
+ * R9：5xx 额外上报 Sentry（SENTRY_DSN 未配置时 no-op），只带 requestId/traceId/路由标签，不带请求体/请求头。
  */
 import { randomUUID } from 'node:crypto';
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import { Response } from 'express';
 import { API_ERROR_CODES, deriveCodeFromStatus } from '../constants/error-codes';
+import { captureException } from '../observability/sentry';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -15,7 +17,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
-    const req = ctx.getRequest<{ id?: string; headers: Record<string, string | string[] | undefined> }>();
+    const req = ctx.getRequest<{
+      id?: string;
+      method?: string;
+      route?: { path?: string };
+      headers: Record<string, string | string[] | undefined>;
+    }>();
 
     const requestId = req.id ?? randomUUID();
     const traceId = (typeof req.headers['x-trace-id'] === 'string' ? req.headers['x-trace-id'] : undefined) ?? randomUUID();
@@ -52,6 +59,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
       if (status >= 500) {
         this.logger.error(`[${requestId}] ${message}\n${exception.stack ?? String(exception)}`);
+        captureException(exception, {
+          requestId,
+          traceId,
+          status,
+          method: req.method,
+          route: req.route?.path,
+          logger: 'ExceptionFilter',
+        });
       }
     } else {
       // 未捕获异常：不向客户端泄露内部细节，仅记录日志
@@ -60,6 +75,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
       code = API_ERROR_CODES.INTERNAL;
       status = 500;
+      captureException(exception, {
+        requestId,
+        traceId,
+        status,
+        method: req.method,
+        route: req.route?.path,
+        logger: 'ExceptionFilter',
+      });
     }
 
     res.status(status).json({ code, message, details, traceId, requestId });

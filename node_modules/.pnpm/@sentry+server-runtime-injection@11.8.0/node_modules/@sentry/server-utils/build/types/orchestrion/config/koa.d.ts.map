@@ -1,0 +1,1 @@
+{"version":3,"file":"koa.d.ts","sourceRoot":"","sources":["../../../../src/orchestrion/config/koa.ts"],"names":[],"mappings":"AAGA,eAAO,MAAM,SAAS;;;QAGR,IAAI;QAAS,YAAY;QAAgB,QAAQ;;;;;;;GAc5B,CAAC;AAEpC,eAAO,MAAM,cAAc,UAA4B,CAAC;AAExD,eAAO,MAAM,WAAW;aACtB,OAAO,EAAE,qBAAqB;aAC9B,YAAY,EAAE,0BAA0B;CAChC,CAAC"}

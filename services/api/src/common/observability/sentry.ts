@@ -1,0 +1,270 @@
+/**
+ * R9 错误上报：Sentry Envelope 直连（零依赖实现）。
+ *
+ * 为什么不用官方 SDK？
+ * - `@sentry/node@8` 会连带安装 @opentelemetry/instrumentation-*（pg/mysql/mongo/knex/tedious …）与 OTel core：
+ *   本服务明确「traceId 透传、不接 collector」，这些自动埋点不产生价值，却在依赖审计中新增 8 条
+ *   可交付范围 moderate 公告（无 patched 版本可用，因与 Sentry v8 的 OTel 1.x 线不兼容）；
+ * - `@sentry/node@11` 经 `@sentry/bundler-plugins → webpack → ajv → fast-uri` 引入 2 条 high；
+ * - `@sentry/core@11` 已不再导出 `init`，`@sentry/node-core` 需要 `@opentelemetry/instrumentation` peer。
+ *
+ * 因此这里只实现 Sentry 官方公开的 Envelope 协议：一次 HTTPS `POST {dsn}/api/{project}/envelope/`
+ * （`X-Sentry-Auth: Sentry sentry_version=7, sentry_key=…`），事件内容仅含错误类型/消息/V8 栈帧/白名单标签。
+ * 特性：零依赖、零审计新增；`SENTRY_DSN` 为空时完全 no-op；令牌桶限流；凭据脱敏；3s 超时；任何失败静默。
+ *
+ * 后续若官方提供「无 OTel」的轻量包，只需替换本文件实现（对外接口 `initSentry` / `isSentryEnabled` /
+ * `captureException` 保持不变）。
+ */
+import { randomUUID } from 'node:crypto';
+
+/** X-Sentry-Auth 中的客户端标识 */
+const SENTRY_CLIENT = 'openschedule-api/1.0';
+/** 事件 `sdk` 字段：如实声明为自研发送器，不冒充官方 SDK */
+const SENTRY_SDK_NAME = 'openschedule.api.envelope';
+const SENTRY_SDK_VERSION = '1.0.0';
+/** 单进程每分钟最多上报事件数（防异常风暴打爆配额/网络） */
+export const MAX_EVENTS_PER_MINUTE = 20;
+/** 上报超时（毫秒） */
+const SEND_TIMEOUT_MS = 3000;
+/** 单条消息最大长度 */
+const MAX_MESSAGE_LENGTH = 2000;
+/** 单事件最多上报栈帧数 */
+const MAX_FRAMES = 30;
+
+export interface SentryDsn {
+  /** DSN 公钥（X-Sentry-Auth 的 sentry_key） */
+  publicKey: string;
+  /** Envelope 上报地址（含项目号与路径前缀） */
+  envelopeUrl: string;
+}
+
+export interface SentryOptions {
+  dsn: SentryDsn;
+  environment: string;
+  release?: string;
+}
+
+export interface SentryFrame {
+  filename: string;
+  function?: string;
+  lineno?: number;
+  colno?: number;
+  in_app: boolean;
+}
+
+export interface SentryEventContext {
+  requestId?: string;
+  traceId?: string;
+  status?: number;
+  method?: string;
+  route?: string;
+  logger?: string;
+}
+
+/**
+ * 解析 DSN（纯函数）：`https://<publicKey>@<host>[:port][/<prefix>]/<projectId>`。
+ * 非法/缺失返回 null（调用方据此进入 no-op）。
+ */
+export function parseSentryDsn(raw: string | undefined): SentryDsn | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (!url.username || !url.host) return null;
+  const segments = url.pathname.split('/').filter(Boolean);
+  const projectId = segments.pop();
+  if (!projectId || !/^\d+$/.test(projectId)) return null;
+  const prefix = segments.length > 0 ? `/${segments.join('/')}` : '';
+  return {
+    publicKey: decodeURIComponent(url.username),
+    envelopeUrl: `${url.protocol}//${url.host}${prefix}/api/${projectId}/envelope/`,
+  };
+}
+
+/** 解析上报配置（纯函数）：无有效 DSN → null（no-op） */
+export function resolveSentryOptions(env: NodeJS.ProcessEnv = process.env): SentryOptions | null {
+  const dsn = parseSentryDsn(env.SENTRY_DSN);
+  if (!dsn) return null;
+  const release = env.SENTRY_RELEASE?.trim();
+  return {
+    dsn,
+    environment: env.APP_ENV?.trim() || 'development',
+    ...(release ? { release } : {}),
+  };
+}
+
+/**
+ * 凭据脱敏（纯函数）：错误消息可能内嵌令牌/密钥/连接串，按 §3.3 凭据边界先行遮蔽。
+ * 仅上报 5xx，故不处理普通业务文案。
+ */
+export function scrubMessage(message: string): string {
+  return message
+    .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]')
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, '[JWT REDACTED]')
+    // password=xxx / token: "xxx" / api_key="xxx"
+    .replace(/(password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*("[^"]*"|'[^']*'|\S+)/gi, '$1=[REDACTED]')
+    // 32 位以上纯十六进制串（AES 密钥、PAT 等）
+    .replace(/\b[A-Fa-f0-9]{32,}\b/g, '[REDACTED_HEX]');
+}
+
+const V8_FRAME_RE = /^\s*at\s+(?:(.+?)\s+\()?(.+?):(\d+):(\d+)\)?\s*$/;
+
+/** 解析 V8 栈（纯函数）→ Sentry frames（最早调用在前，内部/依赖帧标记 in_app:false） */
+export function parseStackFrames(stack: string | undefined): SentryFrame[] {
+  if (!stack) return [];
+  const frames: SentryFrame[] = [];
+  for (const line of stack.split('\n')) {
+    const match = V8_FRAME_RE.exec(line);
+    if (!match) continue;
+    const [, fn, rawFile, rawLine, rawCol] = match;
+    if (!rawFile) continue;
+    const filename = rawFile.startsWith('file://') ? rawFile.slice('file://'.length) : rawFile;
+    const isInternal = filename.startsWith('node:') || filename.includes('node_modules');
+    frames.push({
+      filename,
+      ...(fn && fn !== 'global code' ? { function: fn } : {}),
+      lineno: Number(rawLine),
+      colno: Number(rawCol),
+      in_app: !isInternal,
+    });
+    if (frames.length >= MAX_FRAMES) break;
+  }
+  frames.reverse();
+  return frames;
+}
+
+/** 构造 Sentry 事件体（纯函数；不含请求头/请求体，避免凭据外泄） */
+export function buildSentryEvent(
+  error: unknown,
+  ctx: SentryEventContext,
+  options: SentryOptions,
+  now: Date = new Date(),
+): Record<string, unknown> {
+  const err =
+    error instanceof Error
+      ? error
+      : new Error(typeof error === 'string' ? error : '未知错误（非 Error 抛出）');
+  const value = scrubMessage(err.message || err.name || 'Error').slice(0, MAX_MESSAGE_LENGTH);
+  const frames = parseStackFrames(err.stack);
+
+  const tags: Record<string, string> = {};
+  if (ctx.requestId) tags.request_id = ctx.requestId;
+  if (ctx.traceId) tags.trace_id = ctx.traceId;
+  if (ctx.method) tags.http_method = ctx.method;
+  if (ctx.route) tags.route = ctx.route;
+  if (typeof ctx.status === 'number') tags.http_status = String(ctx.status);
+
+  return {
+    event_id: randomUUID().replace(/-/g, ''),
+    timestamp: now.getTime() / 1000,
+    platform: 'node',
+    level: 'error',
+    logger: ctx.logger ?? 'ExceptionFilter',
+    environment: options.environment,
+    ...(options.release ? { release: options.release } : {}),
+    sdk: { name: SENTRY_SDK_NAME, version: SENTRY_SDK_VERSION },
+    tags,
+    exception: {
+      values: [
+        {
+          type: err.name || 'Error',
+          value,
+          ...(frames.length > 0 ? { stacktrace: { frames } } : {}),
+        },
+      ],
+    },
+  };
+}
+
+/** 序列化 Envelope（纯函数）：信封头 + item 头 + 事件体，逐行分隔 */
+export function buildEnvelope(event: Record<string, unknown>, sentAt: Date = new Date()): string {
+  const envelopeHeader = JSON.stringify({ event_id: event.event_id, sent_at: sentAt.toISOString() });
+  const itemHeader = JSON.stringify({ type: 'event', content_type: 'application/json' });
+  return `${envelopeHeader}\n${itemHeader}\n${JSON.stringify(event)}\n`;
+}
+
+/** 可注入的传输（测试用） */
+export interface SentryTransport {
+  fetch: typeof fetch;
+  now: () => number;
+}
+
+let active: { options: SentryOptions; transport: SentryTransport } | null = null;
+let windowStart = 0;
+let windowCount = 0;
+
+/**
+ * 初始化上报：无有效 DSN 时返回 false 并保持 no-op。
+ * @param env 环境变量（默认 process.env）
+ * @param transport 传输覆盖（仅测试注入；生产用全局 fetch 与 Date.now）
+ */
+export function initSentry(env: NodeJS.ProcessEnv = process.env, transport: Partial<SentryTransport> = {}): boolean {
+  const options = resolveSentryOptions(env);
+  if (!options) {
+    active = null;
+    return false;
+  }
+  active = {
+    options,
+    transport: { fetch: transport.fetch ?? globalThis.fetch, now: transport.now ?? Date.now },
+  };
+  windowStart = 0;
+  windowCount = 0;
+  return true;
+}
+
+export function isSentryEnabled(): boolean {
+  return active !== null;
+}
+
+/** 令牌桶限流：每个 60s 窗口最多 MAX_EVENTS_PER_MINUTE 条 */
+function withinRateLimit(now: number): boolean {
+  if (now - windowStart >= 60_000) {
+    windowStart = now;
+    windowCount = 0;
+  }
+  if (windowCount >= MAX_EVENTS_PER_MINUTE) return false;
+  windowCount += 1;
+  return true;
+}
+
+/**
+ * 上报一次异常（fire-and-forget）。未启用 / 超限 / 传输失败均静默，绝不影响请求处理。
+ */
+export function captureException(error: unknown, ctx: SentryEventContext = {}): void {
+  const state = active;
+  if (!state) return;
+  try {
+    if (!withinRateLimit(state.transport.now())) return;
+    const event = buildSentryEvent(error, ctx, state.options);
+    const body = buildEnvelope(event);
+    const headers: Record<string, string> = {
+      'content-type': 'application/x-sentry-envelope',
+      'x-sentry-auth': `Sentry sentry_version=7, sentry_client=${SENTRY_CLIENT}, sentry_key=${state.options.dsn.publicKey}`,
+    };
+    void state.transport
+      .fetch(state.options.dsn.envelopeUrl, {
+        method: 'POST',
+        headers,
+        body,
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      })
+      .then(
+        () => undefined,
+        () => undefined,
+      );
+  } catch {
+    /* 观测失败不得影响业务（§R9 设计约束） */
+  }
+}
+
+/** 测试用：重置为 no-op 状态并清空限流窗口 */
+export function resetSentryForTest(): void {
+  active = null;
+  windowStart = 0;
+  windowCount = 0;
+}

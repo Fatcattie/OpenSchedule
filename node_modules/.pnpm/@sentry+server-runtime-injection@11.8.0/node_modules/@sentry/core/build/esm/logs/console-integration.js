@@ -1,0 +1,66 @@
+import { SENTRY_ORIGIN } from '@sentry/conventions/attributes';
+import { getClient } from '../currentScopes.js';
+import { addConsoleInstrumentationHandler } from '../instrument/console.js';
+import { defineIntegration } from '../integration.js';
+import { CONSOLE_LEVELS } from '../utils/debug-logger.js';
+import { isPlainObject } from '../utils/is.js';
+import { normalize } from '../utils/normalize.js';
+import { _INTERNAL_captureLog } from './internal.js';
+import { formatConsoleArgs, hasConsoleSubstitutions, createConsoleTemplateAttributes } from './utils.js';
+
+const INTEGRATION_NAME = "ConsoleLogs";
+const DEFAULT_ATTRIBUTES = {
+  [SENTRY_ORIGIN]: "auto.log.console"
+};
+const _consoleLoggingIntegration = ((options = {}) => {
+  const levels = options.levels || CONSOLE_LEVELS;
+  return {
+    name: INTEGRATION_NAME,
+    setup(client) {
+      const { normalizeDepth = 3, normalizeMaxBreadth = 1e3 } = client.getOptions();
+      const unsubscribe = addConsoleInstrumentationHandler(({ args, level }) => {
+        if (getClient() !== client || !levels.includes(level)) {
+          return;
+        }
+        const firstArg = args[0];
+        const followingArgs = args.slice(1);
+        if (level === "assert") {
+          if (!firstArg) {
+            const assertionMessage = followingArgs.length > 0 ? `Assertion failed: ${formatConsoleArgs(followingArgs, normalizeDepth, normalizeMaxBreadth)}` : "Assertion failed";
+            _INTERNAL_captureLog({ level: "error", message: assertionMessage, attributes: DEFAULT_ATTRIBUTES });
+          }
+          return;
+        }
+        const isLevelLog = level === "log";
+        const attributes = { ...DEFAULT_ATTRIBUTES };
+        if (isPlainObject(firstArg)) {
+          Object.assign(attributes, normalize(firstArg, normalizeDepth, normalizeMaxBreadth));
+          const remainingArgsStartIndex = typeof args[1] === "string" ? 2 : 1;
+          const remainingArgs = args.slice(remainingArgsStartIndex);
+          remainingArgs.forEach((arg, index) => {
+            attributes[`sentry.message.parameter.${index}`] = normalize(arg, normalizeDepth, normalizeMaxBreadth);
+          });
+        } else {
+          const shouldGenerateTemplate = followingArgs.length > 0 && typeof firstArg === "string" && !hasConsoleSubstitutions(firstArg);
+          if (shouldGenerateTemplate) {
+            const templateAttrs = createConsoleTemplateAttributes(firstArg, followingArgs);
+            for (const [key, value] of Object.entries(templateAttrs)) {
+              attributes[key] = key.startsWith("sentry.message.parameter.") ? normalize(value, normalizeDepth, normalizeMaxBreadth) : value;
+            }
+          }
+        }
+        _INTERNAL_captureLog({
+          level: isLevelLog ? "info" : level,
+          message: formatConsoleArgs(args, normalizeDepth, normalizeMaxBreadth),
+          severityNumber: isLevelLog ? 10 : void 0,
+          attributes
+        });
+      });
+      client.registerCleanup(unsubscribe);
+    }
+  };
+});
+const consoleLoggingIntegration = defineIntegration(_consoleLoggingIntegration);
+
+export { consoleLoggingIntegration };
+//# sourceMappingURL=console-integration.js.map

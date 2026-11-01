@@ -1,0 +1,63 @@
+{
+  "meta": {
+    "name": "openschedule-product",
+    "register": "product",
+    "theme": "light",
+    "colorSpace": "oklch",
+    "iconLibrary": "@ant-design/icons",
+    "iconStroke": "1px",
+    "contrastMethod": "WCAG 2.2 relative luminance on sRGB conversion",
+    "sourceDoc": "output/openschedule-uiux.md"
+  },
+  "color": {
+    "canvas": { "value": "oklch(0.985 0.004 240)", "on": "oklch(0.24 0.01 250)", "contrastOn": "15.20:1" },
+    "surface": { "value": "oklch(1 0 0)", "on": "oklch(0.24 0.01 250)", "contrastOn": "16.18:1" },
+    "surfaceSubtle": { "value": "oklch(0.965 0.004 240)", "on": "oklch(0.42 0.02 245)", "contrastOn": "6.67:1" },
+    "border": { "value": "oklch(0.92 0.004 250)", "on": "oklch(0.24 0.01 250)", "contrastOn": "11.94:1" },
+    "accent": { "value": "oklch(0.53 0.09 185)", "on": "oklch(1 0 0)", "contrastOn": "5.47:1" },
+    "accentSubtle": { "value": "oklch(0.94 0.03 185)", "on": "oklch(0.36 0.08 185)", "contrastOn": "7.13:1" },
+    "successSurface": { "value": "oklch(0.96 0.025 150)", "on": "oklch(0.42 0.09 155)", "contrastOn": "8.11:1" },
+    "warningSurface": { "value": "oklch(0.97 0.035 85)", "on": "oklch(0.45 0.1 70)", "contrastOn": "7.81:1" },
+    "dangerSurface": { "value": "oklch(0.97 0.025 25)", "on": "oklch(0.4 0.13 27)", "contrastOn": "11.16:1" },
+    "infoSurface": { "value": "oklch(0.96 0.02 240)", "on": "oklch(0.4 0.06 230)", "contrastOn": "9.38:1" }
+  },
+  "font": {
+    "sans": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", Roboto, sans-serif",
+    "mono": "\"SFMono-Regular\", Consolas, \"JetBrains Mono\", monospace"
+  },
+  "type": {
+    "xs": { "fontSize": "12px", "fontWeight": 400 },
+    "sm": { "fontSize": "14px", "fontWeight": 400 },
+    "md": { "fontSize": "16px", "fontWeight": 500 },
+    "lg": { "fontSize": "19px", "fontWeight": 600 },
+    "xl": { "fontSize": "22px", "fontWeight": 600 },
+    "xxl": { "fontSize": "26px", "fontWeight": 600 }
+  },
+  "lineHeight": 1.5,
+  "space": {
+    "1": "4px",
+    "2": "8px",
+    "3": "12px",
+    "4": "16px",
+    "5": "24px",
+    "6": "32px",
+    "7": "48px",
+    "8": "64px"
+  },
+  "radius": {
+    "sm": "4px",
+    "md": "8px",
+    "lg": "12px"
+  },
+  "shadow": {
+    "1": "0 1px 2px oklch(0 0 0 / 0.06)",
+    "2": "0 4px 12px oklch(0 0 0 / 0.08)"
+  },
+  "motion": {
+    "fast": "120ms",
+    "normal": "200ms",
+    "slow": "300ms",
+    "skeleton": "1200ms",
+    "easeStandard": "cubic-bezier(0.2, 0, 0, 1)"
+  }
+}

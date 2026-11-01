@@ -1,18 +1,21 @@
 """AI 服务配置（pydantic-settings；.env 覆盖默认值）。
 
 对应《开发方案》§3.7 环境变量清单（LLM 组 + 应用组 + AI 服务专有项）。
-AI 服务无数据库/Redis/对象存储凭据 —— 永不直连业务库（§3.1 铁律）。
+
+铁律不变：AI 服务**永不直连业务库**（§3.1）。R11 为 run 状态持久化与回调死信引入
+**AI 自有** Redis（`ai_state_redis_url`，键前缀 `osai:`，与主服务逻辑隔离），
+它只承载 run 帧与回调死信，不含任何业务数据。
 """
 from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """服务配置。env 变量名与字段名大小写不敏感（LITELLM_URL → litellm_url）。"""
+    """服务配置。env 变量名与字段名大小写不敏感（LOG_LEVEL → log_level）。"""
 
     model_config = SettingsConfigDict(
         env_file=".env",  # 相对运行目录（services/ai）读取；真实凭据不进 git
@@ -27,14 +30,16 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: str = ""  # 逗号分隔；默认空 = 仅内部网络访问
 
+    # —— 错误上报（Sentry Envelope 直连；空 = no-op）——
+    # AI_SENTRY_DSN 优先（AI 独立 Sentry 项目）；未设时沿用与主服务共用的 SENTRY_DSN
+    sentry_dsn: str = Field(default="", validation_alias=AliasChoices("AI_SENTRY_DSN", "SENTRY_DSN"))
+    sentry_release: str = ""
+
     # —— 服务间鉴权（§3.5.2：内部网络 + 服务 token，与主服务共享）——
     ai_service_token: str = "dev-ai-service-token-change-me"
 
-    # —— LLM（§3.7：凭据只放 LiteLLM，应用不直连供应商）——
-    litellm_url: str = "http://localhost:4000/v1"
-    litellm_api_key: str = ""
-    llm_default_model: str = "deepseek-chat"  # C20：默认 DeepSeek/GLM 档，eval 后定稿
-    llm_planning_model: str | None = None     # 拆解专用模型；空 = 跟随默认
+    # —— LLM 调用参数 ——
+    # 端点/凭据/模型不在服务配置里：由租户管理员在设置页配置，主服务随每次请求下发（DecomposeRequest.llm）
     llm_temperature: float = Field(default=0.2, le=0.2)  # L1 铁律 ≤0.2；超限启动即失败
     llm_timeout_seconds: float = 60.0
     llm_max_retries: int = Field(default=3, ge=1, le=5)  # §3.5.4：L1 校验失败重试 ≤3 次
@@ -44,6 +49,14 @@ class Settings(BaseSettings):
     # —— 主服务回调（AI 永不直连业务库，§3.1 / §3.5.2）——
     main_service_internal_url: str = "http://localhost:3000"
     callback_timeout_seconds: float = 10.0
+    ai_callback_max_attempts: int = Field(default=3, ge=1, le=10)  # 回调重试次数（耗尽 → 死信）
+
+    # —— AI 自有状态存储（R11：run 持久化 + 回调死信；与业务数据无关）——
+    ai_run_store: str = "auto"  # auto=探测 Redis，连不上降级 memory；redis=失败即抛；memory=单进程
+    ai_state_redis_url: str = "redis://localhost:6379/3"  # 键前缀 osai:，与主服务逻辑隔离
+    ai_state_ttl_seconds: int = Field(default=3600, ge=60)  # run/死信键存活时长
+    ai_state_max_frames: int = Field(default=200, ge=10, le=2000)  # 重放帧上限（与 SSE 重放上限一致）
+    ai_dlq_max_entries: int = Field(default=200, ge=10, le=5000)  # 死信条数上限
 
     # —— 拆解限制（§3.5.2 单次 ≤8-10 步；A4 拆解深度 ≤4 层，计划为第 0 层）——
     decompose_max_tasks: int = Field(default=10, ge=1, le=50)

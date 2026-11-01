@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Descriptions, Input, Modal, Select, Space, Tag, Typography } from 'antd'
 import dayjs from 'dayjs'
-import { mockUsers } from '@/api/mock/data'
+import { useDirectory } from '@/hooks/useWorkspaceIdentity'
 import type { WorkspaceTask } from '@/types'
 import { TASK_PRIORITY_META } from '@/types'
 
@@ -37,6 +37,7 @@ export default function ReviewActionModal({
   onInvite,
   onComplete,
 }: Props) {
+  const { teamMembers, nameOf } = useDirectory()
   const [participants, setParticipants] = useState<string[]>([])
   const [conclusion, setConclusion] = useState('')
 
@@ -79,7 +80,7 @@ export default function ReviewActionModal({
         </Descriptions.Item>
         <Descriptions.Item label="评审任务">{reviewTask.title}</Descriptions.Item>
         <Descriptions.Item label="负责人">
-          {mockUsers.find((u) => u.id === reviewTask.assigneeId)?.displayName ?? '未指派'}
+          {nameOf(reviewTask.assigneeId) ?? '未指派'}
         </Descriptions.Item>
         <Descriptions.Item label="优先级">
           <Tag color={TASK_PRIORITY_META[reviewTask.priority].color}>
@@ -109,7 +110,7 @@ export default function ReviewActionModal({
         placeholder="邀请参与评审的成员"
         value={participants}
         onChange={setParticipants}
-        options={mockUsers.map((u) => ({ value: u.id, label: u.displayName }))}
+        options={teamMembers.map((u) => ({ value: u.id, label: u.displayName }))}
       />
 
       <div style={{ marginBottom: 8 }}>

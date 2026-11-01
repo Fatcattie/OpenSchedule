@@ -1,0 +1,36 @@
+/**
+ * url-guard（§3.3 / R4）：isPrivateIp 纯函数（私有/环回/链路本地/ULA/IPv4-mapped）+ SSRF 语义。 * assertSafeOutboundUrl 含 DNS，仅测其协议/主机前置校验分支（不联网）。 */
+import { describe, expect, it } from 'vitest'
+import { isPrivateIp } from './url-guard';
+
+describe('isPrivateIp', () => {
+  it('私有/环回/链路本地/保留地址拒绝', () => {
+    for (const ip of [
+      '127.0.0.1', '127.5.5.5', '10.0.0.1', '192.168.1.1', '172.16.0.1', '172.31.255.255',
+      '169.254.169.254', '0.0.0.0', '::1', '::', 'fe80::1', 'fc00::1', 'fd12:3456::1',
+    ]) {
+      expect(isPrivateIp(ip)).toBe(true);
+    }
+  });
+
+  it('172 段边界：仅 172.16/12 私有', () => {
+    expect(isPrivateIp('172.15.0.1')).toBe(false);
+    expect(isPrivateIp('172.32.0.1')).toBe(false);
+    expect(isPrivateIp('172.16.0.1')).toBe(true);
+  });
+
+  it('IPv4-mapped IPv6 按 IPv4 判', () => {
+    expect(isPrivateIp('::ffff:127.0.0.1')).toBe(true);
+    expect(isPrivateIp('::ffff:8.8.8.8')).toBe(false);
+  });
+
+  it('公网地址放行', () => {
+    expect(isPrivateIp('8.8.8.8')).toBe(false);
+    expect(isPrivateIp('1.1.1.1')).toBe(false);
+    expect(isPrivateIp('2001:4860:4860::8888')).toBe(false);
+  });
+
+  it('localhost 域名拒绝', () => {
+    expect(isPrivateIp('localhost')).toBe(true);
+  });
+});

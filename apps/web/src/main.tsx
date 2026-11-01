@@ -19,7 +19,7 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { App as AntdApp, ConfigProvider, theme } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from 'dayjs'
@@ -28,16 +28,28 @@ import { BrowserRouter } from 'react-router-dom'
 import '@ant-design/v5-patch-for-react-19'
 import './styles/responsive.css'
 import App from './App'
+import { queryClient } from './lib/queryClient'
+import { captureException, initErrorReporting, installGlobalHandlers, resolveOptions } from './lib/errorReporting'
 
 dayjs.locale('zh-cn')
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false },
-  },
-})
+// R9 错误上报：DSN 由 /runtime-config.js 运行时注入（缺省即 no-op）
+if (initErrorReporting(resolveOptions(window.__OS_RUNTIME__, import.meta.env))) {
+  installGlobalHandlers()
+}
 
-createRoot(document.getElementById('root')!).render(
+/** React 19 根级错误钩子：错误边界捕获的与未捕获的渲染错误都上报，并保留控制台输出 */
+function reportReactError(mechanism: string) {
+  return (error: unknown, info: { componentStack?: string }) => {
+    console.error(error)
+    captureException(error, { mechanism, componentStack: info.componentStack })
+  }
+}
+
+createRoot(document.getElementById('root')!, {
+  onCaughtError: reportReactError('react.boundary'),
+  onUncaughtError: reportReactError('react.uncaught'),
+}).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <ConfigProvider

@@ -1,11 +1,12 @@
 # syntax=docker/dockerfile:1
 # ============================================================
 # OpenSchedule 前端镜像（React 19 + Vite，Node 22，多阶段构建）
-# 本地开发定位：容器内跑 Vite dev server（HMR 经 5173 端口映射，见 compose）
-# 生产静态产物（第三阶段预留）在 CI/上线前启用
+# 本地开发定位：容器内跑 Vite dev server（HMR 经 5173 端口映射，见 compose，target: dev）
+# 生产定位：多阶段构建出静态产物，nginx 托管（target: prod；见 deploy/docker-compose.prod.yml）
 # 构建上下文 = 仓库根目录（配合根 .dockerignore）
 # 构建方式（仓库根目录）：
-#   docker compose --env-file .env -f deploy/docker-compose.yml build web
+#   docker compose --env-file .env -f deploy/docker-compose.yml build web            # 开发镜像（dev 目标）
+#   docker compose --env-file .env.production -f deploy/docker-compose.prod.yml build web   # 生产镜像（prod 目标）
 # 依赖契约（由前端同事实现，缺一则构建报错，属预期）：
 #   - apps/web/package.json 存在 dev 脚本（vite dev，读取 VITE_API_PROXY_TARGET 做代理）
 #   - 页面根路由返回 200（健康检查探活用）
@@ -35,9 +36,27 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 # "--" 之后的参数透传给 vite：--host 0.0.0.0 允许容器外访问
 CMD ["pnpm", "--filter", "./apps/web", "run", "dev", "--", "--host", "0.0.0.0"]
 
-# ---------- 阶段 4：生产构建层（预留，上线前启用） ----------
-# FROM base AS build
-# COPY --from=deps /app /app
-# RUN pnpm --filter "./apps/web" run build
-# 产物目录：apps/web/dist-mvp-2（与 vite.config.ts、preview 脚本一致）
-# TODO(部署)：runner 用 nginx:alpine 托管 apps/web/dist-mvp-2，当前 compose 仅用 dev 目标
+# ---------- 阶段 4：生产构建层（R10：web 生产镜像） ----------
+# 构建期变量：Vite 会把 import.meta.env.VITE_* 内联进产物，故必须显式锁死
+#   - VITE_USE_MOCK=false：生产绝不打到 mock 层（假数据不得上线）
+#   - 不设 VITE_API_BASE_URL：前端 axios baseURL 固定为同源 /api/v1（api/config.ts），
+#     由反向代理（deploy/caddy/Caddyfile）把 /api/* 转发到 api:3000，避免跨域与硬编码域名。
+FROM base AS build
+COPY --from=deps /app /app
+ENV VITE_USE_MOCK=false
+RUN pnpm --filter "./apps/web" run build
+# 产物目录：apps/web/dist（vite.config.ts 默认 outDir；不再用 dist-mvp-* 历史目录）
+
+# ---------- 阶段 5：生产运行层（nginx 静态托管 + SPA 回退） ----------
+# 用法：docker compose -f deploy/docker-compose.prod.yml build web  （target: prod）
+FROM nginx:1.27-alpine AS prod
+# 使用自定义配置（SPA 回退 / 缓存头 / 安全头 / GET /health）
+COPY deploy/web/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+# 运行时配置注入（WEB_SENTRY_DSN/APP_ENV/SENTRY_RELEASE → runtime-config.js；同一镜像跨环境复用）
+COPY --chmod=0755 deploy/web/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
+EXPOSE 80
+# 健康检查：静态站点与 /health 均可访问即视为就绪
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1/health || exit 1
+CMD ["nginx", "-g", "daemon off;"]

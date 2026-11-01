@@ -1,0 +1,34 @@
+/**
+ * IM 消息纯函数（R5-2）：通知 → integrations SendMessagePayload 映射 + provider 解析。
+ * 目标解析约定：以用户邮箱作为 IM 目标标识（企业目录按邮箱匹配成员，由 MCP 网关/渠道侧完成）。
+ */
+import type { ImProvider, SendMessagePayload } from '../../integrations/adapters/im-adapter.interface';
+
+const PROVIDERS: ImProvider[] = ['feishu', 'dingtalk'];
+
+/** NOTIFICATION_IM_PROVIDER 解析（缺省/非法回落 feishu） */
+export function resolveImProvider(env: NodeJS.ProcessEnv): ImProvider {
+  const v = env.NOTIFICATION_IM_PROVIDER?.trim().toLowerCase() as ImProvider;
+  return PROVIDERS.includes(v) ? v : 'feishu';
+}
+
+/**
+ * 该 provider 是否要求真实投递（mcp 模式且网关地址就绪）。
+ * 是 → integrations 因网关不可达降级 mock 的结果视为投递失败（防通知外发静默假成功）。
+ */
+export function expectsRealImDelivery(env: NodeJS.ProcessEnv, provider: ImProvider): boolean {
+  const mode = env[`INTEGRATION_${provider.toUpperCase()}_MODE`]?.trim().toLowerCase();
+  return mode === 'mcp' && Boolean(env.MCP_GATEWAY_URL?.trim());
+}
+
+/** 通知 → IM 消息（title/content/单一目标） */
+export function buildImMessage(
+  notification: { title: string; body: string | null },
+  target: string,
+): SendMessagePayload {
+  return {
+    targets: [target],
+    title: notification.title,
+    content: notification.body ? `${notification.title}\n${notification.body}` : notification.title,
+  };
+}

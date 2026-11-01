@@ -9,7 +9,7 @@
 **架构**：pnpm workspaces 单仓（monorepo）承载三层——
 `apps/web`（React 19 + Vite SPA + TanStack Query/Zustand + @dnd-kit，PWA 一期）、
 `services/api`（NestJS 模块化单体 + Prisma + PostgreSQL，**唯一写库方**，`tenant_id` 多租户铁律 + `audit_logs` 审计留痕）、
-`services/ai`（Python 3.12 FastAPI + LangGraph + LiteLLM，独立部署、**永不直连业务库**）；
+`services/ai`（Python 3.12 FastAPI + LangGraph，模型为团队管理员配置的 OpenAI 兼容端点，独立部署、**永不直连业务库**）；
 基础设施为 PostgreSQL 16（全文搜索）+ Redis 7（BullMQ 队列 / zset 延迟提醒 / WS 广播）+ MinIO（S3 兼容对象存储）；`packages/` 预留共享契约包（shared-types）。
 
 **节奏**：按方案 chapter_04 的 B1–B30 三十批三阶段推进（约 6–12 个月）——Phase 1 确定性协作闭环（B1–B14，含 AI 拆解草稿）、Phase 2 数据变现（依赖/CPM、智能评估、周报 AI、自动化、日历集成）、Phase 3 AI 执行与临期应急。本仓库当前处于 **B1 脚手架阶段**：monorepo 根配置 + docker-compose 本地栈 + CI 基线已就位，验收点为「docker compose up 一键起、/health 全绿、CI 跑通」。
@@ -93,7 +93,7 @@ pnpm dev:ai               # 终端 3：FastAPI（--reload）→ http://localhost
 | 6 邮件 | MAIL_PROVIDER / SMTP_HOST / SMTP_PORT / SMTP_USER / MAIL_FROM | Phase 1 |
 | 7 WebPush | VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT | Phase 1 |
 | 8 IM 通知 | 企微/飞书/钉钉 webhook base | Phase 1 |
-| 9 LLM | LITELLM_URL / LITELLM_API_KEY / LLM_DEFAULT_MODEL / 预算告警 | Phase 1 |
+| 9 AI 模型 | 模型 key 不走环境变量：管理员在「设置 → AI 模型」配置（D-14）；AI_DECOMPOSE_TIMEOUT_MS / 预算告警 | Phase 1 |
 | 10 日历 OAuth | GOOGLE / FEISHU / WECOM 凭据 | Phase 2 |
 | 11 沙箱 | SANDBOX_PROVIDER / E2B_API_KEY | Phase 3 |
 | 12 浏览器自动化 | BROWSER_PROVIDER | Phase 3 |
@@ -102,7 +102,7 @@ pnpm dev:ai               # 终端 3：FastAPI（--reload）→ http://localhost
 | 15 种子/迁移 | DB_AUTO_MIGRATE / SEED_DEMO_DATA | Phase 1 |
 
 容器场景无需改地址：compose 自动把 `localhost` 覆盖为服务名（见 `deploy/README.md`）。
-端口约定：web 5173 / api 3000 / ai 8300 / pg 5432 / redis 6379 / minio 9000+9001（LiteLLM 预留 4000）。
+端口约定：web 5173 / api 3000 / ai 8300 / pg 5432 / redis 6379 / minio 9000+9001。
 
 ## 目录结构
 
@@ -134,7 +134,7 @@ openschedule/
 - **合并**：PR 到 `dev` 需 `pnpm lint` + `pnpm test` 通过（CI 已配置）；DoD 8 条见方案 §4.5（单测/OpenAPI 契约进 CI/冒烟 E2E/多租户隔离 ≥5 用例/审计断言/迁移可回滚/前端 375px 清单/AI schema 合规率 ≥99%）。
 - **代码规范**（方案 chapter_02 通用约定）：DB 字段 `snake_case`、API/DTO `camelCase`；主键 UUID（建议 UUIDv7）；时间 `timestamptz`（UTC 存储、前端按用户时区渲染）；**全部业务表强制 `tenant_id`**；软删统一 `deleted_at`；所有写操作落 `audit_logs`；模块间只经 service 层或事件交互，禁止跨模块直接查表。
 - **包名约定**：`@openschedule/web`（apps/web）、`@openschedule/api`（services/api）；根脚本按路径 filter（`--filter "./apps/web"`），包名不同也不影响。
-- **AI 服务纪律**：永不直连业务库；结果一律回调主服务内部 API（`API_INTERNAL_URL`）；凭据只放 LiteLLM。
+- **AI 服务纪律**：永不直连业务库；结果一律回调主服务内部 API（`API_INTERNAL_URL`）；模型 key 只由主服务加密保存、随请求下发，AI 服务不落盘。
 - 完整规格以《OpenSchedule 完整开发方案》（见下）为权威，本 README 不替代方案。
 
 ## 下一步

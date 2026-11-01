@@ -1,6 +1,7 @@
 /**
  * api-key.spec.ts —— API Key 单测
  */
+import { describe, expect, it } from 'vitest'
 import { generateApiKey, hashApiKey, verifyApiKey, getKeyPrefix } from './api-key'
 
 describe('API Key 生成与验证', () => {

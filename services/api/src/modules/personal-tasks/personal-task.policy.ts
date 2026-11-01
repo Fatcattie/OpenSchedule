@@ -1,0 +1,32 @@
+/**
+ * personal-task.policy.ts —— 个人任务状态机策略（R6-2 / BC-04）。
+ * 个人任务的属主即「assignee / 负责人 / 创建者」三合一：用统一的团队任务迁移表，
+ * 以 self-scoped TransitionContext 复用同一套 T1–T13 规则，避免两套状态机漂移。
+ * 纯函数 + 单一副作用入口（抛 Nest 异常）；个人任务编辑权限一律 = 属主本人。
+ */
+import { TaskStatus, TransitionContext, assertTransitionLegal, checkTransitionPreconditions } from '../../common/constants/task-status';
+import { isTenantAdmin } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '../../common/auth/auth-user.interface';
+
+/** self-scoped 迁移上下文：个人任务属主 = assignee = 负责人 = 创建者（§2.3 BC-04） */
+export function buildPersonalTaskContext(user: AuthUser): TransitionContext {
+  return {
+    userId: user.userId,
+    assigneeId: user.userId,
+    projectOwnerId: user.userId,
+    createdBy: user.userId,
+    isTenantAdmin: isTenantAdmin(user),
+  };
+}
+
+/** 断言个人任务状态迁移合法（复用 TASK_TRANSITIONS；非法 40902 / 越权 40301 / 前置条件 40001） */
+export function assertPersonalTransition(
+  from: TaskStatus,
+  to: TaskStatus,
+  user: AuthUser,
+  opts: { reason?: string; actualHours?: number | null } = {},
+): void {
+  const ctx = buildPersonalTaskContext(user);
+  const t = assertTransitionLegal(from, to, ctx, { assigneeId: user.userId, createdBy: user.userId });
+  checkTransitionPreconditions(t, { reason: opts.reason, actualHours: opts.actualHours, ctx });
+}

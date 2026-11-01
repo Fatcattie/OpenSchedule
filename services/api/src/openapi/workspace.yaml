@@ -1,0 +1,413 @@
+openapi: 3.1.0
+info:
+  title: OpenSchedule Collaboration Workspace API (contract slice E — workspace routes)
+  version: 1.3.0
+  description: |
+    Collaboration workspace slice of the binding frontend↔backend contract.
+    Covers D-07-1 (workspace document storage: the former frontend
+    localStorage workbench collections, now server-persisted with
+    tenant/user scope, per-item optimistic locking and the D-07 phase-2
+    write guard) and D-07-2 (server-side approval command + member
+    directory: approval side effects and audit trails are executed by the
+    server only — a same-tenant member cannot forge approval results by
+    writing the tasks collection directly).
+
+    全部端点经全局 JwtAuthGuard（Bearer access token）；租户/属主由服务端强制
+    （请求体不可指定 tenantId/owner）。写守卫与审核规则的单一来源是
+    packages/workspace-rules（服务端与 web mock 演示模式共享同一份纯函数）。
+servers:
+  - url: /api
+    description: Same-origin API prefix used by the current web proxy
+  - url: /api/v1
+    description: Versioned NestJS API prefix used by the backend bootstrap
+
+x-requirements:
+  D-07-1:
+    summary: Workspace document storage with tenant/user scope, optimistic locking and write guard
+    paths: ["/workspace/{collection}"]
+  D-07-2:
+    summary: Server-side approval command and tenant member directory
+    paths: ["/workspace/directory", "/workspace/tasks/{taskId}/review"]
+
+security: []
+
+paths:
+  /workspace/directory:
+    get:
+      tags: [Workspace]
+      operationId: listWorkspaceDirectory
+      x-requirements: [D-07-2]
+      summary: List the tenant member directory
+      description: |
+        Returns every enabled user holding a tenant-level role in the
+        caller's tenant (id, display name, avatar URL and the workspace
+        role projection manager/member/viewer; managers first, then by
+        display name). 全员可读：成员没有 /users 权限，但工作台需要显示名与
+        承接人候选。跨租户用户永不可见；停用用户不返回。
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Directory of the caller's tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectoryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /workspace/tasks/{taskId}/review:
+    post:
+      tags: [Workspace]
+      operationId: reviewWorkspaceTask
+      x-requirements: [D-07-2]
+      summary: Run the approval command on one pending workspace task
+      description: |
+        服务端审核命令（D-07 二期）：approve / reject 仅租户 owner/admin，
+        withdraw 限提报人或管理；viewer 一律 40301。全部副作用在单事务内执行
+        （完成闭环、内容/调整时间/承接人生效、删除申请级联删子孙、项目提报按
+        SOP 生成项目内任务、SOP 沉淀去重），审核留痕的操作人取自令牌不可伪造，
+        整命令一条审计 workspace.task.<action>。规则单测见
+        packages/workspace-rules + services/api test/workspace-rules.spec.ts。
+        HTTP 状态沿用 NestJS POST 默认 201（命令成功返回结果体）。
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          description: 工作台 tasks 集合中的任务条目键（= 条目 data.id）
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewTaskBody'
+      responses:
+        '201':
+          description: 审核命令执行结果（含完成/驳回后的审批状态、生成任务数、SOP 是否沉淀）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewTaskResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /workspace/{collection}:
+    get:
+      tags: [Workspace]
+      operationId: listWorkspaceCollection
+      x-requirements: [D-07-1]
+      summary: Read one whole workspace collection
+      description: |
+        读整个集合（D-07 一期）：tenant 作用域集合返回本租户全部条目；user
+        作用域集合只返回调用者本人条目（他人不可见）。未知集合一律 40401
+        （防探测）。条目 data 为存储时的原始 JSON（工作台任务/文档形状由
+        packages/workspace-rules 的类型定义）。
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: collection
+          in: path
+          required: true
+          description: 集合白名单（services/api/src/modules/workspace/workspace-collections.ts）
+          schema:
+            $ref: '#/components/schemas/WorkspaceCollection'
+      responses:
+        '200':
+          description: 集合全部条目（含编码保留键 __order__ 顺序表 / __value__ 整值）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Workspace]
+      operationId: applyWorkspaceBatch
+      x-requirements: [D-07-1]
+      summary: Apply a batch of workspace item upserts/deletes atomically
+      description: |
+        批量写（D-07 一期）：单事务原子生效，任一条目乐观锁失败整批回滚
+        （40901）。upserts 的 baseVersion 缺省/null = 新建（已存在则 40901），
+        给定 n = version=n 时覆盖并 +1；deletes 必须携带 baseVersion。同一键
+        在一个批次内只出现一次、单批 ≤500 个条目操作、单条目 data ≤2MB，
+        违者 40001。tenant 集合的 viewer 只读（40301）；user 集合属主 =
+        当前用户，viewer 也可写本人集合。tasks 集合逐条经写入守卫
+        （40301 带 details.key：审批结果/留痕/创建人/完成/承接人/删除限制）。
+        整批一条审计 workspace.batch（只记键名，不记大体积 data）。
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: collection
+          in: path
+          required: true
+          description: 集合白名单（services/api/src/modules/workspace/workspace-collections.ts）
+          schema:
+            $ref: '#/components/schemas/WorkspaceCollection'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceBatchBody'
+      responses:
+        '200':
+          description: 生效条目的新版本号与删除键列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceBatchResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer access token issued by POST /auth/login（见 auth.yaml）。
+        全局 JwtAuthGuard，与其余域同一鉴权口径（R7-6 双鉴权收敛）。
+
+  schemas:
+    WorkspaceCollection:
+      type: string
+      enum:
+        - tasks
+        - sops
+        - experience
+        - wiki_kb
+        - prompts
+        - skills
+        - ai_rules
+        - ai_rule_overrides
+        - meta_config
+        - reminders
+        - notification_forward_log
+        - os_mood_v1
+        - calendar_sync_settings
+        - calendar_synced_refs
+      description: |
+        集合白名单（闭集，未知值 40401）。前 9 个为租户共享（viewer 只读），
+        后 5 个为个人私有（属主 = 当前用户）。
+    WorkspaceItemKey:
+      type: string
+      minLength: 1
+      maxLength: 200
+      pattern: '^[^\u0000-\u001f\u007f]{1,200}$'
+      description: 条目键：1–200 个非控制字符（__order__/__value__ 为编码保留键）；与服务端 ITEM_KEY_PATTERN 逐字一致
+    WorkspaceEntry:
+      type: object
+      additionalProperties: false
+      required: [key, data, version]
+      properties:
+        key:
+          $ref: '#/components/schemas/WorkspaceItemKey'
+        data:
+          description: 存储时的原始 JSON（形状随集合而异，服务端不裁剪）
+        version:
+          type: integer
+          minimum: 1
+          description: 乐观锁版本号（每次覆盖 +1）
+    WorkspaceListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/WorkspaceEntry'
+    WorkspaceUpsertOp:
+      type: object
+      additionalProperties: false
+      required: [key, data]
+      properties:
+        key:
+          $ref: '#/components/schemas/WorkspaceItemKey'
+        data:
+          description: 新值 JSON；序列化后 ≤2MB（UTF-8 字节），超限 40001
+        baseVersion:
+          type: [integer, 'null']
+          minimum: 1
+          description: 缺省/null = 新建（已存在 40901）；给定 n = version=n 时覆盖并 +1，否则 40901
+    WorkspaceDeleteOp:
+      type: object
+      additionalProperties: false
+      required: [key, baseVersion]
+      properties:
+        key:
+          $ref: '#/components/schemas/WorkspaceItemKey'
+        baseVersion:
+          type: integer
+          minimum: 1
+          description: 必须等于当前版本（乐观锁），版本不匹配 40901
+    WorkspaceBatchBody:
+      type: object
+      additionalProperties: false
+      properties:
+        upserts:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/WorkspaceUpsertOp'
+        deletes:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/WorkspaceDeleteOp'
+      description: upserts + deletes 合计 ≤500 且同键不重复、批次非空（违者 40001）
+    WorkspaceBatchResult:
+      type: object
+      additionalProperties: false
+      required: [items, deleted]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [key, version]
+            properties:
+              key:
+                $ref: '#/components/schemas/WorkspaceItemKey'
+              version:
+                type: integer
+                minimum: 1
+        deleted:
+          type: array
+          items:
+            type: string
+            maxLength: 200
+    WorkspaceBatchResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/WorkspaceBatchResult'
+    WorkspaceRole:
+      type: string
+      enum: [manager, member, viewer]
+      description: 工作台角色投影：manager = 租户 owner/admin（与 useCurrentRole 的 manager 同口径）
+    DirectoryMember:
+      type: object
+      additionalProperties: false
+      required: [id, displayName, avatarUrl, role]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        displayName:
+          type: string
+          maxLength: 120
+        avatarUrl:
+          type: [string, 'null']
+          maxLength: 500
+        role:
+          $ref: '#/components/schemas/WorkspaceRole'
+    DirectoryResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/DirectoryMember'
+    ReviewTaskBody:
+      type: object
+      additionalProperties: false
+      required: [action, opinion]
+      properties:
+        action:
+          type: string
+          enum: [approve, reject, withdraw]
+          description: approve/reject 仅管理；withdraw 限提报人或管理
+        opinion:
+          type: string
+          enum: [agree, reject, rework, other]
+          description: 审核意见分类（写入审核留痕）
+        reason:
+          type: string
+          maxLength: 500
+          description: opinion=other 时建议必填；随留痕落库
+    ReviewTaskResult:
+      type: object
+      additionalProperties: false
+      required: [taskId, action, approvalStatus, generated, sopArchived]
+      properties:
+        taskId:
+          type: string
+          minLength: 1
+          maxLength: 200
+        action:
+          type: string
+          enum: [approve, reject, withdraw]
+        approvalStatus:
+          type: [string, 'null']
+          enum: [none, pending, approved, rejected, null]
+          description: 命令执行后的任务审批状态（任务被级联删除时为 null）
+        generated:
+          type: integer
+          minimum: 0
+          description: 项目提报按 SOP 生成的项目内任务数
+        sopArchived:
+          type: boolean
+          description: 是否沉淀了 SOP 文档（同一来源任务去重后只保留最新一份）
+    ReviewTaskResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ReviewTaskResult'
+
+  responses:
+    NotFound:
+      description: 集合不在白名单或任务在本租户不可见（40401，防存在性探测）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    Conflict:
+      description: 乐观锁冲突 40901（刷新重试）或审核命令触发的非法状态迁移 40902
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'

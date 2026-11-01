@@ -3,8 +3,7 @@
  * 契约（以后端为准）：返回扁平 SearchHit[] 数组（含 type/snippet/projectId/taskId），前端按 type 分组展示。
  */
 import { client } from './client'
-import { USE_MOCK } from './config'
-import { mockSearch } from './mock/handlers'
+import { mockOr } from './mock/dispatch'
 import type { ApiResponse } from '@/types'
 
 /** 搜索范围：all 全部 / task 任务 / project 项目 / comment 评论 */
@@ -23,7 +22,8 @@ export interface SearchHit {
 
 /** 全局搜索：GET /search?q=&type=（q 为空由前端拦截，不发请求）；返回扁平命中数组，不含 meta 的分页数据 */
 export async function searchGlobal(q: string, type: SearchType = 'all'): Promise<SearchHit[]> {
-  if (USE_MOCK) return mockSearch(q, type)
-  const resp = await client.get<ApiResponse<SearchHit[]>>('/search', { params: { q, type } })
-  return resp.data.data
+  return mockOr('mockSearch', async () => {
+    const resp = await client.get<ApiResponse<SearchHit[]>>('/search', { params: { q, type } })
+    return resp.data.data
+  }, q, type)
 }

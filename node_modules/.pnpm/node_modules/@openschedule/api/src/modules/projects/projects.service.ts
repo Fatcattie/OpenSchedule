@@ -2,11 +2,11 @@
  * 项目服务：CRUD / 归档 / 成员可见性校验（§3.4 权限矩阵 + §3.5.1 /projects 端点）。
  * 全部写操作单事务 + audit_logs 审计；查询强制 tenant_id 谓词（多租户铁律）。
  */
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Project, Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { OutboxService, type OutboxEventName } from '../../common/outbox/outbox.service';
 import { AuthUser, CurrentUser, isTenantAdmin } from './current-user.decorator';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ProjectQueryDto, ProjectStatus } from './dto/project-query.dto';
@@ -35,7 +35,7 @@ export class ProjectsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    @Optional() private readonly eventBus?: EventEmitter2,
+    private readonly outbox: OutboxService,
   ) {}
 
   /** 项目列表（租户隔离；status/search 过滤；X-Total-Count 由 controller 设置） */
@@ -78,10 +78,14 @@ export class ProjectsService {
         { tenantId: user.tenantId, actorId: user.userId, actorType: 'user', action: 'project.create', resourceType: 'project', resourceId: created.id, after: created },
         tx,
       );
+      // R3 事务性 Outbox：project.updated（创建语义）与项目写同事务落库
+      await this.outbox.publish(user.tenantId, PROJECT_EVENTS.UPDATED as OutboxEventName, {
+        projectId: created.id,
+        status: created.status,
+        actor: { id: user.userId, type: 'user' },
+      }, tx);
       return created;
     });
-    // 事务提交后发布事件（工程决策 11）
-    this.eventBus?.emit(PROJECT_EVENTS.UPDATED, { projectId: project.id, tenantId: project.tenantId, status: project.status });
     return project;
   }
 
@@ -107,9 +111,14 @@ export class ProjectsService {
         { tenantId: user.tenantId, actorId: user.userId, action: 'project.update', resourceType: 'project', resourceId: project.id, before: project, after },
         tx,
       );
+      // R3 事务性 Outbox：project.updated 与项目写同事务落库
+      await this.outbox.publish(user.tenantId, PROJECT_EVENTS.UPDATED as OutboxEventName, {
+        projectId: after.id,
+        status: after.status,
+        actor: { id: user.userId, type: 'user' },
+      }, tx);
       return after;
     });
-    this.eventBus?.emit(PROJECT_EVENTS.UPDATED, { projectId: updated.id, tenantId: updated.tenantId, status: updated.status });
     return updated;
   }
 
@@ -124,9 +133,13 @@ export class ProjectsService {
         { tenantId: user.tenantId, actorId: user.userId, action: 'project.archive', resourceType: 'project', resourceId: project.id, before: project, after },
         tx,
       );
+      // R3 事务性 Outbox：project.archived 与归档写同事务落库
+      await this.outbox.publish(user.tenantId, PROJECT_EVENTS.ARCHIVED as OutboxEventName, {
+        projectId: after.id,
+        actor: { id: user.userId, type: 'user' },
+      }, tx);
       return after;
     });
-    this.eventBus?.emit(PROJECT_EVENTS.ARCHIVED, { projectId: updated.id, tenantId: updated.tenantId });
     // TODO: 归档后是否递归归档项目下未完成任务（产品口径待定；Phase 1 仅归档项目本身）
     return updated;
   }

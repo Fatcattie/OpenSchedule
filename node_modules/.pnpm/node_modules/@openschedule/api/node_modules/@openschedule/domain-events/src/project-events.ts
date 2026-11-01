@@ -1,0 +1,31 @@
+/**
+ * project.* 事件名与 payload 类型。project.updated 覆盖创建后的广播（创建无独立事件，WS 房间靠此可见）。
+ */
+import type { DomainEventEnvelope } from './envelope';
+
+export const PROJECT_EVENTS = {
+  /** 编辑/创建后广播（创建时复用 updated，供 WS 房间可见） */
+  UPDATED: 'project.updated',
+  /** 归档广播 + 成员通知（BC-08 模板快照候选订阅点） */
+  ARCHIVED: 'project.archived',
+} as const;
+
+export type ProjectEventName = (typeof PROJECT_EVENTS)[keyof typeof PROJECT_EVENTS];
+
+/** 项目状态（与 services/api dto/project-query.dto.ts 的 ProjectStatus 同值） */
+export type ProjectStatusValue = 'active' | 'archived' | 'completed';
+
+export interface ProjectEventPayloads {
+  [PROJECT_EVENTS.UPDATED]: DomainEventEnvelope & {
+    projectId: string;
+    status: ProjectStatusValue;
+  };
+  [PROJECT_EVENTS.ARCHIVED]: DomainEventEnvelope & {
+    projectId: string;
+  };
+}
+
+export type ProjectDomainEvent<K extends ProjectEventName = ProjectEventName> = {
+  name: K;
+  payload: ProjectEventPayloads[K];
+};

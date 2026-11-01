@@ -2,11 +2,11 @@
  * 评论服务：评论/回复串 CRUD（软删）+ @提及解析占位 → 通知被提及人 + 事件（§3.4 评论/@ 权限行）。
  * 写操作单事务 + 审计；@解析仅限项目内成员，服务端解析为准。
  */
-import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, Task, TaskComment } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { OutboxService, type OutboxEventName } from '../../common/outbox/outbox.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TasksService } from '../tasks/tasks.service';
 import { AuthUser, isTenantAdmin } from './current-user.decorator';
@@ -29,7 +29,7 @@ export class CommentsService {
     private readonly audit: AuditService,
     private readonly tasks: TasksService,
     private readonly notifications: NotificationsService,
-    @Optional() private readonly eventBus?: EventEmitter2,
+    private readonly outbox: OutboxService,
   ) {}
 
   /** 任务评论列表（tenant 谓词 + 软删过滤；按创建时间升序，parent_id 表达回复串） */
@@ -66,9 +66,24 @@ export class CommentsService {
         { tenantId: user.tenantId, actorId: user.userId, action: 'comment.create', resourceType: 'task_comment', resourceId: created.id, after: created },
         tx,
       );
+      // R3 事务性 Outbox：评论/提及事件与写同事务落库（mentions 非空才发 mention.parsed）
+      await this.outbox.publish(user.tenantId, COMMENT_EVENTS.CREATED as OutboxEventName, {
+        taskId: task.id,
+        projectId: task.projectId,
+        commentId: created.id,
+        actor: { id: user.userId, type: 'user' },
+      }, tx);
+      if (mentions.length > 0) {
+        await this.outbox.publish(user.tenantId, COMMENT_EVENTS.MENTION_PARSED as OutboxEventName, {
+          taskId: task.id,
+          commentId: created.id,
+          mentions,
+          actor: { id: user.userId, type: 'user' },
+        }, tx);
+      }
       return created;
     });
-    // 事务提交后：@提及 → 站内通知（跳过本人）+ 事件（工程决策 11）
+    // 事务提交后：@提及 → 站内通知（跳过本人；领域事件已走 Outbox，工程决策 11）
     for (const m of mentions) {
       if (m.userId === user.userId) continue;
       await this.notifications.notify({
@@ -78,10 +93,6 @@ export class CommentsService {
         title: `有人在任务「${task.title}」的评论中提到了你`,
         data: { taskId: task.id, commentId: comment.id },
       });
-    }
-    this.eventBus?.emit(COMMENT_EVENTS.CREATED, { taskId: task.id, projectId: task.projectId, commentId: comment.id, tenantId: user.tenantId });
-    if (mentions.length > 0) {
-      this.eventBus?.emit(COMMENT_EVENTS.MENTION_PARSED, { taskId: task.id, commentId: comment.id, mentions, tenantId: user.tenantId });
     }
     return comment;
   }
@@ -109,6 +120,21 @@ export class CommentsService {
         { tenantId: user.tenantId, actorId: user.userId, action: 'comment.reply', resourceType: 'task_comment', resourceId: created.id, after: created, before: { parentId: parent.id } },
         tx,
       );
+      // R3 事务性 Outbox：回复评论事件与写同事务落库
+      await this.outbox.publish(user.tenantId, COMMENT_EVENTS.CREATED as OutboxEventName, {
+        taskId: parent.taskId,
+        projectId: task.projectId,
+        commentId: created.id,
+        actor: { id: user.userId, type: 'user' },
+      }, tx);
+      if (mentions.length > 0) {
+        await this.outbox.publish(user.tenantId, COMMENT_EVENTS.MENTION_PARSED as OutboxEventName, {
+          taskId: parent.taskId,
+          commentId: created.id,
+          mentions,
+          actor: { id: user.userId, type: 'user' },
+        }, tx);
+      }
       return created;
     });
     for (const m of mentions) {
@@ -121,7 +147,6 @@ export class CommentsService {
         data: { taskId: task.id, commentId: comment.id },
       });
     }
-    this.eventBus?.emit(COMMENT_EVENTS.CREATED, { taskId: task.id, projectId: task.projectId, commentId: comment.id, tenantId: user.tenantId });
     return comment;
   }
 

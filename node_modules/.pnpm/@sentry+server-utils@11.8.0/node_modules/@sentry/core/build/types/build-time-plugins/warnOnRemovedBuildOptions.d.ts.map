@@ -1,0 +1,1 @@
+{"version":3,"file":"warnOnRemovedBuildOptions.d.ts","sourceRoot":"","sources":["../../../src/build-time-plugins/warnOnRemovedBuildOptions.ts"],"names":[],"mappings":"AAEA;;;;;;;;;;;;;;;GAeG;AAEH,wBAAgB,yBAAyB,CACvC,OAAO,EAAE,MAAM,GAAG,SAAS,EAC3B,WAAW,EAAE,MAAM,EAAE,EACrB,UAAU,GAAE,CAAC,OAAO,EAAE,MAAM,KAAK,IAI7B,GACH,IAAI,CAiBN"}

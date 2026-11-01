@@ -11,8 +11,8 @@ import { FolderOpenOutlined, ProjectOutlined, ReloadOutlined } from '@ant-design
 import type { ColumnsType } from 'antd/es/table'
 import { Link } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { mockMe, mockUsers } from '@/api/mock/data'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { useDirectory, useMe } from '@/hooks/useWorkspaceIdentity'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
 import { useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
 import EmptyView from '@/components/EmptyView'
 import { isUserInTaskSubtree, taskRoute } from '@/utils/taskTree'
@@ -20,7 +20,6 @@ import type { Task, TaskStatus, TaskPriority, WorkspaceTask } from '@/types'
 import { APPROVAL_STATUS_META, TASK_PRIORITY_META, TASK_STATUS_META } from '@/types'
 
 const { Title, Text } = Typography
-type WorkspaceRole = 'manager' | 'member'
 
 /** 计算 root 任务子树（非评审）完成百分比 */
 function rootProgress(tasks: Task[], rootId: string) {
@@ -36,7 +35,9 @@ function rootProgress(tasks: Task[], rootId: string) {
 }
 
 export default function ProjectListPage() {
-  const [role] = useLocalStorageState<WorkspaceRole>('workspace_role', 'manager')
+  const currentUser = useMe()
+  const { nameOf } = useDirectory()
+  const role = useCurrentRole()
   const isManager = role === 'manager'
   const [tasks] = useWorkspaceTasks()
 
@@ -44,14 +45,14 @@ export default function ProjectListPage() {
   const allProjects = useMemo(() => tasks.filter((t) => t.kind === 'project' && !t.isDraft), [tasks])
   const visibleProjects = useMemo(() => {
     if (isManager) return allProjects
-    return allProjects.filter((p) => p.createdBy === mockMe.id || p.assigneeId === mockMe.id)
+    return allProjects.filter((p) => p.createdBy === currentUser.id || p.assigneeId === currentUser.id)
   }, [allProjects, isManager])
 
   /** 任务汇总：最上级任务（parentId===null 且非项目实体） */
   const rootTasks = useMemo(() => {
     const roots = tasks.filter((t) => t.parentId === null && t.kind !== 'project' && t.kind !== 'review' && !t.isDraft)
     if (isManager) return roots
-    return roots.filter((r) => isUserInTaskSubtree(tasks, r.id, mockMe.id))
+    return roots.filter((r) => isUserInTaskSubtree(tasks, r.id, currentUser.id))
   }, [tasks, isManager])
 
   const projectColumns: ColumnsType<WorkspaceTask> = [
@@ -77,7 +78,7 @@ export default function ProjectListPage() {
       dataIndex: 'assigneeId',
       width: 120,
       render: (id: string | null, record) => (
-        id ? (mockUsers.find((u) => u.id === id)?.displayName ?? id) : (mockUsers.find((u) => u.id === record.createdBy)?.displayName ?? '未指派')
+        id ? (nameOf(id) ?? id) : (nameOf(record.createdBy) ?? '未指派')
       ),
     },
     {
@@ -158,7 +159,7 @@ export default function ProjectListPage() {
       title: '负责人',
       dataIndex: 'assigneeId',
       width: 120,
-      render: (id: string | null) => id ? (mockUsers.find((u) => u.id === id)?.displayName ?? '已指派') : '待承接',
+      render: (id: string | null) => id ? (nameOf(id) ?? '已指派') : '待承接',
     },
     {
       title: '截止日期',
@@ -243,9 +244,9 @@ export default function ProjectListPage() {
         ) : (
           <>
             <Col xs={12} md={6}><Card size="small"><Statistic title="我参与项目" value={visibleProjects.length} prefix={<FolderOpenOutlined />} /></Card></Col>
-            <Col xs={12} md={6}><Card size="small"><Statistic title="我的任务" value={tasks.filter((t) => t.kind !== 'project' && t.status !== 'done' && t.status !== 'cancelled' && (t.assigneeId === mockMe.id || t.createdBy === mockMe.id)).length} /></Card></Col>
+            <Col xs={12} md={6}><Card size="small"><Statistic title="我的任务" value={tasks.filter((t) => t.kind !== 'project' && t.status !== 'done' && t.status !== 'cancelled' && (t.assigneeId === currentUser.id || t.createdBy === currentUser.id)).length} /></Card></Col>
             <Col xs={12} md={6}><Card size="small"><Statistic title="待承接" value={tasks.filter((t) => t.kind !== 'project' && t.status === 'todo' && !t.assigneeId).length} /></Card></Col>
-            <Col xs={12} md={6}><Card size="small"><Statistic title="我相关待审" value={tasks.filter((t) => t.approvalStatus === 'pending' && (t.assigneeId === mockMe.id || t.createdBy === mockMe.id)).length} valueStyle={{ color: 'gold' }} /></Card></Col>
+            <Col xs={12} md={6}><Card size="small"><Statistic title="我相关待审" value={tasks.filter((t) => t.approvalStatus === 'pending' && (t.assigneeId === currentUser.id || t.createdBy === currentUser.id)).length} valueStyle={{ color: 'gold' }} /></Card></Col>
           </>
         )}
       </Row>

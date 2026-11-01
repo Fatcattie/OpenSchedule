@@ -13,6 +13,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { S3Service } from '../../common/storage/s3.service';
 import { AttachmentResourceType, UploadAttachmentDto, UploadedAttachmentFile } from './dto/upload-attachment.dto';
 import { MAX_ATTACHMENT_BYTES, validateAttachmentMetadata } from './attachment-policy';
+import { assertContentMatchesDeclaredMime } from './magic-number';
 
 // 保持 controller 的既有导入路径兼容。
 export { MAX_ATTACHMENT_BYTES } from './attachment-policy';
@@ -44,6 +45,10 @@ export class AttachmentsService {
 
     // 读取文件字节：优先内存缓冲（multer 默认 memoryStorage），磁盘临时文件场景读后清理
     const buffer = await this.readFileBuffer(file);
+
+    // R4 上传安全：magic number 嗅探，拒绝伪造扩展名（§3.3）
+    const sniffError = assertContentMatchesDeclaredMime(buffer, mime);
+    if (sniffError) throw new BadRequestException({ code: E.BAD_REQUEST, message: sniffError });
 
     const objectKey = S3Service.buildObjectKey(user.tenantId, dto.resource_type, dto.resource_id, file.originalname);
     const putResult = await this.storage.putObject(objectKey, buffer, mime);

@@ -31,13 +31,11 @@ import {
 import { AuditOutlined, EditOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
-import { mockMe, mockUsers } from '@/api/mock/data'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
 import { useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
-import { archiveSopFromTask, syncSopStep } from '@/utils/sopLibrary'
-import { buildProjectTasksFromSop } from '@/utils/taskFactory'
-import { findDescendantIds } from '@/utils/taskTree'
-import type { ApprovalStatus, AuditLog, WorkspaceTask } from '@/types'
+import { useTaskReview } from '@/hooks/useTaskReview'
+import { useDirectory, useMe } from '@/hooks/useWorkspaceIdentity'
+import type { AuditLog, WorkspaceTask } from '@/types'
 import {
   APPROVAL_TYPE_META,
   TASK_PRIORITY_META,
@@ -45,7 +43,6 @@ import {
 } from '@/types'
 
 const { Title, Text } = Typography
-type WorkspaceRole = 'manager' | 'member'
 
 const OPINION_OPTIONS = [
   { value: 'agree', label: '同意' },
@@ -72,7 +69,10 @@ function isTaskRelated(task: WorkspaceTask, userId: string, manager: boolean) {
 export default function AuditPage() {
   const navigate = useNavigate()
   const [tasks, setTasks] = useWorkspaceTasks()
-  const [role] = useLocalStorageState<WorkspaceRole>('workspace_role', 'manager')
+  const review = useTaskReview()
+  const currentUser = useMe()
+  const { teamMembers, nameOf } = useDirectory()
+  const role = useCurrentRole()
   const isManager = role === 'manager'
 
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null)
@@ -82,7 +82,7 @@ export default function AuditPage() {
   const [editForm] = Form.useForm()
 
   const userName = (id: string | null) =>
-    id ? (mockUsers.find((u) => u.id === id)?.displayName ?? id) : '未指派'
+    id ? (nameOf(id) ?? id) : '未指派'
 
   const gotoBoard = (task: WorkspaceTask) => {
     // 需求 5：项目内的任务 → 跳项目看板详情页；团队协作项目 → 项目详情页；否则 → 任务详情/执行页
@@ -99,8 +99,8 @@ export default function AuditPage() {
 
   /** 需求 5：普通人员仅看自己相关 */
   const relatedTasks = useMemo(
-    () => tasks.filter((t) => isTaskRelated(t, mockMe.id, isManager)),
-    [tasks, isManager],
+    () => tasks.filter((t) => isTaskRelated(t, currentUser.id, isManager)),
+    [tasks, isManager, currentUser.id],
   )
 
   /** 待提报：相关任务中，非 review、未完成、未在审核中 */
@@ -142,113 +142,23 @@ export default function AuditPage() {
     return logs.sort((a, b) => dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf())
   }, [relatedTasks, dateRange])
 
-  /** 审核动作：记录 audit log 并更新任务状态 */
-  const submitAudit = (values: {
+  /**
+   * 审核动作（D-07 二期）：走审核命令，规则与副作用（完成闭环与 SOP 沉淀、内容/承接人生效、
+   * 删除级联、项目按 SOP 生成任务、审核留痕）由服务端执行；失败保留弹窗。
+   */
+  const submitAudit = async (values: {
     action: 'approve' | 'reject' | 'withdraw'
     opinion: 'agree' | 'reject' | 'rework' | 'other'
     reason: string
   }) => {
     if (!auditTask) return
-    const now = new Date().toISOString()
-    const log: AuditLog = {
-      id: `audit-${Date.now()}`,
-      taskId: auditTask.id,
-      action: values.action,
-      opinion: values.opinion,
-      reason: values.reason,
-      operatorId: mockMe.id,
-      operatorName: mockMe.displayName,
-      createdAt: now,
-    }
-
-    setTasks((c) => {
-      const next = c.map((t) => {
-        if (t.id !== auditTask.id) return t
-        const base: WorkspaceTask = { ...t, auditLogs: [...t.auditLogs, log], updatedAt: now }
-        if (values.action === 'approve') {
-          base.approvalStatus = 'approved' as ApprovalStatus
-          base.approvalType = null
-          if (t.approvalType === 'completion' && t.completion) {
-            base.status = 'done'
-            base.completedAt = t.completion.completedAt ? dayjs(t.completion.completedAt).toISOString() : now
-            // 需求 6：完成审核通过 = 闭环沉淀 SOP
-            const doc = archiveSopFromTask(c, { ...base, status: 'done' })
-            if (doc) message.success(`已沉淀 SOP：${doc.title}`)
-          }
-          if (t.approvalType === 'content' && t.pendingContent) {
-            base.title = t.pendingContent.title
-            base.description = t.pendingContent.description
-            base.pendingContent = null
-          }
-          if (t.approvalType === 'assign') {
-            base.assigneeId = t.recommendedAssigneeId
-            base.recommendedAssigneeId = null
-          }
-          if (t.approvalType === 'proposal') {
-            base.proposalStatus = 'approved'
-            base.status = t.assigneeId ? 'in_progress' : 'todo'
-          }
-        } else if (values.action === 'reject') {
-          base.approvalStatus = 'rejected' as ApprovalStatus
-          // 需求 5：删除审核被驳回 → 恢复任务（取消删除标记）
-          if (t.pendingDelete) {
-            base.pendingDelete = false
-            base.approvalStatus = 'none' as ApprovalStatus
-            base.approvalType = null
-          }
-        } else if (values.action === 'withdraw') {
-          // 需求 6：撤回后退回到待提报栏（approvalStatus=none，清理待审内容）
-          base.approvalStatus = 'none' as ApprovalStatus
-          base.approvalType = null
-          if (t.approvalType === 'completion') {
-            base.completion = null
-            base.status = 'in_progress'
-          }
-          if (t.approvalType === 'content') {
-            base.pendingContent = null
-          }
-          if (t.approvalType === 'proposal') {
-            base.proposalStatus = 'none'
-          }
-          if (t.approvalType === 'assign') {
-            base.recommendedAssigneeId = null
-          }
-          // 需求 5：撤回删除 → 恢复任务
-          if (t.pendingDelete) {
-            base.pendingDelete = false
-          }
-        }
-        return base
-      })
-      // 需求 5/9：删除审核通过 → 真正移除任务（连同其子孙，避免孤儿任务），
-      // 并同步父级任务/项目的 SOP 流程节点
-      if (values.action === 'approve' && auditTask.pendingDelete) {
-        const removeIds = new Set([auditTask.id, ...findDescendantIds(c as WorkspaceTask[], auditTask.id)])
-        const now2 = new Date().toISOString()
-        const next2 = c
-          .filter((t) => !removeIds.has(t.id))
-          .map((t) => {
-            if (t.id === auditTask.parentId) {
-              const flow = syncSopStep(c, auditTask.parentId, auditTask.title, 'remove')
-              if (flow) return { ...t, sop: flow, updatedAt: now2 }
-            }
-            return t
-          })
-        return next2
-      }
-      // 需求 1：团队协作项目提报审核通过后，按 SOP 自动生成项目内任务并发布到任务协作列表
-      if (values.action === 'approve' && auditTask.kind === 'project' && auditTask.approvalType === 'proposal' && auditTask.sop) {
-        const gen = buildProjectTasksFromSop(auditTask, auditTask.sop)
-        if (gen.length > 0) message.success(`项目审核通过，已按 SOP 生成 ${gen.length} 个项目内任务`)
-        return [...gen, ...next]
-      }
-      return next
-    })
-
+    const res = await review(auditTask.id, { action: values.action, opinion: values.opinion, reason: values.reason })
+    if (!res) return
     setAuditTask(null)
     auditForm.resetFields()
     const label = values.action === 'approve' ? '审核已通过' : values.action === 'reject' ? '已驳回' : '已撤回'
-    message.success(label)
+    const extra = res.generated > 0 ? `，已按 SOP 生成 ${res.generated} 个项目内任务` : res.sopArchived ? '，SOP 已沉淀' : ''
+    message.success(label + extra)
   }
 
   const submitEdit = (values: { title: string; description: string; assigneeId?: string }) => {
@@ -382,7 +292,7 @@ export default function AuditPage() {
         ) : (
           <>
             <Col xs={12} md={6}><Card size="small"><Statistic title="我的待审" value={relatedTasks.filter((t) => t.approvalStatus === 'pending').length} valueStyle={{ color: 'gold' }} /></Card></Col>
-            <Col xs={12} md={6}><Card size="small"><Statistic title="我提报中" value={relatedTasks.filter((t) => t.createdBy === mockMe.id && t.approvalStatus === 'pending').length} /></Card></Col>
+            <Col xs={12} md={6}><Card size="small"><Statistic title="我提报中" value={relatedTasks.filter((t) => t.createdBy === currentUser.id && t.approvalStatus === 'pending').length} /></Card></Col>
             <Col xs={12} md={6}><Card size="small"><Statistic title="已通过" value={relatedTasks.filter((t) => t.approvalStatus === 'approved').length} valueStyle={{ color: 'green' }} /></Card></Col>
             <Col xs={12} md={6}><Card size="small"><Statistic title="已驳回" value={relatedTasks.filter((t) => t.approvalStatus === 'rejected').length} valueStyle={{ color: 'red' }} /></Card></Col>
           </>
@@ -432,7 +342,7 @@ export default function AuditPage() {
                         </Button>
                       </>
                     )}
-                    {!isManager && t.createdBy === mockMe.id && (
+                    {!isManager && t.createdBy === currentUser.id && (
                       <Button size="small" danger onClick={() => openAudit(t)}>
                         撤回
                       </Button>
@@ -565,7 +475,7 @@ export default function AuditPage() {
             <Input.TextArea rows={3} />
           </Form.Item>
           <Form.Item name="assigneeId" label="承接人">
-            <Select allowClear placeholder="选择承接人" options={mockUsers.map((u) => ({ value: u.id, label: u.displayName }))} />
+            <Select allowClear placeholder="选择承接人" options={teamMembers.map((u) => ({ value: u.id, label: u.displayName }))} />
           </Form.Item>
         </Form>
       </Modal>

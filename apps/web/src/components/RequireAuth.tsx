@@ -22,7 +22,7 @@ export default function RequireAuth() {
       setLoadingMe(true)
       authApi
         .fetchMe()
-        .then((me: MeResponse) => setUser(me.user))
+        .then((me: MeResponse) => setUser({ ...me.user, roles: me.roles }))
         .catch(() => clear())
         .finally(() => setLoadingMe(false))
     }

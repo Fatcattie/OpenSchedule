@@ -51,14 +51,19 @@ export class TenantContextService {
     }
   }
 
-  /** 手动打开租户作用域（worker/定时任务/测试用） */
+  /**
+   * 手动打开租户作用域（worker/定时任务/测试用）。
+   * 注意 PrismaPromise 是惰性的：`runWithTenant(t, () => prisma.x.findMany())` 返回后在作用域外 await，
+   * 查询才真正执行，扩展读不到租户 → 不注入、跨租户泄漏。故 fn 返回 thenable 时在作用域内立即触发 then，
+   * 返回的是已启动的原生 Promise（不可再放进 $transaction([...]) 数组形式）。
+   */
   runWithTenant<T>(tenantId: string, fn: () => T): T {
-    return this.als.run({ tenantId }, fn);
+    return this.als.run({ tenantId }, () => startInScope(fn()));
   }
 
-  /** 旁路：临时关闭租户自动注入（系统级跨租户操作，如登录按邮箱查用户） */
+  /** 旁路：临时关闭租户自动注入（系统级跨租户操作，如登录按邮箱查用户）；惰性 PrismaPromise 处理同 runWithTenant */
   bypass<T>(fn: () => T): T {
-    return this.als.run({ bypass: true }, fn);
+    return this.als.run({ bypass: true }, () => startInScope(fn()));
   }
 
   getTenantId(): string | undefined {
@@ -78,6 +83,14 @@ export class TenantContextService {
     const s = this.als.getStore();
     return { requestId: s?.requestId, ip: s?.ip, userAgent: s?.userAgent };
   }
+}
+
+/** 在当前 ALS 作用域内触发 thenable（惰性 PrismaPromise 由 then 启动执行），非 thenable 原样返回 */
+function startInScope<T>(result: T): T {
+  if (result !== null && typeof result === 'object' && typeof (result as { then?: unknown }).then === 'function') {
+    return (result as unknown as PromiseLike<unknown>).then((v) => v) as unknown as T;
+  }
+  return result;
 }
 
 /** 全局单例（PrismaService 租户扩展等非 DI 场景使用） */

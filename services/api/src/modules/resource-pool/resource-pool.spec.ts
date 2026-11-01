@@ -1,6 +1,7 @@
 /**
  * resource-pool.spec.ts —— 跨项目资源池引擎单测
  */
+import { describe, expect, it } from 'vitest'
 import { calculateResourcePool, generateRebalanceSuggestions } from './resource-pool'
 
 function makeTask(overrides: Partial<any> = {}) {
@@ -40,8 +41,7 @@ describe('resource-pool', () => {
 
       expect(result.members).toHaveLength(1)
       const u1 = result.members[0]
-      expect(u1.totalHours).toBe(18) // 10 + 8（done 不计）
-      expect(u1.utilization).toBe(45) // 18 / 40
+      expect(u1.totalHours).toBe(18) // 10 + 8（done 不计）      expect(u1.utilization).toBe(45) // 18 / 40
       expect(u1.loadLevel).toBe('normal')
       expect(u1.inProgressCount).toBe(1)
       expect(u1.todoCount).toBe(1)
@@ -115,7 +115,7 @@ describe('resource-pool', () => {
       const u1 = result.members[0]
 
       expect(u1.projects).toHaveLength(2)
-      expect(u1.projects[0].projectId).toBe('p2') // 工时多排前
+      expect(u1.projects[0].projectId).toBe('p2') // 工时多的排在前面
       expect(u1.projects[0].hours).toBe(24)
       expect(u1.projects[1].projectId).toBe('p1')
       expect(u1.projects[1].hours).toBe(12)

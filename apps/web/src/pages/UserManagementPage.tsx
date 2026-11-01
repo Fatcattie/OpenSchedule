@@ -35,7 +35,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
 import { useUsers } from '@/hooks/useUsers'
 import type { User, UserStatus } from '@/types'
 
@@ -52,7 +52,7 @@ function fileToBase64(file: File): Promise<string> {
 
 export default function UserManagementPage() {
   const navigate = useNavigate()
-  const [role] = useLocalStorageState<'manager' | 'member'>('workspace_role', 'manager')
+  const role = useCurrentRole()
   const { users, createUser, updateUser, deleteUser, setUserStatus } = useUsers()
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | UserStatus>('all')

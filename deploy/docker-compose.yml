@@ -5,6 +5,7 @@
 #   pnpm docker:up        # 等价：docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 #   pnpm docker:infra     # 仅起基础设施（日常本地开发：pg + redis + minio）
 # 端口约定：api 3000 / web 5173 / ai 8300 / pg 5432 / redis 6379 / minio 9000(S3)+9001(控制台)
+#   可观测性（profile=observability）：prometheus 9090 / grafana 3001
 # 网络地址覆盖：容器内各服务通过服务名互访（postgres/redis/minio/api/ai），
 #   与根 .env 中的 localhost 地址无关（compose environment 优先于 env_file）。
 # ============================================================
@@ -85,6 +86,8 @@ services:
       STORAGE_ENDPOINT: http://minio:9000
       STORAGE_PUBLIC_BASE_URL: http://localhost:9000/${STORAGE_BUCKET:-openschedule}
       AI_SERVICE_URL: http://ai:8300
+      # R9：Prometheus 抓取端点（默认 true；'false' 时 /metrics 404，会触发 ApiDown 告警）
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
     ports:
       - "3000:3000"
     depends_on:
@@ -130,13 +133,95 @@ services:
       # AI 服务回调主服务内部 API（变量名与 AI 侧 config.py 对齐：
       # MAIN_SERVICE_INTERNAL_URL；方案 chapter_02：AI 结果一律回调主服务，不直接写库）
       MAIN_SERVICE_INTERNAL_URL: http://api:3000
-      # 若在宿主机自建 LiteLLM，取消下行注释改用宿主地址：
-      # LITELLM_URL: http://host.docker.internal:4000/v1
+      # R11：run 状态与回调死信落 AI 自有 Redis（db 3，键前缀 osai:）
+      # 开发默认 auto（无 Redis 时降级 memory 并告警）；.env 里可改 redis 强制 fail-fast
+      AI_RUN_STORE: ${AI_RUN_STORE:-auto}
+      AI_STATE_REDIS_URL: redis://redis:6379/3
+      # 模型配置由团队管理员在 Web「设置 → AI 模型」维护，随请求下发（无需在此配置 key）
     ports:
       - "8300:8300"
     depends_on:
       api:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ---------- 可观测性（R9；profile=observability，默认不启动） ----------
+  # 启用：pnpm docker:obs（= compose --profile observability up -d prometheus grafana）
+  # Prometheus UI http://localhost:9090 · Grafana http://localhost:3001（admin / GRAFANA_ADMIN_PASSWORD）
+  # 抓取配置 deploy/observability/prometheus.yml，告警规则 alerts.yml，看板自动 provision。
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: os-prometheus
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # 告警路由（R9）：Prometheus → Alertmanager → alert-bridge → 飞书/钉钉/企业微信
+  # Alertmanager UI http://localhost:9093；通道地址在 .env 的 ALERT_* 变量
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: os-alertmanager
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanagerdata:/alertmanager
+    ports:
+      - "9093:9093"
+    depends_on:
+      - alert-bridge
+
+  alert-bridge:
+    image: node:22-alpine
+    container_name: os-alert-bridge
+    profiles: ["observability"]
+    command: ["node", "/app/server.mjs"]
+    environment:
+      ALERT_FEISHU_WEBHOOK: ${ALERT_FEISHU_WEBHOOK:-}
+      ALERT_FEISHU_SECRET: ${ALERT_FEISHU_SECRET:-}
+      ALERT_DINGTALK_WEBHOOK: ${ALERT_DINGTALK_WEBHOOK:-}
+      ALERT_DINGTALK_SECRET: ${ALERT_DINGTALK_SECRET:-}
+      ALERT_WECOM_WEBHOOK: ${ALERT_WECOM_WEBHOOK:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    volumes:
+      - ./observability/alert-bridge/server.mjs:/app/server.mjs:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9094/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: os-grafana
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "3001:3000"   # 宿主 3001：避让 api 的 3000
+    depends_on:
+      - prometheus
 
   # ---------- mailpit（方案 B1：本地邮件 dev 服务；当前默认关闭） ----------
   # 启用方式：取消下方注释，并把 .env 中 SMTP_HOST 改为 mailpit、SMTP_PORT 保持 1025；
@@ -152,3 +237,6 @@ volumes:
   pgdata:
   redisdata:
   miniodata:
+  promdata:
+  grafanadata:
+  alertmanagerdata:

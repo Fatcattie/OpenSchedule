@@ -47,7 +47,8 @@ class DecomposeState(TypedDict, total=False):
     retries: int                     # 已重试次数
     max_retries: int                 # 重试上限
     degraded: bool                   # 是否走了降级路径（模板）
-    emit_status: Any                 # async (progress:int, stage:str) -> None；运行器注入，驱动 SSE ai.status 帧
+    llm: Any                         # LlmTarget | None：租户模型配置（对象直传，不落盘）
+    emit_status: Any                # async (progress:int, stage:str) -> None；运行器注入，驱动 SSE ai.status 帧
 
 
 async def _emit_status(state: DecomposeState, progress: int, stage: str) -> None:
@@ -63,7 +64,9 @@ async def plan_node(state: DecomposeState) -> dict[str, Any]:
     request = DecomposeRequest.model_validate(state["request"])
     feedback = state.get("feedback")
     force_template = state.get("retries", 0) >= state.get("max_retries", _MAX_RETRIES_DEFAULT)
-    raw_text, degraded = await generate_plan(request, feedback=feedback, force_template=force_template)
+    raw_text, degraded = await generate_plan(
+        request, feedback=feedback, force_template=force_template, llm=state.get("llm")
+    )
     return {"raw_text": raw_text, "degraded": degraded}
 
 

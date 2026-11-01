@@ -1,6 +1,7 @@
 /**
  * busy-free.spec.ts
  */
+import { describe, expect, it } from 'vitest'
 import {
   findFreeSlotsForDay,
   findFreeSlots,

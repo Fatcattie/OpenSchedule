@@ -1,0 +1,42 @@
+/**
+ * 领域事件公共契约（production-ddd-design.md §8.1 机器可读约定）。
+ * 所有事件 payload 必含 5 个信封字段；eventId 用 UUIDv7，occurredAt 为 ISO 8601 UTC 字符串。
+ * 新增事件必须在本包定义类型 + 在 production-ddd-design.md §8.1 事件目录补表 + 消费方集成测试。
+ */
+
+export type ActorType = 'user' | 'system';
+
+/** 事件操作者（§8.1 actor {id, type}） */
+export interface DomainEventActor {
+  id: string;
+  type: ActorType;
+}
+
+/**
+ * 所有领域事件 payload 的必含信封字段（§8.1）。
+ * version 为 payload schema 版本号：新增字段向后兼容不升版，破坏性变更升版并保留旧版消费窗口。
+ */
+export interface DomainEventEnvelope {
+  /** 事件唯一 id，UUIDv7 */
+  eventId: string;
+  /** 事件发生时刻，ISO 8601 UTC（timestamptz 语义） */
+  occurredAt: string;
+  /** 租户作用域；系统级事件（当前无）显式用哨兵 tenantId 并在事件目录登记 */
+  tenantId: string;
+  actor: DomainEventActor;
+  /** payload schema 版本（§8.1 version） */
+  version: number;
+}
+
+/** 当前统一 schema 版本（§8.1 version 初始值）；破坏性变更时 +1 并同步消费方 */
+export const DOMAIN_EVENTS_SCHEMA_VERSION = 1 as const;
+
+/** 构造信封公共字段（发布侧统一入口，保证 5 字段不缺漏） */
+export function buildEventEnvelope(
+  eventId: string,
+  tenantId: string,
+  actor: DomainEventActor,
+  occurredAt: string,
+): DomainEventEnvelope {
+  return { eventId, occurredAt, tenantId, actor, version: DOMAIN_EVENTS_SCHEMA_VERSION };
+}

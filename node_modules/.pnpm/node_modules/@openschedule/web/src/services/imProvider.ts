@@ -2,11 +2,13 @@
  * imProvider —— 钉钉 / 飞书 统一适配层
  *
  * 设计要点：
- * 1. 浏览器不能直连 MCP，所有真实调用必须经后端 /integrations/* 代理（见 services/api）。
+ * 1. 浏览器不能直连 MCP，所有真实调用必须经后端 /api/v1/integrations/* 代理（见 services/api，Bearer 由 axios 拦截器注入）。
  * 2. Mock 模式下使用本地假数据，接口形状与真实实现一致，后端就绪后把 USE_MOCK 关掉即可切换。
  * 3. 事件带 provider + eventId，用于反向同步的幂等去重（同一事件不会重复生成个人计划）。
  */
 import { USE_MOCK } from '@/api/config'
+import { client } from '@/api/client'
+import type { ApiResponse } from '@/types'
 
 export type ImProvider = 'feishu' | 'dingtalk'
 
@@ -136,15 +138,12 @@ const MOCK_EVENTS: Record<ImProvider, ExternalCalendarEvent[]> = {
 
 // ========== 接口 ==========
 
-/** 拉取某渠道近期日历事件（反向同步来源） */
+/** 拉取某渠道近期日历事件（反向同步来源；真实模式经 axios client 携带 Bearer，旧 fetch 裸路径缺 /v1 前缀且无鉴权） */
 export async function listProviderEvents(provider: ImProvider): Promise<ExternalCalendarEvent[]> {
   if (USE_MOCK) return structuredClone(MOCK_EVENTS[provider] ?? [])
-  const resp = await fetch(`/api/integrations/${provider}/calendar/events`, {
-    headers: { 'Content-Type': 'application/json' },
-  })
-  if (!resp.ok) throw new Error(`拉取${providerMeta(provider).name}事件失败（${resp.status}）`)
-  const data = (await resp.json()) as { data?: ExternalCalendarEvent[] }
-  return data.data ?? []
+  const resp = await client.get<ApiResponse<ExternalCalendarEvent[]> | ExternalCalendarEvent[]>(`/integrations/${provider}/calendar/events`)
+  const data = Array.isArray(resp.data) ? resp.data : resp.data.data
+  return data ?? []
 }
 
 /** 查询各渠道连接状态 */
@@ -158,10 +157,9 @@ export async function listIntegrationStatus(): Promise<IntegrationStatus[]> {
       accountName: `我的${p.name}日历`,
       lastSyncAt: new Date(Date.now() - 3600_000).toISOString(),
     }))
-  const resp = await fetch('/api/integrations/status')
-  if (!resp.ok) throw new Error('查询渠道状态失败')
-  const data = (await resp.json()) as { data?: IntegrationStatus[] }
-  return data.data ?? []
+  const resp = await client.get<ApiResponse<IntegrationStatus[]> | IntegrationStatus[]>('/integrations/status')
+  const data = Array.isArray(resp.data) ? resp.data : resp.data.data
+  return data ?? []
 }
 
 /** 通过渠道发送 IM 消息 */
@@ -177,16 +175,10 @@ export async function sendImMessage(
       messageId: `mock-${provider}-${Date.now()}`,
     }
   }
-  const resp = await fetch(`/api/integrations/${provider}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!resp.ok) {
-    return { provider, ok: false, error: `发送失败（${resp.status}）` }
-  }
-  const data = (await resp.json()) as { data?: SendMessageResult }
-  return data.data ?? { provider, ok: true }
+  const resp = await client.post(`/integrations/${provider}/messages`, payload)
+  // integrations 控制器对 messages 直接返回 SendMessageResult（非 {data} 信封，迁移窗口兼容裸体）
+  const body = (resp.data as unknown as SendMessageResult | undefined) ?? { provider, ok: true as const }
+  return body
 }
 
 /** 把任务/项目推送到指定渠道日历（单向） */
@@ -198,12 +190,7 @@ export async function pushToCalendar(
     await new Promise((r) => setTimeout(r, 400))
     return { ok: true, eventId: `mock-evt-${Date.now()}` }
   }
-  const resp = await fetch(`/api/integrations/${provider}/calendar/events`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!resp.ok) return { ok: false, error: `推送失败（${resp.status}）` }
-  const data = (await resp.json()) as { data?: { eventId?: string } }
-  return { ok: true, eventId: data.data?.eventId }
+  const resp = await client.post<ApiResponse<{ eventId?: string }>>(`/integrations/${provider}/calendar/events`, payload)
+  const body = resp.data && 'data' in resp.data ? (resp.data as ApiResponse<{ eventId?: string }>).data : (resp.data as { eventId?: string })
+  return { ok: true, eventId: body?.eventId }
 }

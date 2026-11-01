@@ -5,29 +5,41 @@
  * - AI 提议、人确认：所有写操作都是草稿，用户 apply 才落库
  * - 草稿态 + 审批门：ai_proposals.status=pending → applied/rejected
  * - 可撤销/回溯：apply 后记录真实 taskIds，支持追溯
+ * - 引擎：租户已配置 AI 模型且非模板模式 → 经 AI 服务 LLM 拆解（失败保留规则引擎结果并提示）；否则规则引擎
  */
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common'
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import { AuthUser, isTenantAdmin } from '../../common/decorators/current-user.decorator'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
+import { LlmConfigService } from '../llm/llm-config.service'
 import {
   decompose,
   scheduleDecompose,
   type TemplateTask,
 } from './decompose/decompose-engine'
+import { AiDecomposeError, runAiDecompose, toInternalDecompose, type AiDecomposePayload } from './ai-gateway.client'
 import type { DecomposeDto, ProposalDetail, ProposalListItem, ApplyProposalResult } from './dto/proposals.dto'
 import type { AiCallbackDto } from './dto/ai-callback.dto'
 
 const E = { NOT_FOUND: 40401, FORBIDDEN: 40301, BAD_REQUEST: 40001 } as const
 const PROPOSAL_TYPE_DECOMPOSE = 'decompose'
 const DEFAULT_PAGE_SIZE = 20
+/** 同步等待 AI 拆解的上限（LLM 重试 ≤3 次 × 单次 60s 超时的折中；超时保留规则引擎结果） */
+const DEFAULT_AI_DECOMPOSE_TIMEOUT_MS = 90_000
 
 @Injectable()
 export class ProposalsService {
+  private readonly logger = new Logger(ProposalsService.name)
+  /** 测试注入点：生产用全局 fetch */
+  fetchImpl: typeof fetch = (...args) => fetch(...args)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly llm: LlmConfigService,
+    private readonly config: ConfigService,
   ) {}
 
   // ==================== 生成拆解建议 ====================
@@ -78,10 +90,12 @@ export class ProposalsService {
 
     const payload = {
       version: 1,
+      engine: 'rules',
       summary: result.summary,
       tasks: tasksWithSchedule,
       dependencies: result.dependencies,
       warnings: result.warnings,
+      ...(dto.startDate ? { startDate: dto.startDate } : {}),
       scheduleMeta: {
         projectEta: scheduled.projectEta,
         criticalPath: scheduled.criticalPath,
@@ -117,7 +131,73 @@ export class ProposalsService {
       },
     })
 
+    // R4 审计完备性：ai_proposal.create 落审计（此前 createDecompose 无审计）
+    await this.audit.record({
+      tenantId: user.tenantId,
+      actorId: user.userId,
+      action: 'ai_proposal.create',
+      resourceType: 'ai_proposal',
+      resourceId: proposal.id,
+      after: { type: proposal.type, source: proposal.source, relatedProjectId: proposal.relatedProjectId },
+    })
+
+    // 模板模式是显式选择，始终走模板；否则租户已配置模型 → AI 服务 LLM 拆解
+    if (!dto.templateId) {
+      const target = await this.llm.resolveTarget(user.tenantId)
+      if (target) {
+        await this.decomposeWithAi(proposal.id, user, dto, goalTitle, target)
+        const refreshed = await this.prisma.aiProposal.findFirstOrThrow({
+          where: { id: proposal.id, tenantId: user.tenantId },
+        })
+        return { data: this.formatDetail(refreshed) }
+      }
+    }
+
     return { data: this.formatDetail(proposal) }
+  }
+
+  /** 调 AI 服务拆解；失败不抛（保留规则引擎草稿 + 写明原因），保证用户总能拿到可确认的草稿 */
+  private async decomposeWithAi(
+    proposalId: string,
+    user: AuthUser,
+    dto: DecomposeDto,
+    goalTitle: string,
+    target: { baseUrl: string; apiKey: string; model: string },
+  ): Promise<void> {
+    const baseUrl = this.config.get<string>('AI_SERVICE_URL') ?? 'http://localhost:8300'
+    const serviceToken = this.config.get<string>('AI_SERVICE_TOKEN') ?? ''
+    const timeoutMs = Number(this.config.get('AI_DECOMPOSE_TIMEOUT_MS')) || DEFAULT_AI_DECOMPOSE_TIMEOUT_MS
+    const description = [goalTitle, dto.goalDescription?.trim()].filter(Boolean).join('\n\n').slice(0, 5000)
+    try {
+      const { runId, payload } = await runAiDecompose(
+        {
+          tenantId: user.tenantId,
+          projectId: dto.relatedProjectId ?? 'unassigned',
+          description,
+          budgetHours: dto.totalEstimatedHours,
+          llm: target,
+        },
+        proposalId,
+        { baseUrl, serviceToken, timeoutMs, fetchImpl: this.fetchImpl },
+      )
+      await this.applyAiResult(proposalId, runId, 'succeeded', payload, undefined, target.model)
+    } catch (err) {
+      const message = err instanceof AiDecomposeError ? err.message : 'AI 服务调用异常'
+      this.logger.warn(`AI 拆解失败，保留规则引擎结果：proposal=${proposalId} reason=${message}`)
+      const current = await this.prisma.aiProposal.findUnique({ where: { id: proposalId } })
+      const payload = (current?.payload ?? {}) as Record<string, any>
+      if (!current || payload.engine === 'ai') return // 回调已先一步写入 AI 结果
+      await this.prisma.aiProposal.update({
+        where: { id: proposalId },
+        data: {
+          payload: {
+            ...payload,
+            aiStatus: 'failed',
+            warnings: [...(payload.warnings ?? []), `AI 拆解未成功（${message}），以下为规则引擎生成的草稿`],
+          } as Prisma.InputJsonValue,
+        },
+      })
+    }
   }
 
   /**
@@ -125,29 +205,70 @@ export class ProposalsService {
    * run_id 写入 payload 元数据，重复回调直接返回当前状态，保证幂等。
    */
   async handleAiCallback(input: AiCallbackDto) {
-    const proposal = input.proposal_id
-      ? await this.prisma.aiProposal.findUnique({ where: { id: input.proposal_id } })
+    return this.applyAiResult(
+      input.proposal_id ?? '',
+      input.run_id,
+      input.status,
+      input.payload as AiDecomposePayload | undefined,
+      input.error,
+    )
+  }
+
+  /**
+   * 写入 AI 拆解结果（回调与同步 SSE 两条路径共用，按 run_id 幂等）：
+   * AI 格式（snake_case、deps 挂后置任务）→ 草稿格式（camelCase、依赖平铺）+ 重新 CPM 排期。
+   */
+  async applyAiResult(
+    proposalId: string,
+    runId: string,
+    status: 'succeeded' | 'failed',
+    aiPayload?: AiDecomposePayload,
+    error?: Record<string, unknown>,
+    model?: string,
+  ) {
+    const proposal = proposalId
+      ? await this.prisma.aiProposal.findUnique({ where: { id: proposalId } })
       : null
     if (!proposal) throw new NotFoundException({ code: E.NOT_FOUND, message: 'AI 提案不存在' })
 
     const currentPayload = (proposal.payload ?? {}) as Record<string, any>
-    if (currentPayload.aiRunId === input.run_id) {
-      return { data: { proposalId: proposal.id, status: proposal.status, idempotent: true } }
-    }
-    if (proposal.status !== 'pending') {
+    if (currentPayload.aiRunId === runId || proposal.status !== 'pending') {
       return { data: { proposalId: proposal.id, status: proposal.status, idempotent: true } }
     }
 
-    const nextPayload = {
+    let nextPayload: Record<string, any> = {
       ...currentPayload,
-      ...(input.status === 'succeeded' && input.payload ? input.payload : {}),
-      aiRunId: input.run_id,
-      aiStatus: input.status,
-      ...(input.error ? { aiError: input.error } : {}),
+      aiRunId: runId,
+      aiStatus: status,
+      ...(error ? { aiError: error } : {}),
     }
+    let diffSummary: Record<string, any> | undefined
+    const internal = status === 'succeeded' && aiPayload ? toInternalDecompose(aiPayload) : null
+    if (internal && internal.tasks.length > 0) {
+      const scheduled = scheduleDecompose(internal, { startDate: currentPayload.startDate })
+      nextPayload = {
+        ...nextPayload,
+        engine: 'ai',
+        ...(model ? { aiModel: model } : {}),
+        summary: internal.summary,
+        tasks: scheduled.tasks,
+        dependencies: internal.dependencies,
+        warnings: internal.warnings,
+        scheduleMeta: { projectEta: scheduled.projectEta, criticalPath: scheduled.criticalPath },
+      }
+      diffSummary = {
+        add: scheduled.tasks.map(t => ({ title: t.title, estimatedHours: t.estimatedHours, isShared: t.isShared })),
+        update: [],
+        remove: [],
+      }
+    }
+
     const updated = await this.prisma.aiProposal.update({
       where: { id: proposal.id },
-      data: { payload: nextPayload as Prisma.InputJsonValue },
+      data: {
+        payload: nextPayload as Prisma.InputJsonValue,
+        ...(diffSummary ? { diffSummary: diffSummary as Prisma.InputJsonValue } : {}),
+      },
       select: { id: true, status: true },
     })
     await this.audit.record({
@@ -156,7 +277,7 @@ export class ProposalsService {
       resourceId: proposal.id,
       actorId: proposal.proposerId ?? 'system',
       tenantId: proposal.tenantId,
-      after: { runId: input.run_id, status: input.status },
+      after: { runId, status, engine: nextPayload.engine },
     })
     return { data: { proposalId: updated.id, status: updated.status, idempotent: false } }
   }
@@ -268,7 +389,28 @@ export class ProposalsService {
         createdTasks.push(created)
       }
 
-      // 2. 逐条创建依赖（用真实 id 替换索引）
+      // AiProposalTask apply 记录：与任务、依赖、proposal 状态同一事务，保留可审计快照。
+      const appliedAt = new Date()
+      await tx.aiProposalTask.createMany({
+        data: createdTasks.map((created, index) => {
+          const source = tasks[index] as any
+          return {
+            tenantId: user.tenantId,
+            proposalId: proposal.id,
+            taskId: created.id,
+            action: 'created',
+            payload: {
+              title: source.title,
+              description: source.description ?? '',
+              estimatedHours: source.estimatedHours ?? 8,
+              priority: source.priority ?? 'medium',
+            } as Prisma.InputJsonValue,
+            appliedAt,
+          }
+        }),
+      })
+
+      // 3. 逐条创建依赖（用真实 id 替换索引）
       let depCount = 0
       const validDeps = dependencies.filter(
         (d: any) =>
@@ -294,7 +436,7 @@ export class ProposalsService {
         depCount++
       }
 
-      // 3. 更新 proposal 状态
+      // 4. 更新 proposal 状态
       const updated = await tx.aiProposal.update({
         where: { id: proposal.id, tenantId: user.tenantId },
         data: {
@@ -315,20 +457,24 @@ export class ProposalsService {
         select: { id: true },
       })
 
+      // R4 审计完备性 + 原子性：apply 审计与业务写同事务（INV-6：apply 原子落库）
+      await this.audit.record(
+        {
+          action: 'ai_proposal.apply',
+          resourceType: 'ai_proposal',
+          resourceId: proposal.id,
+          actorId: user.userId,
+          tenantId: user.tenantId,
+          after: { taskCount: createdTasks.length, dependencyCount: depCount },
+        },
+        tx,
+      )
+
       return {
         projectId: proposal.relatedProjectId!,
         taskIds: Object.values(taskIdMap),
         dependencyCount: depCount,
       }
-    })
-
-    await this.audit.record({
-      action: 'ai_proposal.apply',
-      resourceType: 'ai_proposal',
-      resourceId: id,
-      actorId: user.userId,
-      tenantId: user.tenantId,
-      after: { taskCount: result.taskIds.length, dependencyCount: result.dependencyCount },
     })
 
     return {
@@ -352,6 +498,15 @@ export class ProposalsService {
       where: { id: proposal.id, tenantId: user.tenantId },
       data: { status: 'rejected', rejectReason: reason?.slice(0, 500) },
       select: { id: true },
+    })
+    // R4 审计完备性：ai_proposal.reject 落审计（此前 reject 无审计）
+    await this.audit.record({
+      action: 'ai_proposal.reject',
+      resourceType: 'ai_proposal',
+      resourceId: proposal.id,
+      actorId: user.userId,
+      tenantId: user.tenantId,
+      after: { status: 'rejected', rejectReason: reason?.slice(0, 500) },
     })
     return { data: { id, status: 'rejected' } }
   }
@@ -391,6 +546,8 @@ export class ProposalsService {
       status: proposal.status,
       source: proposal.source,
       relatedProjectId: proposal.relatedProjectId,
+      engine: payload?.engine === 'ai' ? 'ai' : 'rules',
+      ...(payload?.aiModel ? { aiModel: payload.aiModel } : {}),
       summary: payload?.summary ?? '',
       tasks: payload?.tasks ?? [],
       dependencies: payload?.dependencies ?? [],

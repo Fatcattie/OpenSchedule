@@ -36,7 +36,7 @@ import {
 import dayjs, { Dayjs } from 'dayjs'
 import type { WorkspaceTask, TaskUrgency } from '@/types'
 import { TASK_KIND_META, TASK_URGENCY_META, deriveTaskUrgency } from '@/types'
-import { mockMe, mockUsers } from '@/api/mock/data'
+import { lookupMemberName, useMe } from '@/hooks/useWorkspaceIdentity'
 import { taskRoute } from '@/utils/taskTree'
 
 const { Text } = Typography
@@ -55,7 +55,7 @@ const kindStyle = (kind?: string) => KIND_STYLE[kind ?? 'task'] ?? KIND_STYLE.ta
 
 /** 承担人显示名 */
 const nameOf = (id?: string | null) =>
-  id ? mockUsers.find((u) => u.id === id)?.displayName ?? id : '未指派'
+  id ? lookupMemberName(id) ?? id : '未指派'
 
 /** 任务简要（描述优先，其次完成总结） */
 const briefOf = (t: WorkspaceTask) => {
@@ -1152,6 +1152,7 @@ export default function CalendarBoard({
   onAddPlan,
   onSelectTask,
 }: CalendarBoardProps) {
+  const currentUser = useMe()
   const navigate = useNavigate()
   const isManager = role === 'manager'
   const [scope, setScope] = useState<'mine' | 'global'>('mine')
@@ -1163,7 +1164,7 @@ export default function CalendarBoard({
    * - 统一排除：已完结（done）/ 已取消（cancelled）；仅保留 task / plan
    */
   const scoped = useMemo(() => {
-    const me = mockMe.id
+    const me = currentUser.id
     return tasks.filter((t) => {
       if (t.status === 'done' || t.status === 'cancelled') return false
       if (t.kind !== 'task' && t.kind !== 'plan') return false

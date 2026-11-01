@@ -1,32 +1,44 @@
 /**
- * 今日聚焦 —— 展示今日的任务/计划（含跨天任务按每日节点规划的今日节点）
+ * 今日聚焦 —— 展示今日的任务（成员版面）/ 团队任务与节点（管理版面）
+ *
+ * 数据源（R7-7 TanStack Query 全量迁移）：
+ * - 成员版面：服务端 `GET /me/today`（`useTodayFocus`）为唯一来源，只读消费；
+ *   排序口径与服务端一致（逾期 → 截止时间 → 优先级，见 `@/utils/today`）。
+ * - 管理版面：团队聚合（全部成员）无后端端点，暂由 `useWorkspaceTasks` 本地数据承担
+ *   （D-07 待拍板，见 docs/ddd/production-progress.md §R7-7）。
  *
  * 覆盖需求：
- * - 需求 3：今日事宜直接按重要紧急程度排序展示（重要紧急 > 紧急不重要 > 重要不紧急 > 不重要不紧急），
+ * - 需求 3：今日事宜按重要紧急程度排序展示（成员版面为服务端逾期/截止/优先级口径），
  *   已移除原「优先级列表」侧栏
- * - 需求 4：点击任务名称按统一规则跳转（父级任务→详情页，叶子子任务→执行页）
- * - 需求 5：周期超过一天的任务，按执行页设置的每日完成节点在今天展示
+ * - 需求 4：点击任务名称按统一规则跳转（父级任务→详情页，叶子子任务→执行页；
+ *   服务端个人任务无前端详情页，暂不跳转）
+ * - 需求 5：周期超过一天的任务，按执行页设置的每日完成节点在今天展示（管理版面本地数据）
  * - 第九批：新增「提报提醒」窗口，可自提报今日提醒事宜，面板展示「今日需提醒事宜」
  */
 import { useMemo, useState } from 'react'
 import { useCurrentRole } from '@/hooks/useCurrentRole'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
-import { mockUsers } from '@/api/mock/data'
+import { useWorkspaceState } from '@/hooks/useWorkspaceState'
 import { Button, Card, Checkbox, Col, DatePicker, Empty, Form, Input, List, Modal, Row, Space, Statistic, Tag, TimePicker, Typography, message } from 'antd'
 import { BellOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, FieldTimeOutlined, PlusOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { mockMe } from '@/api/mock/data'
+import { useAuthStore } from '@/stores/authStore'
+import { useUsers } from '@/hooks/useUsers'
+import { useTodayFocus } from '@/hooks/useTodayFocus'
 import { useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
 import { taskRoute } from '@/utils/taskTree'
 import { useNavigate } from 'react-router-dom'
 import { useNotifications } from '@/hooks/useNotifications'
+import { type TodayItem } from '@/utils/today'
 import {
   TASK_KIND_META,
+  TASK_PRIORITY_META,
   TASK_STATUS_META,
   TASK_URGENCY_META,
   URGENCY_SORT_WEIGHT,
   deriveTaskUrgency,
   type Reminder,
+  type TaskPriority,
+  type TaskStatus,
   type TaskUrgency,
   type WorkspaceTask,
 } from '@/types'
@@ -54,8 +66,21 @@ export default function TodayFocusPage() {
   const role = useCurrentRole()
   const isManager = role === 'manager'
 
+  // 当前登录用户（提醒 createdBy / 服务端今日聚焦的鉴权前提）
+  const me = useAuthStore((s) => s.user)
+  // 管理版面成员姓名映射（真实模式 /users；mock 模式回退种子，见 useUsers）
+  const { users } = useUsers()
+  // 成员版面唯一数据源：服务端 /me/today（只读）
+  const {
+    items: serverItems,
+    overdue: serverOverdue,
+    blocked: serverBlocked,
+    isLoading: serverLoading,
+    error: serverError,
+  } = useTodayFocus()
+
   // 自提报提醒（独立持久化，今日聚焦面板展示今日需提醒事宜）
-  const [reminders, setReminders] = useLocalStorageState<Reminder[]>('reminders', [])
+  const [reminders, setReminders] = useWorkspaceState<Reminder[]>('reminders', [])
   const [remindOpen, setRemindOpen] = useState(false)
   const [remindForm] = Form.useForm<{ content: string; date: dayjs.Dayjs; time: dayjs.Dayjs }>()
   const { addNotification } = useNotifications()
@@ -69,7 +94,7 @@ export default function TodayFocusPage() {
         content: values.content.trim(),
         remindAt,
         done: false,
-        createdBy: mockMe.id,
+        createdBy: me?.id ?? 'local',
         createdAt: new Date().toISOString(),
       }
       setReminders((c) => [...c, reminder])
@@ -122,35 +147,6 @@ export default function TodayFocusPage() {
     )
   }
 
-  /** 我相关（创建/承接/参与）且未完结的任务/计划（项目实体本身不在此列，仅执行其任务） */
-  const mine = useMemo(
-    () =>
-      tasks.filter(
-        (t) =>
-          !t.isDraft &&
-          t.kind !== 'project' &&
-          t.status !== 'done' &&
-          t.status !== 'cancelled' &&
-          (t.assigneeId === mockMe.id || t.createdBy === mockMe.id || t.participants.includes(mockMe.id)),
-      ),
-    [tasks],
-  )
-
-  /** 今日事宜：截止在今天 / 排期覆盖今天 / 今日有完成节点 */
-  const todayItems = useMemo(
-    () =>
-      mine.filter((t) => {
-        if (t.dueAt && dayjs(t.dueAt).isSame(dayjs(), 'day')) return true
-        if (t.startAt && t.endAt) {
-          const s = dayjs(t.startAt).startOf('day')
-          const e = dayjs(t.endAt).endOf('day')
-          if (!s.isAfter(dayjs()) && !e.isBefore(dayjs())) return true
-        }
-        return t.dailyPlans.some((n) => n.date === today)
-      }),
-    [mine, today],
-  )
-
   /** 第五批需求 3：管理版 —— 团队今日聚焦（全部成员 + 项目任务，按成员聚合），普通版不使用 */
   const teamScope = useMemo(
     () => tasks.filter((t) => !t.isDraft && t.kind !== 'project' && t.status !== 'done' && t.status !== 'cancelled'),
@@ -179,19 +175,16 @@ export default function TodayFocusPage() {
     const map = new Map<string, { userId: string; name: string; items: typeof teamTodayItems }>()
     teamTodayItems.forEach((t) => {
       const uid = t.assigneeId ?? t.createdBy
-      const user = mockUsers.find((u) => u.id === uid)
+      const user = users.find((u) => u.id === uid)
       const key = uid || 'unassigned'
       if (!map.has(key)) map.set(key, { userId: key, name: user?.displayName ?? '未指派', items: [] })
       map.get(key)!.items.push(t)
     })
     return Array.from(map.values()).sort((a, b) => b.items.length - a.items.length)
-  }, [teamTodayItems])
+  }, [teamTodayItems, users])
 
-  /** 数据源：管理看板为团队今日，成员看板为个人今日 */
-  const source = useMemo(
-    () => (isManager ? teamTodayItems : todayItems),
-    [isManager, teamTodayItems, todayItems],
-  )
+  /** 数据源：管理看板 = 团队今日（本地工作区数据）；成员看板改由服务端 `serverItems` 直供，不再走此源 */
+  const source = teamTodayItems
 
   /** 需求 3：今日任务（kind !== 'plan'）—— 按 重要紧急 > 紧急不重要 > 重要不紧急 > 不重要不紧急 排序，同级按截止时间 */
   const taskItems = useMemo(
@@ -221,12 +214,16 @@ export default function TodayFocusPage() {
     [source],
   )
 
-  const stats = useMemo(() => {
-    const overdue = todayItems.filter((t) => t.dueAt && dayjs(t.dueAt).isBefore(dayjs(), 'day')).length
-    const crossDay = todayItems.filter((t) => t.startAt && t.endAt && dayjs(t.endAt).diff(dayjs(t.startAt), 'day') >= 1).length
-    const todayNodes = todayItems.flatMap((t) => t.dailyPlans.filter((n) => n.date === today))
-    return { total: todayItems.length, overdue, crossDay, nodes: todayNodes.length, nodesDone: todayNodes.filter((n) => n.done).length }
-  }, [todayItems, today])
+  /** 成员版面统计（服务端 /me/today）：今日事宜 / 已逾期 / 阻塞中 / 个人任务 */
+  const stats = useMemo(
+    () => ({
+      total: serverItems.length,
+      overdue: serverOverdue,
+      blocked: serverBlocked,
+      personal: serverItems.filter((t) => t.type === 'personal').length,
+    }),
+    [serverItems, serverOverdue, serverBlocked],
+  )
 
   /** 今天的节点（含所属任务） */
   const todayNodes = useMemo(
@@ -289,12 +286,42 @@ export default function TodayFocusPage() {
     )
   }
 
+  /** 成员版面行（服务端 /me/today 项）：类型/优先级/状态徽标 + 截止时间；个人任务无前端详情页，不跳转 */
+  const renderServerItem = (t: TodayItem) => {
+    const overdue = !!t.dueAt && t.dueAt.getTime() < Date.now()
+    const statusMeta = TASK_STATUS_META[t.status as TaskStatus] ?? { label: t.status, color: 'default' }
+    const priorityMeta = TASK_PRIORITY_META[t.priority as TaskPriority] ?? { label: t.priority, color: 'default' }
+    return (
+      <List.Item
+        style={{ padding: '10px 0', borderBottom: '1px solid var(--border-subtle)', cursor: t.type === 'team' ? 'pointer' : 'default' }}
+        onClick={t.type === 'team' ? () => navigate(`/tasks/${t.id}`) : undefined}
+        actions={[
+          <Space key="meta" size={4}>
+            {overdue && <Tag color="error" style={{ fontSize: 10 }}>已逾期</Tag>}
+            <Tag color={t.type === 'team' ? 'geekblue' : 'cyan'} style={{ fontSize: 10 }}>{t.type === 'team' ? '团队任务' : '个人任务'}</Tag>
+            <Tag color={priorityMeta.color} style={{ fontSize: 10 }}>{priorityMeta.label}优先级</Tag>
+            <Tag color={statusMeta.color} style={{ fontSize: 10 }}>{statusMeta.label}</Tag>
+          </Space>,
+        ]}
+      >
+        <List.Item.Meta
+          title={<Text strong style={{ color: 'var(--text-primary)' }}>{t.title}</Text>}
+          description={
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t.dueAt ? `${dayjs(t.dueAt).format('MM-DD HH:mm')} 截止` : '无截止时间'}
+            </Text>
+          }
+        />
+      </List.Item>
+    )
+  }
+
   return (
     <div>
       <Row align="middle" justify="space-between" style={{ marginBottom: 20 }}>
         <Col>
           <Title level={3} style={{ margin: 0, color: 'var(--text-primary)' }}>{isManager ? '今日聚焦 · 管理视图' : '今日聚焦'}</Title>
-          <Text type="secondary">{isManager ? `${dayjs().format('YYYY年MM月DD日 dddd')} · 团队全部成员的今日任务与节点` : `${dayjs().format('YYYY年MM月DD日 dddd')} · 今日的任务/计划，按重要紧急程度排序`}</Text>
+          <Text type="secondary">{isManager ? `${dayjs().format('YYYY年MM月DD日 dddd')} · 团队全部成员的今日任务与节点` : `${dayjs().format('YYYY年MM月DD日 dddd')} · 今日的任务（团队 + 个人），按逾期 / 截止时间 / 优先级排序`}</Text>
         </Col>
         <Col>
           <Tag color={isManager ? 'blue' : 'gold'}>{isManager ? '管理版面' : '成员版面'}</Tag>
@@ -368,36 +395,56 @@ export default function TodayFocusPage() {
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
-            <Statistic title={<Text style={{ fontSize: 11, color: 'var(--text-tertiary)', letterSpacing: '0.05em' }}>跨天任务</Text>} value={stats.crossDay} prefix={<FieldTimeOutlined />} valueStyle={{ color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontSize: 24 }} />
+            <Statistic title={<Text style={{ fontSize: 11, color: 'var(--text-tertiary)', letterSpacing: '0.05em' }}>阻塞中</Text>} value={stats.blocked} prefix={<ExclamationCircleOutlined />} valueStyle={{ color: stats.blocked > 0 ? 'gold' : 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 24 }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
-            <Statistic title={<Text style={{ fontSize: 11, color: 'var(--text-tertiary)', letterSpacing: '0.05em' }}>今日节点完成</Text>} value={stats.nodesDone} suffix={`/ ${stats.nodes}`} prefix={<ClockCircleOutlined />} valueStyle={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 24 }} />
+            <Statistic title={<Text style={{ fontSize: 11, color: 'var(--text-tertiary)', letterSpacing: '0.05em' }}>个人任务</Text>} value={stats.personal} prefix={<FieldTimeOutlined />} valueStyle={{ color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontSize: 24 }} />
           </Card>
         </Col>
       </Row>
 
-      {(taskItems.length === 0 && planItems.length === 0 && todayReminders.length === 0) ? (
+      {((isManager ? taskItems.length + planItems.length : serverItems.length) === 0 && todayReminders.length === 0) ? (
         <Card><Empty description="今天没有待处理的任务/计划，也没有待提醒事宜，享受专注时间" /></Card>
       ) : (
         <Row gutter={20}>
           <Col xs={24} lg={16}>
             <Space direction="vertical" style={{ width: '100%' }} size={16}>
-              <Card title={<Space><ThunderboltOutlined />{isManager ? '团队今日任务' : '今日任务'}（{taskItems.length}）</Space>}>
-                {taskItems.length === 0 ? (
-                  <Empty description="今天没有待处理的任务" />
-                ) : (
-                  <List dataSource={taskItems} renderItem={renderItem} split={false} />
-                )}
-              </Card>
-              <Card title={<Space><FieldTimeOutlined />今日个人计划（{planItems.length}）</Space>}>
-                {planItems.length === 0 ? (
-                  <Empty description="今天没有安排个人计划" />
-                ) : (
-                  <List dataSource={planItems} renderItem={renderItem} split={false} />
-                )}
-              </Card>
+              {isManager ? (
+                <Card title={<Space><ThunderboltOutlined />团队今日任务（{taskItems.length}）</Space>}>
+                  {taskItems.length === 0 ? (
+                    <Empty description="今天团队没有待处理的任务" />
+                  ) : (
+                    <List dataSource={taskItems} renderItem={renderItem} split={false} />
+                  )}
+                </Card>
+              ) : (
+                <Card title={<Space><ThunderboltOutlined />今日任务（{serverItems.length}）</Space>}>
+                  {serverItems.length === 0 ? (
+                    <Empty
+                      description={
+                        serverError
+                          ? '今日聚焦加载失败，请稍后重试'
+                          : serverLoading
+                            ? '正在加载今日聚焦…'
+                            : '今天没有待处理的任务'
+                      }
+                    />
+                  ) : (
+                    <List dataSource={serverItems} renderItem={renderServerItem} split={false} />
+                  )}
+                </Card>
+              )}
+              {isManager && (
+                <Card title={<Space><FieldTimeOutlined />今日个人计划（{planItems.length}）</Space>}>
+                  {planItems.length === 0 ? (
+                    <Empty description="今天没有安排个人计划" />
+                  ) : (
+                    <List dataSource={planItems} renderItem={renderItem} split={false} />
+                  )}
+                </Card>
+              )}
             </Space>
           </Col>
           <Col xs={24} lg={8}>
@@ -455,7 +502,7 @@ export default function TodayFocusPage() {
               )}
             </Card>
 
-            {todayNodes.length > 0 && (
+            {isManager && todayNodes.length > 0 && (
               <Card title={<Space><FieldTimeOutlined />今日节点（{todayNodes.length}）</Space>} size="small">
                 <List
                   size="small"

@@ -1,0 +1,46 @@
+import { describe, expect, it } from 'vitest'
+import { buildWsFrame, extractWsToken, projectRoom, tenantRoom } from './ws-auth';
+
+describe('ws-auth', () => {
+  describe('extractWsToken', () => {
+    it('auth.token 直取', () => {
+      expect(extractWsToken({ token: 'abc.def.ghi' })).toBe('abc.def.ghi');
+    });
+
+    it('auth.bearer 直取', () => {
+      expect(extractWsToken({ bearer: 'xyz' })).toBe('xyz');
+    });
+
+    it('兼容 "Bearer xxx" 前缀（大小写不敏感）', () => {
+      expect(extractWsToken({ token: 'Bearer eyJhbGciOi' })).toBe('eyJhbGciOi');
+      expect(extractWsToken({ token: 'bearer eyJhbGciOi' })).toBe('eyJhbGciOi');
+    });
+
+    it('缺失/空串/非字符串 → null', () => {
+      expect(extractWsToken(null)).toBeNull();
+      expect(extractWsToken(undefined)).toBeNull();
+      expect(extractWsToken({})).toBeNull();
+      expect(extractWsToken({ token: '' })).toBeNull();
+      expect(extractWsToken({ token: '   ' })).toBeNull();
+      expect(extractWsToken({ token: 123 as unknown as string })).toBeNull();
+    });
+  });
+
+  describe('房间命名', () => {
+    it('tenant 房间 = tenant:{id}（租户隔离广播）', () => {
+      expect(tenantRoom('t1')).toBe('tenant:t1');
+    });
+
+    it('project 房间带 tenant 前缀，防跨租户 projectId 碰撞/窃听', () => {
+      expect(projectRoom('t1', 'p1')).toBe('tenant:t1:project:p1');
+    });
+  });
+
+  describe('buildWsFrame', () => {
+    it('帧形 = {event, payload, sentAt}（前端订阅契约）', () => {
+      const frame = buildWsFrame('task.created', { taskId: 't1' });
+      expect(frame).toMatchObject({ event: 'task.created', payload: { taskId: 't1' } });
+      expect(frame.sentAt).toBeTruthy();
+    });
+  });
+});

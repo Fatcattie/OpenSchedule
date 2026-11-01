@@ -3,8 +3,9 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from app.routers.decompose import _callback_delay_seconds, _format_sse
+from app.routers.decompose import _format_sse
 from app.schemas.decompose import DecomposeRequest
+from app.services.callback_delivery import callback_delay_seconds
 
 
 def test_decompose_request_rejects_coercible_numeric_values():
@@ -37,6 +38,6 @@ def test_sse_frame_has_event_and_json_data_lines():
 
 
 def test_callback_retry_backoff_is_bounded():
-    assert _callback_delay_seconds(1) == 1
-    assert _callback_delay_seconds(2) == 2
-    assert _callback_delay_seconds(10) == 8
+    assert callback_delay_seconds(1) == 1
+    assert callback_delay_seconds(2) == 2
+    assert callback_delay_seconds(10) == 8

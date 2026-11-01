@@ -1,0 +1,591 @@
+openapi: 3.1.0
+info:
+  title: OpenSchedule Authentication API (contract slice A — auth routes)
+  version: 1.3.0
+  description: |
+    Authentication slice of the binding frontend↔backend contract. Covers
+    FR-001 (fixed super_admin/admin/member role enum, declared in
+    permissions-matrix.yaml/roles.yaml), FR-004 (real login, session, and
+    logout lifecycle), and FR-005 (real API, no mock or localStorage
+    identity path). RBAC rules live in
+    docs/authorization/personnel-rbac.md; the full contract is assembled
+    from per-route slices under services/api/src/openapi/.
+
+    R7-6 双鉴权收敛：2026-10-10 起所有鉴权（人员域 + 主域）统一经 JWT Bearer
+    （access 15m + refresh 7d）；历史 HttpOnly cookie 会话 `openschedule_session`
+    + `X-CSRF-Token` 写操作护栏已删除。Bearer token 不会被浏览器自动附加，
+    OWASP 视为对 CSRF 免疫的鉴权形态（Cheat Sheet § Session Management）。
+servers:
+  - url: /api
+    description: Same-origin API prefix used by the current web proxy
+  - url: /api/v1
+    description: Versioned NestJS API prefix used by the backend bootstrap
+
+x-requirements:
+  FR-001:
+    summary: Fixed super_admin, admin, and member role enum and matrix
+    paths: [/auth/me]
+  FR-004:
+    summary: Real login, refresh, logout lifecycle
+    paths: [/auth/login, /auth/refresh, /auth/logout, /auth/register, /auth/change-password, /auth/me]
+  FR-005:
+    summary: Real authentication API without mock or localStorage identity fallback
+    paths: [/auth/login, /auth/refresh, /auth/logout, /auth/register, /auth/change-password, /auth/me, /auth/members]
+
+security: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Authentication]
+      operationId: register
+      x-requirements: [FR-004, FR-005]
+      summary: Register a new account and create its initial tenant
+      description: |
+        Validates uniqueness of email, hashes the password (bcrypt cost 12), creates
+        the User row, opens a Tenant (Phase 1: `createTenant` defaults to true),
+        clones system role templates into tenant-scoped roles, grants the
+        `tenant.owner` role to the creator, seeds a `member_profile`, plants the
+        default automation rules, and issues the first access/refresh pair.
+        Five failed registrations per minute per IP are rate-limited (FR-005,
+        §3.3).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Account and tenant created; tokens issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/UserConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/AuthRateLimited'
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      x-requirements: [FR-004, FR-005]
+      summary: Exchange credentials for an access/refresh pair
+      description: |
+        The only way to obtain a Bearer access token. Five failed attempts per
+        minute per IP are rate-limited; disabled accounts are rejected with 403;
+        every login is appended to the audit log. The `mustChangePassword` flag
+        signals that the user must hit POST /auth/change-password before reaching
+        any other route.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '201':
+          description: Bearer access + refresh issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/AuthRateLimited'
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      operationId: refresh
+      x-requirements: [FR-004, FR-005]
+      summary: Rotate a refresh token into a new access/refresh pair
+      description: |
+        Rotating refresh: the old jti is revoked the moment a new pair is issued,
+        preventing replay. Refresh tokens are persisted jti-blacklisted so a
+        leaked token is invalidated on next observation.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '201':
+          description: New access + refresh issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      x-requirements: [FR-004, FR-005]
+      summary: Revoke the current refresh token
+      description: |
+        Revokes the supplied refresh jti. Idempotent: invalid/expired tokens
+        still return ok so the client can clear local state without branching.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '201':
+          description: Refresh token revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /auth/me:
+    get:
+      tags: [Authentication]
+      operationId: getMe
+      x-requirements: [FR-001, FR-004, FR-005]
+      summary: Read the current authenticated principal
+      description: |
+        Returns the persisted `user` projection (never includes password hash
+        or refresh jti), the active tenant, and the resolved roles. Identity
+        is sourced entirely from the Bearer access token + the persisted
+        user_roles × roles join — never from local state.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current principal, tenant, and roles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /auth/members:
+    post:
+      tags: [Authentication]
+      operationId: adminCreateMember
+      x-requirements: [FR-005]
+      summary: Tenant owner/admin creates a new member (admin or member)
+      description: |
+        Creates a new User with a temporary password and the
+        `mustChangePassword` flag, attaches them to the operator's tenant as a
+        tenant-scoped admin or member (super_admin assignment is forbidden via
+        this endpoint; the first super_admin is the tenant creator). When the
+        recipient logs in for the first time they are routed through
+        POST /auth/change-password.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMemberRequest'
+      responses:
+        '201':
+          description: Member created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserView'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/UserConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/change-password:
+    post:
+      tags: [Authentication]
+      operationId: changePassword
+      x-requirements: [FR-004, FR-005]
+      summary: Change the current principal's password
+      description: |
+        Verifies the supplied current password, hashes the new password
+        (bcrypt cost 12), clears the `mustChangePassword` flag, and writes
+        an audit entry. Used both for forced first-login password change and
+        for routine credential rotation from the profile page.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '201':
+          description: Password updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer access token (15m TTL) issued by POST /auth/login and rotated
+        via POST /auth/refresh. R7-6 双鉴权收敛：历史 cookie session 已删除，
+        统一走 Bearer 全局 JwtAuthGuard。
+
+  schemas:
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 3
+          maxLength: 320
+        password:
+          type: string
+          minLength: 8
+          maxLength: 256
+          writeOnly: true
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, displayName]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          minLength: 8
+          maxLength: 256
+          writeOnly: true
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        tenantName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        createTenant:
+          type: boolean
+          default: true
+          description: Phase 1 only supports `true`; `false` returns 40001.
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+          minLength: 16
+          maxLength: 4096
+          writeOnly: true
+    LogoutRequest:
+      type: object
+      additionalProperties: false
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+          minLength: 16
+          maxLength: 4096
+          writeOnly: true
+    CreateMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, displayName, role]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          minLength: 8
+          maxLength: 256
+          writeOnly: true
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        role:
+          type: string
+          enum: [admin, member, viewer]
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 8
+          maxLength: 256
+          writeOnly: true
+        newPassword:
+          type: string
+          minLength: 8
+          maxLength: 256
+          writeOnly: true
+
+    TokenPair:
+      type: object
+      additionalProperties: false
+      required: [accessToken, refreshToken, expiresIn]
+      properties:
+        accessToken:
+          type: string
+          minLength: 16
+          maxLength: 4096
+        refreshToken:
+          type: string
+          minLength: 16
+          maxLength: 4096
+        expiresIn:
+          type: string
+          description: Access TTL in NestJS duration notation (e.g. `15m`).
+
+    UserView:
+      type: object
+      additionalProperties: false
+      required: [id, email, displayName, avatarUrl, locale, timezone]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        avatarUrl:
+          type: [string, 'null']
+          maxLength: 2048
+        locale:
+          type: string
+        timezone:
+          type: string
+
+    AuthRoleView:
+      type: object
+      additionalProperties: false
+      required: [key, scope]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 64
+        scope:
+          type: string
+          enum: [system, tenant, project, task]
+        scopeResourceId:
+          type: [string, 'null']
+          maxLength: 128
+        permissions:
+          type: array
+          items:
+            type: string
+
+    AuthEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [accessToken, refreshToken, expiresIn, user]
+          properties:
+            accessToken:
+              type: string
+            refreshToken:
+              type: string
+            expiresIn:
+              type: string
+            user:
+              $ref: '#/components/schemas/UserView'
+            tenantId:
+              type: [string, 'null']
+            tenant:
+              type: object
+              additionalProperties: false
+              properties:
+                id:
+                  type: string
+                name:
+                  type: string
+                plan:
+                  type: string
+            mustChangePassword:
+              type: boolean
+              description: True when admin-created members log in for the first time.
+
+    TokenPairEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/TokenPair'
+
+    MeEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [user, tenant, roles]
+          properties:
+            user:
+              oneOf:
+                - $ref: '#/components/schemas/UserView'
+                - type: 'null'
+            tenant:
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    plan:
+                      type: string
+                    status:
+                      type: string
+                - type: 'null'
+            roles:
+              type: array
+              items:
+                $ref: '#/components/schemas/AuthRoleView'
+
+    UserViewEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/UserView'
+
+    OkEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [ok]
+          properties:
+            ok:
+              type: boolean
+              const: true
+
+    ErrorBody:
+      type: object
+      additionalProperties: false
+      required: [code, message, details, traceId, requestId]
+      properties:
+        code:
+          type: integer
+          minimum: 400
+          description: 分段业务错误码（权威定义 services/api/src/common/constants/error-codes.ts）：40001 校验 / 40101 认证 / 40301 权限 / 40401 不存在 / 40901 乐观锁 / 40902 非法状态迁移 / 42901 限流 / 50000 内部 / 502、503 依赖不可用
+        message:
+          type: string
+          maxLength: 500
+          description: 人类可读错误信息（5xx 不泄露内部细节）
+        details:
+          description: 结构化细节（默认空数组；校验错误为字段级数组；业务错误按码携带 allowed_transitions、key 等对象键）
+        traceId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 链路追踪 ID（x-trace-id 请求头透传或服务端生成）
+        requestId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 请求 ID（与服务端日志、审计记录关联）
+
+  responses:
+    Unauthenticated:
+      description: No valid Bearer access token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    Forbidden:
+      description: Authenticated but outside the action's required scope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    ValidationError:
+      description: Request body or path failed schema or domain validation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    UserConflict:
+      description: Email or unique-identifier conflict.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    AuthRateLimited:
+      description: Login attempts are temporarily rate limited.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'

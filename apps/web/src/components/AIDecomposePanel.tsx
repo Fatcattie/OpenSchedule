@@ -178,6 +178,9 @@ export default function AIDecomposePanel({ projectId, onApplied }: Props) {
                 {suggestion.status === 'pending' ? '待确认' :
                  suggestion.status === 'applied' ? '已应用' : '已拒绝'}
               </Tag>
+              {suggestion.engine === 'ai'
+                ? <Tag color="green">AI 模型生成{suggestion.aiModel ? ` · ${suggestion.aiModel}` : ''}</Tag>
+                : <Tag>规则引擎</Tag>}
             </Space>
           }
           extra={

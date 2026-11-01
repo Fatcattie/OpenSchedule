@@ -15,6 +15,8 @@ export const API_ERROR_CODES = {
   FORBIDDEN: 40301,
   /** 资源不存在或不可见（跨租户猜测资源 id 时按此处理，防存在性探测） */
   NOT_FOUND: 40401,
+  /** 租户未配置 AI 模型（管理员到「设置 → AI 模型」配置；前端据此回落本地规则引擎） */
+  AI_NOT_CONFIGURED: 40910,
   /** 请求频率超限（登录/短信/开放 API 等） */
   RATE_LIMITED: 42901,
   /** AI 服务不可达 */

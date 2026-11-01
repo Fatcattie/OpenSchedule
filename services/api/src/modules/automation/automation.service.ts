@@ -1,11 +1,15 @@
 /**
  * automation.service.ts —— 自动化规则服务（B20）
  */
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common'
+import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common'
+import { AutomationRule, Prisma, Task } from '@prisma/client'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { AuditService } from '../../common/audit/audit.service'
 import { AuthUser } from '../../common/decorators/current-user.decorator'
+import { NotificationsService } from '../notifications/notifications.service'
 import { matchRule, evaluateActions, SYSTEM_TEMPLATES } from './engine/rule-engine'
-import type { RuleAction } from './engine/rule-engine'
+import type { RuleAction, RuleLike, TaskLike } from './engine/rule-engine'
+import { taskEventToAutomationTrigger } from './automation-trigger'
 
 const E = { NOT_FOUND: 40401, FORBIDDEN: 40301 } as const
 
@@ -22,7 +26,13 @@ export interface TemplateInfo {
 
 @Injectable()
 export class AutomationService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(AutomationService.name)
+
+  constructor(
+    private prisma: PrismaService,
+    private audit: AuditService,
+    private notifications: NotificationsService,
+  ) {}
 
   // ========== 规则 CRUD ==========
 
@@ -87,6 +97,12 @@ export class AutomationService {
       },
       select: { id: true, name: true, triggerType: true, isEnabled: true, createdAt: true },
     })
+    // R4 审计：automation.rule.create（规则变更为 §3.3 重点审计面）
+    await this.audit.record({
+      tenantId: user.tenantId, actorId: user.userId, action: 'automation.rule.create',
+      resourceType: 'automation_rule', resourceId: rule.id,
+      after: { name: rule.name, triggerType: rule.triggerType, isEnabled: rule.isEnabled },
+    })
     return { data: rule }
   }
 
@@ -110,6 +126,13 @@ export class AutomationService {
       data,
       select: { id: true, name: true, isEnabled: true, updatedAt: true },
     })
+    // R4 审计：automation.rule.update
+    await this.audit.record({
+      tenantId: user.tenantId, actorId: user.userId, action: 'automation.rule.update',
+      resourceType: 'automation_rule', resourceId: id,
+      before: { name: rule.name, isEnabled: rule.isEnabled },
+      after: updated,
+    })
     return { data: updated }
   }
 
@@ -125,6 +148,12 @@ export class AutomationService {
       where: { id },
       data: { deletedAt: new Date() },
     })
+    // R4 审计：automation.rule.delete
+    await this.audit.record({
+      tenantId: user.tenantId, actorId: user.userId, action: 'automation.rule.delete',
+      resourceType: 'automation_rule', resourceId: id,
+      before: { name: rule.name, triggerType: rule.triggerType, isEnabled: rule.isEnabled },
+    })
     return { data: { id, deleted: true } }
   }
 
@@ -138,7 +167,190 @@ export class AutomationService {
       data: { isEnabled },
       select: { id: true, isEnabled: true },
     })
+    // R4 审计：automation.rule.toggle
+    await this.audit.record({
+      tenantId: user.tenantId, actorId: user.userId, action: 'automation.rule.toggle',
+      resourceType: 'automation_rule', resourceId: id,
+      before: { isEnabled: rule.isEnabled },
+      after: updated,
+    })
     return { data: updated }
+  }
+
+  // ========== 事件触发接线（R6-3：task.* 事件 → 规则引擎 → 执行动作）==========
+
+  /** 处理任务事件（由 automation.listener 接 task.created / task.status_changed；task.completed 由 status_changed(to=done) 覆盖） */
+  async handleTaskEvent(eventName: string, payload: Record<string, unknown>): Promise<void> {
+    const trigger = taskEventToAutomationTrigger(eventName, payload)
+    if (!trigger) return
+    const taskId = payload.taskId as string | undefined
+    const tenantId = payload.tenantId as string | undefined
+    if (!taskId || !tenantId) return
+
+    const task = await this.prisma.task.findFirst({
+      where: { id: taskId, tenantId, deletedAt: null },
+    })
+    if (!task) return
+
+    const rules = await this.prisma.automationRule.findMany({
+      where: {
+        tenantId,
+        triggerType: trigger.triggerType,
+        isEnabled: true,
+        deletedAt: null,
+        OR: [{ projectId: null }, { projectId: task.projectId }],
+      },
+    })
+    if (rules.length === 0) return
+
+    const taskLike: TaskLike = {
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      assigneeId: task.assigneeId,
+      dueAt: task.dueAt,
+      tags: task.tags,
+    }
+
+    let triggered = 0
+    for (const rule of rules) {
+      if (!matchRule(rule as unknown as RuleLike, taskLike, trigger.ctx)) continue
+      await this.executeRuleActions(task, rule, payload)
+      await this.prisma.automationRule
+        .update({ where: { id: rule.id }, data: { triggerCount: { increment: 1 }, lastTriggeredAt: new Date() } })
+        .catch(() => undefined)
+      triggered++
+    }
+    if (triggered > 0) {
+      this.audit.record({
+        tenantId,
+        actorId: (payload.actor as { id?: string } | undefined)?.id ?? null,
+        actorType: 'system',
+        action: 'automation.rule.triggered',
+        resourceType: 'automation_rule',
+        resourceId: null,
+        after: { taskId, eventName, triggered },
+      })
+    }
+  }
+
+  /** 执行规则动作副作用（set_priority/set_status/set_assignee/add_label/remove_label/add_comment/send_notification） */
+  private async executeRuleActions(task: Task, rule: AutomationRule, payload: Record<string, unknown>): Promise<void> {
+    const actions = rule.actions as unknown as RuleAction[]
+    for (const action of actions) {
+      const cfg = action.config || {}
+      try {
+        switch (action.type) {
+          case 'set_priority':
+            if (cfg.priority && cfg.priority !== task.priority) {
+              await this.prisma.task.update({ where: { id: task.id }, data: { priority: cfg.priority } })
+            }
+            break
+          case 'set_status':
+            // 系统特权直写；终态（done/cancelled）防规则回退（§2.3 状态机语义）
+            if (cfg.status && task.status !== 'done' && task.status !== 'cancelled') {
+              await this.prisma.task.update({ where: { id: task.id }, data: { status: cfg.status } })
+            }
+            break
+          case 'set_assignee':
+            if (cfg.assigneeId && cfg.assigneeId !== task.assigneeId) {
+              await this.prisma.task.update({ where: { id: task.id }, data: { assigneeId: cfg.assigneeId } })
+            }
+            break
+          case 'add_label': {
+            const tags = task.tags ?? []
+            if (cfg.label && !tags.includes(cfg.label)) {
+              await this.prisma.task.update({ where: { id: task.id }, data: { tags: [...tags, cfg.label] } })
+            }
+            break
+          }
+          case 'remove_label': {
+            const tags = (task.tags ?? []).filter((t) => t !== cfg.label)
+            await this.prisma.task.update({ where: { id: task.id }, data: { tags } })
+            break
+          }
+          case 'add_comment':
+            if (cfg.content) {
+              await this.prisma.taskComment.create({
+                data: { tenantId: task.tenantId, taskId: task.id, authorId: null, content: String(cfg.content) },
+              })
+            }
+            break
+          case 'send_notification':
+            await this.dispatchAutomationNotification(task, rule, action, payload)
+            break
+        }
+      } catch (err) {
+        this.logger.warn(`自动化动作执行失败 rule=${rule.id} action=${action.type}: ${(err as Error).message}`)
+      }
+    }
+  }
+
+  /** 自动化通知：target=creator/assignee/project_owner（默认 assignee）；跳过通知操作者本人 */
+  private async dispatchAutomationNotification(task: Task, rule: AutomationRule, action: RuleAction, payload: Record<string, unknown>): Promise<void> {
+    const cfg = action.config || {}
+    const content = String(cfg.content ?? '')
+    if (!content) return
+    const target = cfg.target ?? 'assignee'
+    let userId: string | null | undefined
+    if (target === 'creator') userId = task.createdBy
+    else if (target === 'project_owner') {
+      const project = await this.prisma.project.findFirst({ where: { id: task.projectId!, tenantId: task.tenantId }, select: { ownerId: true } })
+      userId = project?.ownerId
+    } else userId = task.assigneeId
+    if (!userId) return
+    const actorId = (payload.actor as { id?: string } | undefined)?.id
+    if (userId === actorId) return
+    await this.notifications.notify({
+      tenantId: task.tenantId,
+      userId,
+      type: 'automation.rule.triggered',
+      title: `${content}：「${task.title}」`,
+      data: { taskId: task.id, projectId: task.projectId, ruleId: rule.id },
+    })
+  }
+
+  /** 内置系统规则演示闭环（R6-3 / §3.2）：done 自动标记 + done 通知创建者（幂等；租户创建时调用） */
+  async seedTenantRules(tenantId: string): Promise<void> {
+    const demos = [
+      {
+        name: '任务完成自动标记',
+        triggerType: 'status_changed',
+        triggerConfig: { toStatus: 'done' },
+        conditionConfig: null,
+        actions: [{ type: 'add_label', config: { label: '已完成' } }],
+      },
+      {
+        name: '任务完成通知创建者',
+        triggerType: 'status_changed',
+        triggerConfig: { toStatus: 'done' },
+        conditionConfig: null,
+        actions: [{ type: 'send_notification', config: { content: '你创建的任务已完成', channel: 'inapp', target: 'creator' } }],
+      },
+    ]
+    for (const demo of demos) {
+      const existing = await this.prisma.automationRule.findFirst({
+        where: { tenantId, isSystem: true, name: demo.name, deletedAt: null },
+        select: { id: true },
+      })
+      if (existing) continue
+      await this.prisma.automationRule.create({
+        data: {
+          tenantId,
+          projectId: null,
+          name: demo.name,
+          description: demo.name,
+          triggerType: demo.triggerType,
+          triggerConfig: demo.triggerConfig,
+          conditionConfig: demo.conditionConfig ?? Prisma.JsonNull,
+          actions: demo.actions,
+          isEnabled: true,
+          isSystem: true,
+          createdBy: null,
+        },
+      })
+    }
   }
 
   // ========== 预设模板 ==========

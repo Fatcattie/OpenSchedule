@@ -1,6 +1,7 @@
-"""LiteLLM（OpenAI 兼容）客户端 + 确定性模板拆解降级路径。
+"""OpenAI 兼容客户端（直连租户配置的模型厂商）+ 确定性模板拆解降级路径。
 
-- 调用 OpenAI 兼容 /chat/completions；temperature ≤0.2（L1 铁律，§3.5.4）
+- 端点/key/模型来自租户配置（主服务随请求下发 `LlmTarget`）；DeepSeek/GLM/Qwen/Kimi/OpenAI 均为 OpenAI 兼容
+- 调用 /chat/completions；temperature ≤0.2（L1 铁律，§3.5.4）
 - 超时/限流/鉴权/上游错误分类；单次预算上限 LLM_BUDGET_PER_CALL（默认 $0.5，§3.5.4）
 - LLM 不可用 → template_decompose() 确定性降级（同输入同输出，DoD 确定性要求），保证接口可跑通
 """
@@ -14,7 +15,7 @@ from typing import Any
 import httpx
 
 from ..config import Settings, get_settings
-from ..schemas.decompose import DecomposeRequest, DecomposeResult, DecomposeTask, TaskDependency
+from ..schemas.decompose import DecomposeRequest, DecomposeResult, DecomposeTask, LlmTarget, TaskDependency
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ AI_BUDGET_EXCEEDED = "AI_BUDGET_EXCEEDED"
 AI_INTERNAL_ERROR = "AI_INTERNAL_ERROR"
 
 # —— 模型单价（美元/百万 token）——
-# ⚠️ TODO：落地前复核官方价（§4.7 风险 6：模型单价半年内已调两次）；与 LiteLLM 实际计费对齐后以实际为准
+# ⚠️ TODO：落地前复核官方价（§4.7 风险 6：模型单价半年内已调两次）；仅用于单次预算护栏，实际以厂商账单为准
 MODEL_PRICES_USD: dict[str, dict[str, float]] = {
     "deepseek": {"input": 0.27, "output": 1.10},
     "glm": {"input": 0.50, "output": 2.00},
@@ -45,7 +46,7 @@ class LLMError(Exception):
 
 
 class LLMConnectionError(LLMError):
-    """连不上 LiteLLM（未配置/网络不可达）。"""
+    """连不上模型服务（租户未配置/网络不可达）。"""
 
 
 class LLMTimeoutError(LLMError):
@@ -105,10 +106,11 @@ class LLMResponse:
 
 
 class LLMClient:
-    """LiteLLM OpenAI 兼容客户端（每次运行新建，用后 aclose）。"""
+    """OpenAI 兼容客户端（每次运行新建，用后 aclose）。`target` 为租户模型配置；None = 未配置。"""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, target: LlmTarget | None) -> None:
         self._settings = settings
+        self._target = target
         self._client = httpx.AsyncClient(timeout=settings.llm_timeout_seconds)
 
     async def aclose(self) -> None:
@@ -117,12 +119,13 @@ class LLMClient:
     async def generate(self, *, system: str, user: str, temperature: float | None = None) -> LLMResponse:
         """调用 /chat/completions。错误按类型抛出 LLMError 子类，由调用方决定重试/降级。"""
         settings = self._settings
-        if not settings.litellm_api_key:
-            raise LLMConnectionError("LITELLM_API_KEY 未配置（降级为模板拆解）")
-        model = settings.llm_planning_model or settings.llm_default_model
+        target = self._target
+        if target is None:
+            raise LLMConnectionError("租户未配置模型（降级为模板拆解）")
+        model = target.model
         # L1 铁律：temperature ≤ 0.2（配置与入参双保险，超限截断）
         temp = min(temperature if temperature is not None else settings.llm_temperature, 0.2)
-        url = settings.litellm_url.rstrip("/") + "/chat/completions"
+        url = target.base_url.rstrip("/") + "/chat/completions"
         payload: dict[str, Any] = {
             "model": model,
             "messages": [
@@ -134,12 +137,12 @@ class LLMClient:
         }
         try:
             resp = await self._client.post(
-                url, json=payload, headers={"Authorization": f"Bearer {settings.litellm_api_key}"}
+                url, json=payload, headers={"Authorization": f"Bearer {target.api_key.get_secret_value()}"}
             )
         except httpx.TimeoutException as exc:
             raise LLMTimeoutError(f"LLM 请求超时（{settings.llm_timeout_seconds}s）") from exc
         except httpx.ConnectError as exc:
-            raise LLMConnectionError(f"无法连接 LiteLLM：{settings.litellm_url}") from exc
+            raise LLMConnectionError(f"无法连接模型服务：{httpx.URL(url).host}") from exc
         except httpx.HTTPError as exc:
             raise LLMUpstreamError(f"LLM 网络异常：{exc}") from exc
 
@@ -302,17 +305,21 @@ def template_decompose(request: DecomposeRequest) -> DecomposeResult:
 
 # —— 顶层编排函数（供 graph 节点调用）——
 async def generate_plan(
-    request: DecomposeRequest, *, feedback: str | None = None, force_template: bool = False
+    request: DecomposeRequest,
+    *,
+    feedback: str | None = None,
+    force_template: bool = False,
+    llm: LlmTarget | None = None,
 ) -> tuple[str, bool]:
     """生成拆解草稿文本。返回 (raw_text, degraded)。
 
     - LLM 可用：调 generate_decompose；校验失败重试由 graph 的 plan→validate 环控制（feedback 传入）
-    - LLM 不可用/预算超限/重试耗尽（force_template）：确定性模板降级，打日志留痕
+    - 租户未配置/LLM 不可用/预算超限/重试耗尽（force_template）：确定性模板降级，打日志留痕
     """
     if force_template:
         logger.warning("拆解重试次数已耗尽，强制降级为模板拆解")
         return template_decompose(request).model_dump_json(), True
-    client = LLMClient(get_settings())
+    client = LLMClient(get_settings(), llm)
     try:
         raw = await client.generate_decompose(request, feedback=feedback)
         return raw, False

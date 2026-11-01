@@ -30,9 +30,11 @@ RUN pnpm --filter "./services/api" exec prisma generate
 # ---------- 阶段 3：编译 + 收窄（pnpm deploy 裁剪到单包） ----------
 FROM base AS build
 COPY --from=deps /app /app
-# 先编译 NestJS → services/api/dist，再 pnpm deploy 将服务连同依赖打包到 /out
+# 先编译共享包（packages/* 的 dist 不入库：domain-events 事件契约、workspace-rules 工作台规则），
+# 再编译 NestJS → services/api/dist，最后 pnpm deploy 将服务连同依赖打包到 /out
 # 注意：services/api/package.json 的 files 字段不得排除 prisma/（迁移文件须随镜像发布）
-RUN pnpm --filter "./services/api" run build \
+RUN pnpm build:packages \
+    && pnpm --filter "./services/api" run build \
     && pnpm --filter "./services/api" deploy /out
 
 # ---------- 阶段 4：运行层（仅保留产物与依赖，不含构建工具） ----------

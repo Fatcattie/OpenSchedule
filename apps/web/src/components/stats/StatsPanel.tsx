@@ -11,7 +11,7 @@ import { FilterOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
 import { useUsers } from '@/hooks/useUsers'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
 import { downloadCsv } from '@/utils/download'
 import {
   BarChart,
@@ -50,7 +50,7 @@ const RANGES = [
 export default function StatsPanel() {
   const [tasks] = useWorkspaceTasks()
   const { users, me } = useUsers()
-  const [role] = useLocalStorageState<'manager' | 'member'>('workspace_role', 'manager')
+  const role = useCurrentRole()
   const isManager = role === 'manager'
 
   const [range, setRange] = useState('30')

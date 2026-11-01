@@ -6,7 +6,7 @@
  */
 import { useState } from 'react'
 import { Button, Modal, Rate, Space, Tag, Typography, message } from 'antd'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { useWorkspaceState } from '@/hooks/useWorkspaceState'
 import {
   MOOD_EMOJI_META,
   MOOD_STORAGE_KEY,
@@ -19,7 +19,7 @@ import {
 const { Text } = Typography
 
 export default function MoodIndexBar() {
-  const [entries, setEntries] = useLocalStorageState<MoodEntry[]>(MOOD_STORAGE_KEY, [])
+  const [entries, setEntries] = useWorkspaceState<MoodEntry[]>(MOOD_STORAGE_KEY, [])
   const todayMood = findTodayMood(entries)
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedEmoji, setSelectedEmoji] = useState<MoodEmoji | null>(null)

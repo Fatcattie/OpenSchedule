@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest'
 import { parseMentions } from './mention.parser';
 
 describe('parseMentions', () => {

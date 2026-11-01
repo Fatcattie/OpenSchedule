@@ -1,0 +1,3385 @@
+{
+  "components": {
+    "parameters": {
+      "Cursor": {
+        "in": "query",
+        "name": "cursor",
+        "required": false,
+        "schema": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "Limit": {
+        "in": "query",
+        "name": "limit",
+        "required": false,
+        "schema": {
+          "default": 25,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "RoleFilter": {
+        "in": "query",
+        "name": "role",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/Role"
+        }
+      },
+      "Search": {
+        "description": "Prefix or token search over non-sensitive display fields.",
+        "in": "query",
+        "name": "search",
+        "required": false,
+        "schema": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "StatusFilter": {
+        "in": "query",
+        "name": "status",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/UserStatus"
+        }
+      },
+      "UserId": {
+        "description": "Stable server-generated user identifier.",
+        "in": "path",
+        "name": "userId",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "AuthRateLimited": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorBody"
+            }
+          }
+        },
+        "description": "Login attempts are temporarily rate limited."
+      },
+      "Conflict": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorBody"
+            }
+          }
+        },
+        "description": "乐观锁冲突 40901（刷新重试）或审核命令触发的非法状态迁移 40902"
+      },
+      "Forbidden": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorBody"
+            }
+          }
+        },
+        "description": "Authenticated but outside the action's required scope."
+      },
+      "LlmAdminOnly": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorBody"
+            }
+          }
+        },
+        "description": "仅团队管理员（tenant.owner / tenant.admin）可配置 AI 模型（40301）"
+      },
+      "LlmBadRequest": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorBody"
+            }
+          }
+        },
+        "description": "厂商不支持 / custom 缺地址 / 地址被 SSRF 守卫拒绝 / 首次配置缺 key（40001）"
+      },
+      "NotFound": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorBody"
+            }
+          }
+        },
+        "description": "集合不在白名单或任务在本租户不可见（40401，防存在性探测）"
+      },
+      "Unauthenticated": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorBody"
+            }
+          }
+        },
+        "description": "No valid Bearer access token."
+      },
+      "UserConflict": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorBody"
+            }
+          }
+        },
+        "description": "Email or unique-identifier conflict."
+      },
+      "UserNotFound": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorBody"
+            }
+          }
+        },
+        "description": "User is absent or not visible to the current principal."
+      },
+      "ValidationError": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorBody"
+            }
+          }
+        },
+        "description": "Request body or path failed schema or domain validation."
+      }
+    },
+    "schemas": {
+      "AiStatus": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providerName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "enabled",
+          "provider",
+          "providerName",
+          "model"
+        ],
+        "type": "object"
+      },
+      "AuthEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "accessToken": {
+                "type": "string"
+              },
+              "expiresIn": {
+                "type": "string"
+              },
+              "mustChangePassword": {
+                "description": "True when admin-created members log in for the first time.",
+                "type": "boolean"
+              },
+              "refreshToken": {
+                "type": "string"
+              },
+              "tenant": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "plan": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "tenantId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "user": {
+                "$ref": "#/components/schemas/UserView"
+              }
+            },
+            "required": [
+              "accessToken",
+              "refreshToken",
+              "expiresIn",
+              "user"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "AuthRoleView": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "enum": [
+              "system",
+              "tenant",
+              "project",
+              "task"
+            ],
+            "type": "string"
+          },
+          "scopeResourceId": {
+            "maxLength": 128,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "CapabilitiesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "personnel": {
+            "$ref": "#/components/schemas/PersonnelCapability"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "userId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId",
+          "role",
+          "personnel"
+        ],
+        "type": "object"
+      },
+      "ChangePasswordRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "currentPassword": {
+            "maxLength": 256,
+            "minLength": 8,
+            "type": "string",
+            "writeOnly": true
+          },
+          "newPassword": {
+            "maxLength": 256,
+            "minLength": 8,
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ],
+        "type": "object"
+      },
+      "CreateMemberRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "maxLength": 320,
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 256,
+            "minLength": 8,
+            "type": "string",
+            "writeOnly": true
+          },
+          "role": {
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password",
+          "displayName",
+          "role"
+        ],
+        "type": "object"
+      },
+      "CreateUserRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "maxLength": 320,
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 256,
+            "minLength": 12,
+            "type": "string",
+            "writeOnly": true
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        "required": [
+          "email",
+          "displayName",
+          "role",
+          "password"
+        ],
+        "type": "object"
+      },
+      "DirectoryMember": {
+        "additionalProperties": false,
+        "properties": {
+          "avatarUrl": {
+            "maxLength": 500,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "displayName": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole"
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "avatarUrl",
+          "role"
+        ],
+        "type": "object"
+      },
+      "DirectoryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/DirectoryMember"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "ErrorBody": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "分段业务错误码（权威定义 services/api/src/common/constants/error-codes.ts）：40001 校验 / 40101 认证 / 40301 权限 / 40401 不存在 / 40901 乐观锁 / 40902 非法状态迁移 / 42901 限流 / 50000 内部 / 502、503 依赖不可用",
+            "minimum": 400,
+            "type": "integer"
+          },
+          "details": {
+            "description": "结构化细节（默认空数组；校验错误为字段级数组；业务错误按码携带 allowed_transitions、key 等对象键）"
+          },
+          "message": {
+            "description": "人类可读错误信息（5xx 不泄露内部细节）",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "requestId": {
+            "description": "请求 ID（与服务端日志、审计记录关联）",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "traceId": {
+            "description": "链路追踪 ID（x-trace-id 请求头透传或服务端生成）",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "details",
+          "traceId",
+          "requestId"
+        ],
+        "type": "object"
+      },
+      "LlmConfigResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LlmConfigView"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "LlmConfigView": {
+        "properties": {
+          "baseUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "keyLast4": {
+            "description": "key 末 4 位（不足 8 位时末 2 位）；明文/密文永不返回",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LlmProviderId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "providerName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "configured",
+          "provider",
+          "providerName",
+          "baseUrl",
+          "model",
+          "keyLast4",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "LlmProviderId": {
+        "enum": [
+          "deepseek",
+          "zhipu",
+          "qwen",
+          "moonshot",
+          "openai",
+          "custom"
+        ],
+        "type": "string"
+      },
+      "LlmProviderPreset": {
+        "properties": {
+          "baseUrl": {
+            "description": "默认端点（custom 为空串）",
+            "type": "string"
+          },
+          "consoleUrl": {
+            "type": "string"
+          },
+          "id": {
+            "$ref": "#/components/schemas/LlmProviderId"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "baseUrl",
+          "models"
+        ],
+        "type": "object"
+      },
+      "LlmTestResult": {
+        "oneOf": [
+          {
+            "properties": {
+              "latencyMs": {
+                "type": "integer"
+              },
+              "model": {
+                "type": "string"
+              },
+              "ok": {
+                "const": true
+              }
+            },
+            "required": [
+              "ok",
+              "model",
+              "latencyMs"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "auth",
+                  "rate_limited",
+                  "timeout",
+                  "unreachable",
+                  "bad_request",
+                  "upstream",
+                  "invalid_response"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "ok": {
+                "const": false
+              }
+            },
+            "required": [
+              "ok",
+              "kind",
+              "message"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "LoginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "format": "email",
+            "maxLength": 320,
+            "minLength": 3,
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 256,
+            "minLength": 8,
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "type": "object"
+      },
+      "LogoutRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "refreshToken": {
+            "maxLength": 4096,
+            "minLength": 16,
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "refreshToken"
+        ],
+        "type": "object"
+      },
+      "MeEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "roles": {
+                "items": {
+                  "$ref": "#/components/schemas/AuthRoleView"
+                },
+                "type": "array"
+              },
+              "tenant": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "plan": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "user": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/UserView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "user",
+              "tenant",
+              "roles"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "OkEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "ok": {
+                "const": true,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "ok"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "PermissionEffect": {
+        "enum": [
+          "allow",
+          "deny"
+        ],
+        "type": "string"
+      },
+      "PermissionMatrix": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "boundary_decision": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/PermissionRule"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "version": {
+            "maxLength": 20,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "roles",
+          "actions",
+          "boundary_decision",
+          "rules"
+        ],
+        "type": "object"
+      },
+      "PermissionMatrixResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "matrix": {
+            "$ref": "#/components/schemas/PermissionMatrix"
+          }
+        },
+        "required": [
+          "matrix"
+        ],
+        "type": "object"
+      },
+      "PermissionRule": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "user.list",
+              "user.read",
+              "user.create",
+              "user.update",
+              "user.set_status",
+              "user.delete",
+              "user.assign_role"
+            ],
+            "type": "string"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "effect": {
+            "$ref": "#/components/schemas/PermissionEffect"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        "required": [
+          "action",
+          "actor",
+          "target",
+          "effect"
+        ],
+        "type": "object"
+      },
+      "PersonnelCapability": {
+        "additionalProperties": false,
+        "properties": {
+          "assignRole": {
+            "description": "May change a target's role; super_admin only.",
+            "type": "boolean"
+          },
+          "create": {
+            "description": "May create users; the creatable role is bounded by manageableRoles.",
+            "type": "boolean"
+          },
+          "delete": {
+            "description": "May delete manageable targets.",
+            "type": "boolean"
+          },
+          "list": {
+            "description": "May open the personnel-management route and list users.",
+            "type": "boolean"
+          },
+          "manageableRoles": {
+            "description": "Target roles the current principal may manage. admin receives\n[member]; super_admin receives [admin, member]; member receives [].\n",
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "type": "array"
+          },
+          "setStatus": {
+            "description": "May enable or disable manageable targets.",
+            "type": "boolean"
+          },
+          "update": {
+            "description": "May edit profile fields of manageable targets.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "list",
+          "create",
+          "update",
+          "setStatus",
+          "delete",
+          "assignRole",
+          "manageableRoles"
+        ],
+        "type": "object"
+      },
+      "RefreshRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "refreshToken": {
+            "maxLength": 4096,
+            "minLength": 16,
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "refreshToken"
+        ],
+        "type": "object"
+      },
+      "RegisterRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "createTenant": {
+            "default": true,
+            "description": "Phase 1 only supports `true`; `false` returns 40001.",
+            "type": "boolean"
+          },
+          "displayName": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "maxLength": 320,
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 256,
+            "minLength": 8,
+            "type": "string",
+            "writeOnly": true
+          },
+          "tenantName": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password",
+          "displayName"
+        ],
+        "type": "object"
+      },
+      "ReviewTaskBody": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "approve/reject 仅管理；withdraw 限提报人或管理",
+            "enum": [
+              "approve",
+              "reject",
+              "withdraw"
+            ],
+            "type": "string"
+          },
+          "opinion": {
+            "description": "审核意见分类（写入审核留痕）",
+            "enum": [
+              "agree",
+              "reject",
+              "rework",
+              "other"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "description": "opinion=other 时建议必填；随留痕落库",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "opinion"
+        ],
+        "type": "object"
+      },
+      "ReviewTaskResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ReviewTaskResult"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "ReviewTaskResult": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "approve",
+              "reject",
+              "withdraw"
+            ],
+            "type": "string"
+          },
+          "approvalStatus": {
+            "description": "命令执行后的任务审批状态（任务被级联删除时为 null）",
+            "enum": [
+              "none",
+              "pending",
+              "approved",
+              "rejected",
+              null
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "generated": {
+            "description": "项目提报按 SOP 生成的项目内任务数",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sopArchived": {
+            "description": "是否沉淀了 SOP 文档（同一来源任务去重后只保留最新一份）",
+            "type": "boolean"
+          },
+          "taskId": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "action",
+          "approvalStatus",
+          "generated",
+          "sopArchived"
+        ],
+        "type": "object"
+      },
+      "Role": {
+        "enum": [
+          "super_admin",
+          "admin",
+          "member"
+        ],
+        "type": "string"
+      },
+      "RoleInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          },
+          "displayName": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "fixed": {
+            "const": true,
+            "description": "Roles are enum-fixed; no runtime role creation exists.",
+            "type": "boolean"
+          },
+          "id": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "description",
+          "fixed"
+        ],
+        "type": "object"
+      },
+      "RolesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoleInfo"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "SaveLlmConfigRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKey": {
+            "description": "留空 = 保留已保存的 key",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "baseUrl": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/LlmProviderId"
+          }
+        },
+        "required": [
+          "provider",
+          "model"
+        ],
+        "type": "object"
+      },
+      "SetUserStatusRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "TestLlmConfigRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKey": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "baseUrl": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 100,
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/LlmProviderId"
+          }
+        },
+        "type": "object"
+      },
+      "TokenPair": {
+        "additionalProperties": false,
+        "properties": {
+          "accessToken": {
+            "maxLength": 4096,
+            "minLength": 16,
+            "type": "string"
+          },
+          "expiresIn": {
+            "description": "Access TTL in NestJS duration notation (e.g. `15m`).",
+            "type": "string"
+          },
+          "refreshToken": {
+            "maxLength": 4096,
+            "minLength": 16,
+            "type": "string"
+          }
+        },
+        "required": [
+          "accessToken",
+          "refreshToken",
+          "expiresIn"
+        ],
+        "type": "object"
+      },
+      "TokenPairEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TokenPair"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "UpdateUserRequest": {
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "displayName": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "maxLength": 320,
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        "type": "object"
+      },
+      "User": {
+        "additionalProperties": false,
+        "description": "Persistent user projection; password hashes and session secrets are never serialized (FR-003).",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "displayName": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "maxLength": 320,
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "displayName",
+          "role",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "UserListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/User"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "maxLength": 512,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "UserResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "type": "object"
+      },
+      "UserStatus": {
+        "enum": [
+          "active",
+          "disabled"
+        ],
+        "type": "string"
+      },
+      "UserView": {
+        "additionalProperties": false,
+        "properties": {
+          "avatarUrl": {
+            "maxLength": 2048,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "displayName": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "maxLength": 320,
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "displayName",
+          "avatarUrl",
+          "locale",
+          "timezone"
+        ],
+        "type": "object"
+      },
+      "UserViewEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UserView"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "WorkspaceBatchBody": {
+        "additionalProperties": false,
+        "description": "upserts + deletes 合计 ≤500 且同键不重复、批次非空（违者 40001）",
+        "properties": {
+          "deletes": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceDeleteOp"
+            },
+            "maxItems": 500,
+            "type": "array"
+          },
+          "upserts": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceUpsertOp"
+            },
+            "maxItems": 500,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "WorkspaceBatchResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/WorkspaceBatchResult"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "WorkspaceBatchResult": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "items": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "$ref": "#/components/schemas/WorkspaceItemKey"
+                },
+                "version": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key",
+                "version"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "deleted"
+        ],
+        "type": "object"
+      },
+      "WorkspaceCollection": {
+        "description": "集合白名单（闭集，未知值 40401）。前 9 个为租户共享（viewer 只读），\n后 5 个为个人私有（属主 = 当前用户）。\n",
+        "enum": [
+          "tasks",
+          "sops",
+          "experience",
+          "wiki_kb",
+          "prompts",
+          "skills",
+          "ai_rules",
+          "ai_rule_overrides",
+          "meta_config",
+          "reminders",
+          "notification_forward_log",
+          "os_mood_v1",
+          "calendar_sync_settings",
+          "calendar_synced_refs"
+        ],
+        "type": "string"
+      },
+      "WorkspaceDeleteOp": {
+        "additionalProperties": false,
+        "properties": {
+          "baseVersion": {
+            "description": "必须等于当前版本（乐观锁），版本不匹配 40901",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "key": {
+            "$ref": "#/components/schemas/WorkspaceItemKey"
+          }
+        },
+        "required": [
+          "key",
+          "baseVersion"
+        ],
+        "type": "object"
+      },
+      "WorkspaceEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "description": "存储时的原始 JSON（形状随集合而异，服务端不裁剪）"
+          },
+          "key": {
+            "$ref": "#/components/schemas/WorkspaceItemKey"
+          },
+          "version": {
+            "description": "乐观锁版本号（每次覆盖 +1）",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "data",
+          "version"
+        ],
+        "type": "object"
+      },
+      "WorkspaceItemKey": {
+        "description": "条目键：1–200 个非控制字符（__order__/__value__ 为编码保留键）；与服务端 ITEM_KEY_PATTERN 逐字一致",
+        "maxLength": 200,
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]{1,200}$",
+        "type": "string"
+      },
+      "WorkspaceListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceEntry"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "WorkspaceRole": {
+        "description": "工作台角色投影：manager = 租户 owner/admin（与 useCurrentRole 的 manager 同口径）",
+        "enum": [
+          "manager",
+          "member",
+          "viewer"
+        ],
+        "type": "string"
+      },
+      "WorkspaceUpsertOp": {
+        "additionalProperties": false,
+        "properties": {
+          "baseVersion": {
+            "description": "缺省/null = 新建（已存在 40901）；给定 n = version=n 时覆盖并 +1，否则 40901",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "data": {
+            "description": "新值 JSON；序列化后 ≤2MB（UTF-8 字节），超限 40001"
+          },
+          "key": {
+            "$ref": "#/components/schemas/WorkspaceItemKey"
+          }
+        },
+        "required": [
+          "key",
+          "data"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "bearerFormat": "JWT",
+        "description": "Bearer access token (15m TTL) issued by POST /auth/login and rotated\nvia POST /auth/refresh. R7-6 双鉴权收敛：历史 cookie session 已删除，\n统一走 Bearer 全局 JwtAuthGuard。\n",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Assembled from per-route contract slices under services/api/src/openapi/. Snapshot diff is a CI gate: run `openapi:sync` to acknowledge intentional changes.",
+    "title": "OpenSchedule API (assembled contract)",
+    "version": "1.3.0",
+    "x-slices": [
+      "auth.yaml",
+      "llm.yaml",
+      "permissions-matrix.yaml",
+      "roles.yaml",
+      "users.yaml",
+      "workspace.yaml"
+    ]
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/ai/complete": {
+      "post": {
+        "description": "未配置 → 40910（409），前端回落本地规则引擎；上游失败 → 502（中文原因）。\ntemperature 固定 ≤0.2，单次 60s 超时。限流 30 次/分钟（租户+IP）。\nHTTP 状态沿用 NestJS POST 默认 201。\n",
+        "operationId": "aiComplete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "prompt": {
+                    "maxLength": 20000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "system": {
+                    "maxLength": 8000,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "prompt"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "model": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "usage": {
+                          "properties": {
+                            "completionTokens": {
+                              "type": "integer"
+                            },
+                            "promptTokens": {
+                              "type": "integer"
+                            }
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "text",
+                        "model",
+                        "usage"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Generated text"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "团队未配置 AI 模型（40910）"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "模型服务调用失败（鉴权/额度/超时/地址不可用等，消息为中文原因）"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Text generation with the team model (AI rules / assistance)",
+        "tags": [
+          "AI Model"
+        ],
+        "x-requirements": [
+          "D-14"
+        ]
+      }
+    },
+    "/ai/status": {
+      "get": {
+        "operationId": "getAiStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/AiStatus"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "AI status"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Whether the team has a real model configured (all members; no key data)",
+        "tags": [
+          "AI Model"
+        ],
+        "x-requirements": [
+          "D-14"
+        ]
+      }
+    },
+    "/auth/change-password": {
+      "post": {
+        "description": "Verifies the supplied current password, hashes the new password\n(bcrypt cost 12), clears the `mustChangePassword` flag, and writes\nan audit entry. Used both for forced first-login password change and\nfor routine credential rotation from the profile page.\n",
+        "operationId": "changePassword",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkEnvelope"
+                }
+              }
+            },
+            "description": "Password updated"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Change the current principal's password",
+        "tags": [
+          "Authentication"
+        ],
+        "x-requirements": [
+          "FR-004",
+          "FR-005"
+        ]
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "description": "The only way to obtain a Bearer access token. Five failed attempts per\nminute per IP are rate-limited; disabled accounts are rejected with 403;\nevery login is appended to the audit log. The `mustChangePassword` flag\nsignals that the user must hit POST /auth/change-password before reaching\nany other route.\n",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthEnvelope"
+                }
+              }
+            },
+            "description": "Bearer access + refresh issued"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "429": {
+            "$ref": "#/components/responses/AuthRateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Exchange credentials for an access/refresh pair",
+        "tags": [
+          "Authentication"
+        ],
+        "x-requirements": [
+          "FR-004",
+          "FR-005"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "description": "Revokes the supplied refresh jti. Idempotent: invalid/expired tokens\nstill return ok so the client can clear local state without branching.\n",
+        "operationId": "logout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkEnvelope"
+                }
+              }
+            },
+            "description": "Refresh token revoked"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Revoke the current refresh token",
+        "tags": [
+          "Authentication"
+        ],
+        "x-requirements": [
+          "FR-004",
+          "FR-005"
+        ]
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "description": "Returns the persisted `user` projection (never includes password hash\nor refresh jti), the active tenant, and the resolved roles. Identity\nis sourced entirely from the Bearer access token + the persisted\nuser_roles × roles join — never from local state.\n",
+        "operationId": "getMe",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeEnvelope"
+                }
+              }
+            },
+            "description": "Current principal, tenant, and roles"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Read the current authenticated principal",
+        "tags": [
+          "Authentication"
+        ],
+        "x-requirements": [
+          "FR-001",
+          "FR-004",
+          "FR-005"
+        ]
+      }
+    },
+    "/auth/members": {
+      "post": {
+        "description": "Creates a new User with a temporary password and the\n`mustChangePassword` flag, attaches them to the operator's tenant as a\ntenant-scoped admin or member (super_admin assignment is forbidden via\nthis endpoint; the first super_admin is the tenant creator). When the\nrecipient logs in for the first time they are routed through\nPOST /auth/change-password.\n",
+        "operationId": "adminCreateMember",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserView"
+                }
+              }
+            },
+            "description": "Member created"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/UserConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Tenant owner/admin creates a new member (admin or member)",
+        "tags": [
+          "Authentication"
+        ],
+        "x-requirements": [
+          "FR-005"
+        ]
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "description": "Rotating refresh: the old jti is revoked the moment a new pair is issued,\npreventing replay. Refresh tokens are persisted jti-blacklisted so a\nleaked token is invalidated on next observation.\n",
+        "operationId": "refresh",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPair"
+                }
+              }
+            },
+            "description": "New access + refresh issued"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Rotate a refresh token into a new access/refresh pair",
+        "tags": [
+          "Authentication"
+        ],
+        "x-requirements": [
+          "FR-004",
+          "FR-005"
+        ]
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "description": "Validates uniqueness of email, hashes the password (bcrypt cost 12), creates\nthe User row, opens a Tenant (Phase 1: `createTenant` defaults to true),\nclones system role templates into tenant-scoped roles, grants the\n`tenant.owner` role to the creator, seeds a `member_profile`, plants the\ndefault automation rules, and issues the first access/refresh pair.\nFive failed registrations per minute per IP are rate-limited (FR-005,\n§3.3).\n",
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthEnvelope"
+                }
+              }
+            },
+            "description": "Account and tenant created; tokens issued"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "409": {
+            "$ref": "#/components/responses/UserConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "429": {
+            "$ref": "#/components/responses/AuthRateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Register a new account and create its initial tenant",
+        "tags": [
+          "Authentication"
+        ],
+        "x-requirements": [
+          "FR-004",
+          "FR-005"
+        ]
+      }
+    },
+    "/me/capabilities": {
+      "get": {
+        "description": "Returns what the current session may do in personnel management:\nwhich actions are allowed and which target roles are manageable.\nadmin receives member-only management; super_admin receives full\nadmin+member management; member receives none. The frontend must\nderive route guards, menu entries and action buttons from this\nresponse — never from localStorage or an identity switcher (FR-006,\nFR-007). Server enforcement remains authoritative (FR-008).\n",
+        "operationId": "getMyCapabilities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilitiesResponse"
+                }
+              }
+            },
+            "description": "Capability set for the current principal"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Server-derived capability set for the current principal",
+        "tags": [
+          "Roles"
+        ],
+        "x-requirements": [
+          "FR-006",
+          "FR-007",
+          "FR-008",
+          "FR-009"
+        ]
+      }
+    },
+    "/permissions/matrix": {
+      "get": {
+        "description": "Returns the fixed roles, the action catalog and the explicit\nallow/deny grants evaluated by the authorization policy. The frontend\nmay cache it for rendering but must never treat it as the security\nboundary; every mutating request is re-evaluated server-side (FR-006,\nFR-008). Regression suites compare live behavior against this matrix\n(FR-009).\n",
+        "operationId": "getPermissionMatrix",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionMatrixResponse"
+                }
+              }
+            },
+            "description": "The permission matrix"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Read the machine-readable permission matrix",
+        "tags": [
+          "Permissions"
+        ],
+        "x-requirements": [
+          "FR-006",
+          "FR-007",
+          "FR-008",
+          "FR-009"
+        ]
+      }
+    },
+    "/roles": {
+      "get": {
+        "description": "Returns the three fixed roles super_admin, admin and member. The set\nis closed: the API never admits custom roles, and unknown role values\nare rejected everywhere they appear (FR-008). The frontend uses this\nto render role labels instead of hardcoding its own copy (FR-007).\n",
+        "operationId": "listRoles",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolesResponse"
+                }
+              }
+            },
+            "description": "Fixed role catalog"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List the fixed authorization roles",
+        "tags": [
+          "Roles"
+        ],
+        "x-requirements": [
+          "FR-006",
+          "FR-007",
+          "FR-008",
+          "FR-009"
+        ]
+      }
+    },
+    "/settings/llm": {
+      "delete": {
+        "operationId": "deleteLlmConfig",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "removed": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "removed"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Removal result"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/LlmAdminOnly"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Remove the tenant AI model config (AI features fall back to local rules)",
+        "tags": [
+          "AI Model"
+        ],
+        "x-requirements": [
+          "D-14"
+        ]
+      },
+      "get": {
+        "operationId": "getLlmConfig",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmConfigResponse"
+                }
+              }
+            },
+            "description": "Current config (configured=false when none)"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/LlmAdminOnly"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get the tenant AI model config (admin only; key masked)",
+        "tags": [
+          "AI Model"
+        ],
+        "x-requirements": [
+          "D-14"
+        ]
+      },
+      "put": {
+        "description": "apiKey 留空 = 保留已保存的 key（首次配置必填，否则 40001）。baseUrl 留空用厂商预设；\ncustom 必填。审计 llm_config.update 只记末 4 位与 keyChanged。\n",
+        "operationId": "saveLlmConfig",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLlmConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmConfigResponse"
+                }
+              }
+            },
+            "description": "Saved config (key masked)"
+          },
+          "400": {
+            "$ref": "#/components/responses/LlmBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/LlmAdminOnly"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Create or update the tenant AI model config (admin only)",
+        "tags": [
+          "AI Model"
+        ],
+        "x-requirements": [
+          "D-14"
+        ]
+      }
+    },
+    "/settings/llm/providers": {
+      "get": {
+        "operationId": "listLlmProviders",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/LlmProviderPreset"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Presets (DeepSeek / Zhipu GLM / Qwen / Kimi / OpenAI / custom)"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List supported vendor presets",
+        "tags": [
+          "AI Model"
+        ],
+        "x-requirements": [
+          "D-14"
+        ]
+      }
+    },
+    "/settings/llm/test": {
+      "post": {
+        "description": "发一次极短的 /chat/completions 请求（15s 超时）。上游失败以 200 + ok=false 返回\n中文原因（不回显 key 与上游响应体）。限流 10 次/分钟（租户+IP）。\nHTTP 状态沿用 NestJS POST 默认 201。\n",
+        "operationId": "testLlmConfig",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestLlmConfigRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/LlmTestResult"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Test result"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/LlmAdminOnly"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Test the connection (fields fall back to the saved config)",
+        "tags": [
+          "AI Model"
+        ],
+        "x-requirements": [
+          "D-14"
+        ]
+      }
+    },
+    "/users": {
+      "get": {
+        "description": "super_admin may list all users; admin may list member users only;\nmember is always forbidden. A role filter cannot expand the caller's\nscope; an out-of-scope filter is rejected (FR-001, FR-002).\n",
+        "operationId": "listUsers",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RoleFilter"
+          },
+          {
+            "$ref": "#/components/parameters/StatusFilter"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserListResponse"
+                }
+              }
+            },
+            "description": "Authorized user collection"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List users within the caller's authorized scope",
+        "tags": [
+          "Users"
+        ],
+        "x-requirements": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ]
+      },
+      "post": {
+        "description": "super_admin may create admin or member; admin may create member only;\nmember is forbidden. The password is accepted for credential setup but\nnever returned or persisted in plaintext (FR-002, FR-003).\n",
+        "operationId": "createUser",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "User created",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "format": "uri-reference",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/UserConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Create a user in the caller's authorized scope",
+        "tags": [
+          "Users"
+        ],
+        "x-requirements": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ]
+      }
+    },
+    "/users/{userId}": {
+      "delete": {
+        "description": "admin may delete member only; super_admin may delete admin or member.\nThe final super_admin cannot be deleted. Implementations may use a\ntransaction-backed soft delete, but deleted users must not authenticate\nor appear in the default collection (FR-002, FR-003).\n",
+        "operationId": "deleteUser",
+        "responses": {
+          "204": {
+            "description": "User deleted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/UserNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/UserConflict"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Delete a user within the caller's authorized scope",
+        "tags": [
+          "Users"
+        ],
+        "x-requirements": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ]
+      },
+      "get": {
+        "description": "Object-level authorization: admin may read member only; super_admin\nmay read admin and member targets (FR-002).\n",
+        "operationId": "getUser",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Authorized user"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/UserNotFound"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Read one user within the caller's authorized scope",
+        "tags": [
+          "Users"
+        ],
+        "x-requirements": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserId"
+        }
+      ],
+      "patch": {
+        "description": "admin may update member displayName and email only; super_admin may\nupdate those fields and assign admin or member. Role assignment is\nevaluated against the current target snapshot, never against a client\nsupplied role claim (FR-001, FR-002). The last active super_admin\ncannot be demoted, disabled, or deleted through this flow (FR-003).\n",
+        "operationId": "updateUser",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "User updated"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/UserNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/UserConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Update profile fields or assign a role within policy",
+        "tags": [
+          "Users"
+        ],
+        "x-requirements": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ]
+      }
+    },
+    "/users/{userId}/status": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserId"
+        }
+      ],
+      "post": {
+        "description": "admin may change status for member only; super_admin may change status\nfor admin or member. The final active super_admin cannot be disabled,\nand a disabled user cannot authenticate afterwards (FR-002, FR-003).\n",
+        "operationId": "setUserStatus",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetUserStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Status changed"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/UserNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/UserConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Enable or disable a user within the caller's scope",
+        "tags": [
+          "Users"
+        ],
+        "x-requirements": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005"
+        ]
+      }
+    },
+    "/workspace/directory": {
+      "get": {
+        "description": "Returns every enabled user holding a tenant-level role in the\ncaller's tenant (id, display name, avatar URL and the workspace\nrole projection manager/member/viewer; managers first, then by\ndisplay name). 全员可读：成员没有 /users 权限，但工作台需要显示名与\n承接人候选。跨租户用户永不可见；停用用户不返回。\n",
+        "operationId": "listWorkspaceDirectory",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryResponse"
+                }
+              }
+            },
+            "description": "Directory of the caller's tenant"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List the tenant member directory",
+        "tags": [
+          "Workspace"
+        ],
+        "x-requirements": [
+          "D-07-2"
+        ]
+      }
+    },
+    "/workspace/tasks/{taskId}/review": {
+      "post": {
+        "description": "服务端审核命令（D-07 二期）：approve / reject 仅租户 owner/admin，\nwithdraw 限提报人或管理；viewer 一律 40301。全部副作用在单事务内执行\n（完成闭环、内容/调整时间/承接人生效、删除申请级联删子孙、项目提报按\nSOP 生成项目内任务、SOP 沉淀去重），审核留痕的操作人取自令牌不可伪造，\n整命令一条审计 workspace.task.<action>。规则单测见\npackages/workspace-rules + services/api test/workspace-rules.spec.ts。\nHTTP 状态沿用 NestJS POST 默认 201（命令成功返回结果体）。\n",
+        "operationId": "reviewWorkspaceTask",
+        "parameters": [
+          {
+            "description": "工作台 tasks 集合中的任务条目键（= 条目 data.id）",
+            "in": "path",
+            "name": "taskId",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewTaskBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewTaskResponse"
+                }
+              }
+            },
+            "description": "审核命令执行结果（含完成/驳回后的审批状态、生成任务数、SOP 是否沉淀）"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Run the approval command on one pending workspace task",
+        "tags": [
+          "Workspace"
+        ],
+        "x-requirements": [
+          "D-07-2"
+        ]
+      }
+    },
+    "/workspace/{collection}": {
+      "get": {
+        "description": "读整个集合（D-07 一期）：tenant 作用域集合返回本租户全部条目；user\n作用域集合只返回调用者本人条目（他人不可见）。未知集合一律 40401\n（防探测）。条目 data 为存储时的原始 JSON（工作台任务/文档形状由\npackages/workspace-rules 的类型定义）。\n",
+        "operationId": "listWorkspaceCollection",
+        "parameters": [
+          {
+            "description": "集合白名单（services/api/src/modules/workspace/workspace-collections.ts）",
+            "in": "path",
+            "name": "collection",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceCollection"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceListResponse"
+                }
+              }
+            },
+            "description": "集合全部条目（含编码保留键 __order__ 顺序表 / __value__ 整值）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Read one whole workspace collection",
+        "tags": [
+          "Workspace"
+        ],
+        "x-requirements": [
+          "D-07-1"
+        ]
+      },
+      "put": {
+        "description": "批量写（D-07 一期）：单事务原子生效，任一条目乐观锁失败整批回滚\n（40901）。upserts 的 baseVersion 缺省/null = 新建（已存在则 40901），\n给定 n = version=n 时覆盖并 +1；deletes 必须携带 baseVersion。同一键\n在一个批次内只出现一次、单批 ≤500 个条目操作、单条目 data ≤2MB，\n违者 40001。tenant 集合的 viewer 只读（40301）；user 集合属主 =\n当前用户，viewer 也可写本人集合。tasks 集合逐条经写入守卫\n（40301 带 details.key：审批结果/留痕/创建人/完成/承接人/删除限制）。\n整批一条审计 workspace.batch（只记键名，不记大体积 data）。\n",
+        "operationId": "applyWorkspaceBatch",
+        "parameters": [
+          {
+            "description": "集合白名单（services/api/src/modules/workspace/workspace-collections.ts）",
+            "in": "path",
+            "name": "collection",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceCollection"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceBatchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceBatchResponse"
+                }
+              }
+            },
+            "description": "生效条目的新版本号与删除键列表"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Apply a batch of workspace item upserts/deletes atomically",
+        "tags": [
+          "Workspace"
+        ],
+        "x-requirements": [
+          "D-07-1"
+        ]
+      }
+    }
+  },
+  "security": [],
+  "servers": [
+    {
+      "description": "Same-origin API prefix used by the current web proxy",
+      "url": "/api"
+    },
+    {
+      "description": "Versioned NestJS API prefix used by the backend bootstrap",
+      "url": "/api/v1"
+    }
+  ],
+  "x-permission-matrix": {
+    "actions": [
+      "user.list",
+      "user.read",
+      "user.create",
+      "user.update",
+      "user.set_status",
+      "user.delete",
+      "user.assign_role"
+    ],
+    "boundary_decision": "admin may manage member only; super_admin manages admin and member.\nThis is the confirmed-safe default against horizontal privilege\nescalation. Changing it is a contract change requiring matrix, tests,\nand UI updates together.\n",
+    "invariants": [
+      {
+        "id": "default_deny",
+        "statement": "Any (action, actor, target) without an explicit allow rule is denied."
+      },
+      {
+        "id": "last_super_admin_guard",
+        "statement": "The final active super_admin cannot be disabled, deleted, or demoted by any flow."
+      },
+      {
+        "id": "no_self_escalation_via_payload",
+        "statement": "role, status, or id values in request payloads can never widen the caller's scope; authorization uses the persisted target snapshot."
+      },
+      {
+        "id": "unknown_role_rejected",
+        "statement": "Unknown or missing roles are rejected at the schema and database layers."
+      },
+      {
+        "id": "hidden_ui_is_not_authorization",
+        "statement": "Hiding a route, menu entry, or button is a UX projection only; the API re-evaluates this matrix on every request."
+      }
+    ],
+    "roles": [
+      "super_admin",
+      "admin",
+      "member"
+    ],
+    "rules": [
+      {
+        "action": "user.list",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "admin"
+      },
+      {
+        "action": "user.list",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.list",
+        "actor": "admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.read",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "admin"
+      },
+      {
+        "action": "user.read",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.read",
+        "actor": "admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.create",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "admin"
+      },
+      {
+        "action": "user.create",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.create",
+        "actor": "admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.update",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "admin"
+      },
+      {
+        "action": "user.update",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.update",
+        "actor": "admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.set_status",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "admin"
+      },
+      {
+        "action": "user.set_status",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.set_status",
+        "actor": "admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.delete",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "admin"
+      },
+      {
+        "action": "user.delete",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.delete",
+        "actor": "admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.assign_role",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "admin"
+      },
+      {
+        "action": "user.assign_role",
+        "actor": "super_admin",
+        "effect": "allow",
+        "target": "member"
+      },
+      {
+        "action": "user.list",
+        "actor": "admin",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.read",
+        "actor": "admin",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.create",
+        "actor": "admin",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.update",
+        "actor": "admin",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.set_status",
+        "actor": "admin",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.delete",
+        "actor": "admin",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.assign_role",
+        "actor": "admin",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.assign_role",
+        "actor": "admin",
+        "effect": "deny",
+        "target": "member"
+      },
+      {
+        "action": "user.list",
+        "actor": "member",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.list",
+        "actor": "member",
+        "effect": "deny",
+        "target": "member"
+      },
+      {
+        "action": "user.read",
+        "actor": "member",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.read",
+        "actor": "member",
+        "effect": "deny",
+        "target": "member"
+      },
+      {
+        "action": "user.create",
+        "actor": "member",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.create",
+        "actor": "member",
+        "effect": "deny",
+        "target": "member"
+      },
+      {
+        "action": "user.update",
+        "actor": "member",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.update",
+        "actor": "member",
+        "effect": "deny",
+        "target": "member"
+      },
+      {
+        "action": "user.set_status",
+        "actor": "member",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.set_status",
+        "actor": "member",
+        "effect": "deny",
+        "target": "member"
+      },
+      {
+        "action": "user.delete",
+        "actor": "member",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.delete",
+        "actor": "member",
+        "effect": "deny",
+        "target": "member"
+      },
+      {
+        "action": "user.assign_role",
+        "actor": "member",
+        "effect": "deny",
+        "target": "admin"
+      },
+      {
+        "action": "user.assign_role",
+        "actor": "member",
+        "effect": "deny",
+        "target": "member"
+      }
+    ],
+    "version": "1.1"
+  },
+  "x-requirements": {
+    "D-07-1": {
+      "paths": [
+        "/workspace/{collection}"
+      ],
+      "summary": "Workspace document storage with tenant/user scope, optimistic locking and write guard"
+    },
+    "D-07-2": {
+      "paths": [
+        "/workspace/directory",
+        "/workspace/tasks/{taskId}/review"
+      ],
+      "summary": "Server-side approval command and tenant member directory"
+    },
+    "D-14": {
+      "paths": [
+        "/ai/complete",
+        "/ai/status",
+        "/settings/llm",
+        "/settings/llm/providers",
+        "/settings/llm/test"
+      ],
+      "summary": "Tenant-admin managed AI model key (no LiteLLM; AI service calls the vendor directly)"
+    },
+    "FR-001": {
+      "paths": [
+        "/auth/me",
+        "/users",
+        "/users/{userId}",
+        "/users/{userId}/status"
+      ],
+      "summary": "Fixed super_admin, admin, and member role enum and matrix"
+    },
+    "FR-002": {
+      "paths": [
+        "/users",
+        "/users/{userId}",
+        "/users/{userId}/status"
+      ],
+      "summary": "Server-side authentication and object-level authorization"
+    },
+    "FR-003": {
+      "paths": [
+        "/users",
+        "/users/{userId}",
+        "/users/{userId}/status"
+      ],
+      "summary": "Persistent user lifecycle and protected user fields"
+    },
+    "FR-004": {
+      "paths": [
+        "/auth/change-password",
+        "/auth/login",
+        "/auth/logout",
+        "/auth/me",
+        "/auth/refresh",
+        "/auth/register",
+        "/users",
+        "/users/{userId}",
+        "/users/{userId}/status"
+      ],
+      "summary": "Real login, refresh, logout lifecycle"
+    },
+    "FR-005": {
+      "paths": [
+        "/auth/change-password",
+        "/auth/login",
+        "/auth/logout",
+        "/auth/me",
+        "/auth/members",
+        "/auth/refresh",
+        "/auth/register",
+        "/users",
+        "/users/{userId}",
+        "/users/{userId}/status"
+      ],
+      "summary": "Real authentication API without mock or localStorage identity fallback"
+    },
+    "FR-006": {
+      "paths": [
+        "/me/capabilities",
+        "/permissions/matrix",
+        "/roles"
+      ],
+      "summary": "No mock, localStorage identity, or identity-switching runtime path"
+    },
+    "FR-007": {
+      "paths": [
+        "/me/capabilities",
+        "/permissions/matrix",
+        "/roles"
+      ],
+      "summary": "Route, menu, and action capability alignment"
+    },
+    "FR-008": {
+      "paths": [
+        "/me/capabilities",
+        "/permissions/matrix",
+        "/roles"
+      ],
+      "summary": "Authorization and security test anchors"
+    },
+    "FR-009": {
+      "paths": [
+        "/me/capabilities",
+        "/permissions/matrix",
+        "/roles"
+      ],
+      "summary": "Personnel-management regression coverage"
+    }
+  }
+}

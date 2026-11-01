@@ -1,6 +1,7 @@
 /**
  * health-scorer.spec.ts —— 项目健康度评分引擎单测
  */
+import { describe, expect, it } from 'vitest'
 import { calculateHealthScore } from './health-scorer'
 
 function makeTask(overrides: Partial<any> = {}) {

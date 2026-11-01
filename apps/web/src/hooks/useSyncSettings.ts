@@ -5,7 +5,7 @@
  * - 幂等：记录已导入的外部事件 sourceRef，避免同一事件重复生成个人计划。
  */
 import { useCallback } from 'react'
-import { useLocalStorageState } from './useLocalStorageState'
+import { useWorkspaceState } from './useWorkspaceState'
 import type { ImProvider } from '@/services/imProvider'
 
 export interface SyncSettings {
@@ -32,8 +32,8 @@ const SETTINGS_KEY = 'calendar_sync_settings'
 const REFS_KEY = 'calendar_synced_refs'
 
 export function useSyncSettings() {
-  const [settings, setSettings] = useLocalStorageState<SyncSettings>(SETTINGS_KEY, DEFAULT_SYNC_SETTINGS)
-  const [syncedRefs, setSyncedRefs] = useLocalStorageState<string[]>(REFS_KEY, [])
+  const [settings, setSettings] = useWorkspaceState<SyncSettings>(SETTINGS_KEY, DEFAULT_SYNC_SETTINGS)
+  const [syncedRefs, setSyncedRefs] = useWorkspaceState<string[]>(REFS_KEY, [])
 
   const update = useCallback(
     (patch: Partial<SyncSettings>) => setSettings((prev) => ({ ...prev, ...patch })),

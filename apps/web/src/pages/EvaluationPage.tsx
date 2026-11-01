@@ -37,9 +37,9 @@ import ErrorView from '@/components/ErrorView'
 import LoadingView from '@/components/LoadingView'
 import MemberStatsTable from '@/components/MemberStatsTable'
 import RecommendCard from '@/components/RecommendCard'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
 import { useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
-import { mockMe, mockUsers } from '@/api/mock/data'
+import { useDirectory, useMe } from '@/hooks/useWorkspaceIdentity'
 import { taskRoute } from '@/utils/taskTree'
 import type { CandidateScore, ComplexityTier, MemberDayEntry, MemberProfile, UpdateProfileInput, WorkspaceTask } from '@/types'
 
@@ -68,6 +68,7 @@ function useProjects() {
 const NONE_VALUE = '__none__'
 
 function RecommendTab() {
+  const { nameOf } = useDirectory()
   const [tasks, setTasks] = useWorkspaceTasks()
   const [projectId, setProjectId] = useState<string>(NONE_VALUE)
   const [parentId, setParentId] = useState<string>(NONE_VALUE)
@@ -143,6 +144,11 @@ function RecommendTab() {
     if (!taskId) return
     const tid = taskId
     const t = taskOf(tid)
+    // 待审事项只能经审核命令结算（D-07 二期写入守卫），直接指派会被服务端拒绝
+    if (t?.approvalStatus === 'pending') {
+      message.warning('该任务有待审事项，请先在审核中心处理后再指派')
+      return
+    }
     setTasks((c) =>
       c.map((x) =>
         x.id === tid
@@ -158,7 +164,7 @@ function RecommendTab() {
           : x,
       ),
     )
-    const name = mockUsers.find((u) => u.id === candidate.userId)?.displayName ?? candidate.displayName
+    const name = nameOf(candidate.userId) ?? candidate.displayName
     message.success(`已指派 ${name} 承接「${t?.title ?? '任务'}」`)
   }
 
@@ -286,6 +292,7 @@ function tierFit(myTier: ComplexityTier | null, taskTier: ComplexityTier): numbe
 }
 
 function MyRecommendTab() {
+  const currentUser = useMe()
   const navigate = useNavigate()
   const [tasks, setTasks] = useWorkspaceTasks()
   const [topN, setTopN] = useState(5)
@@ -353,7 +360,7 @@ function MyRecommendTab() {
         t.id === task.id
           ? {
               ...t,
-              recommendedAssigneeId: mockMe.id,
+              recommendedAssigneeId: currentUser.id,
               approvalStatus: 'pending' as const,
               approvalType: 'assign' as const,
               updatedAt: new Date().toISOString(),
@@ -642,7 +649,7 @@ function MembersTab() {
 // ─────────────────────────── 页面（第六批需求 2：按角色切割版面） ───────────────────────────
 
 export default function EvaluationPage() {
-  const [role] = useLocalStorageState<'manager' | 'member'>('workspace_role', 'manager')
+  const role = useCurrentRole()
   const isManager = role === 'manager'
   const [activeTab, setActiveTab] = useState('recommend')
   return (

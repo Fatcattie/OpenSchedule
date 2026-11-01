@@ -1,0 +1,1 @@
+{"version":3,"file":"kinesis.d.ts","sourceRoot":"","sources":["../../../../../src/integrations/aws-sdk/services/kinesis.ts"],"names":[],"mappings":"AACA,OAAO,KAAK,EAAE,iBAAiB,EAAE,MAAM,UAAU,CAAC;AAClD,OAAO,KAAK,EAAE,eAAe,EAAE,gBAAgB,EAAE,MAAM,oBAAoB,CAAC;AAE5E,qBAAa,uBAAwB,YAAW,gBAAgB;IACvD,kBAAkB,CAAC,OAAO,EAAE,iBAAiB,GAAG,eAAe,CAYrE;CACF"}

@@ -3,6 +3,8 @@
  */
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { AuditService } from '../../common/audit/audit.service'
+import { CredentialCipher } from '../../common/security/credential-cipher'
 import { AuthUser } from '../../common/decorators/current-user.decorator'
 import { getCalendarAdapter } from './calendar-adapter'
 import { decideCalendarSync, type CalendarConflictStrategy } from './sync-conflict'
@@ -14,7 +16,11 @@ const WORK_HOURS = { startHour: 9, endHour: 18 }
 
 @Injectable()
 export class CalendarService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private audit: AuditService,
+    private cipher: CredentialCipher,
+  ) {}
 
   /** 支持的日历提供商列表 */
   listProviders() {
@@ -75,8 +81,9 @@ export class CalendarService {
         provider: input.provider,
         accountName: input.accountName,
         calendarId,
-        accessToken: mockAccessToken,
-        refreshToken: mockRefreshToken,
+        // R4 凭据治理：token 以 AES-256-GCM 密文落库（schema 注释既有契约）；读取时解密回明文
+        accessToken: this.cipher.encrypt(mockAccessToken),
+        refreshToken: this.cipher.encrypt(mockRefreshToken),
         expiresAt,
         isActive: true,
       },
@@ -84,6 +91,16 @@ export class CalendarService {
         id: true, provider: true, accountName: true, calendarId: true,
         isActive: true, createdAt: true,
       },
+    })
+
+    // R4 审计：calendar.account.bind（after 绝不写 token 明文）
+    await this.audit.record({
+      tenantId: user.tenantId,
+      actorId: user.userId,
+      action: 'calendar.account.bind',
+      resourceType: 'calendar_account',
+      resourceId: account.id,
+      after: { provider: account.provider, accountName: account.accountName, calendarId: account.calendarId, expiresAt },
     })
 
     return { data: account }
@@ -100,6 +117,16 @@ export class CalendarService {
       where: { accountId: id },
     })
     await this.prisma.calendarAccount.delete({ where: { id } })
+
+    // R4 审计：calendar.account.unbind
+    await this.audit.record({
+      tenantId: user.tenantId,
+      actorId: user.userId,
+      action: 'calendar.account.unbind',
+      resourceType: 'calendar_account',
+      resourceId: id,
+      before: { provider: account.provider, accountName: account.accountName, calendarId: account.calendarId },
+    })
 
     return { data: { id, unbound: true } }
   }
@@ -415,6 +442,9 @@ export class CalendarService {
     if (!account) {
       throw new BadRequestException('未找到可用的日历账户，请先绑定日历账户')
     }
+    // R4 凭据治理：token 密文落库，同步前解密回明文传给 adapter（不落日志/响应）
+    account.accessToken = this.cipher.decrypt(account.accessToken)
+    account.refreshToken = this.cipher.decrypt(account.refreshToken)
     return account
   }
 }

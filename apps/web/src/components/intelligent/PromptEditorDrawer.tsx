@@ -70,7 +70,7 @@ export default function PromptEditorDrawer({
       const res = await generateStructuredPrompt(requirement.trim(), metaPrompt)
       setContent(res.content)
       setSource('ai')
-      setGenTag(res.source === 'agent' ? 'AI 模型生成' : '模拟生成（未配置模型端点）')
+      setGenTag(res.source === 'agent' ? 'AI 模型生成' : '模拟生成（团队未配置 AI 模型）')
       if (!name.trim()) setName(requirement.trim().slice(0, 20))
       if (!summary.trim()) setSummary(requirement.trim().slice(0, 60))
       setView('edit')

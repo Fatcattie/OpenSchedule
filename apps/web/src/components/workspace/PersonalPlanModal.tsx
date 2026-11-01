@@ -10,7 +10,7 @@ import dayjs, { type Dayjs } from 'dayjs'
 import type { Importance, RecurrenceRule, UrgencyDegree, WorkspaceTask } from '@/types'
 import { IMPORTANCE_META, TASK_KIND_META, URGENCY_DEGREE_META } from '@/types'
 import { detectPersonTimeConflict } from '@/utils/taskTree'
-import { mockMe } from '@/api/mock/data'
+import { useMe } from '@/hooks/useWorkspaceIdentity'
 import RecurrenceEditor from '@/components/workspace/RecurrenceEditor'
 import ImageUpload from '@/components/workspace/ImageUpload'
 
@@ -43,6 +43,7 @@ interface Props {
 }
 
 export default function PersonalPlanModal({ open, initialRange, tasks, onCancel, onSubmit }: Props) {
+  const currentUser = useMe()
   const [form] = Form.useForm()
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null)
   const [conflicts, setConflicts] = useState<WorkspaceTask[]>([])
@@ -71,7 +72,7 @@ export default function PersonalPlanModal({ open, initialRange, tasks, onCancel,
     const hit = detectPersonTimeConflict(
       { start: range[0].toISOString(), end: range[1].toISOString() },
       tasks,
-      mockMe.id,
+      currentUser.id,
     )
     setConflicts(hit)
     setAcknowledged(false)

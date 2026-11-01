@@ -21,34 +21,39 @@ datasource db {
 
 /// 租户（产品语义"团队"；§3.2 域 1）
 model Tenant {
-  id         String   @id @default(uuid(7)) @db.Uuid
-  name       String   @db.VarChar(100) // 团队名
-  plan       String   @default("free") @db.VarChar(20) // free/pro/enterprise（计费 Phase 3）
-  status     String   @default("active") @db.VarChar(20) // active/suspended
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String   @db.VarChar(100) // 团队名
+  plan      String   @default("free") @db.VarChar(20) // free/pro/enterprise（计费 Phase 3）
+  status    String   @default("active") @db.VarChar(20) // active/suspended
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   // 反向关系（租户铁律：全部业务表 tenant_id NOT NULL）
-  userRoles              UserRole[]
-  memberProfiles         MemberProfile[]
-  projects               Project[]
-  tasks                  Task[]
-  timeEntries            TimeEntry[]
-  taskDependencies       TaskDependency[]
-  taskComments           TaskComment[]
-  aiProposals            AiProposal[]
-  notifications          Notification[]
+  userRoles               UserRole[]
+  memberProfiles          MemberProfile[]
+  projects                Project[]
+  tasks                   Task[]
+  timeEntries             TimeEntry[]
+  taskDependencies        TaskDependency[]
+  taskComments            TaskComment[]
+  aiProposals             AiProposal[]
+  notifications           Notification[]
   notificationPreferences NotificationPreference[]
-  reminders              Reminder[]
-  attachments            Attachment[]
-  auditLogs              AuditLog[]
+  pushSubscriptions       PushSubscription[]       @relation("PushSubscriptionTenant")
+  reminders               Reminder[]
+  attachments             Attachment[]
+  auditLogs               AuditLog[]
 
-  projectTemplates ProjectTemplate[] @relation("TemplateTenant")
-  automationRules AutomationRule[] @relation("AutomationRuleTenant")
-  apiKeys         ApiKey[]         @relation("ApiKeyTenant")
-  webhooks        Webhook[]        @relation("WebhookTenant")
-  calendarAccounts CalendarAccount[] @relation("CalendarAccountTenant")
+  projectTemplates      ProjectTemplate[]      @relation("TemplateTenant")
+  automationRules       AutomationRule[]       @relation("AutomationRuleTenant")
+  apiKeys               ApiKey[]               @relation("ApiKeyTenant")
+  webhooks              Webhook[]              @relation("WebhookTenant")
+  calendarAccounts      CalendarAccount[]      @relation("CalendarAccountTenant")
   calendarEventMappings CalendarEventMapping[] @relation("CalendarEventMappingTenant")
+  aiProposalTasks       AiProposalTask[]       @relation("AiProposalTaskTenant")
+  outboxEvents          OutboxEvent[]          @relation("OutboxEventTenant")
+  workspaceItems        WorkspaceItem[]        @relation("WorkspaceItemTenant")
+  llmConfig             TenantLlmConfig?       @relation("TenantLlmConfigTenant")
 
   @@map("tenants")
 }
@@ -63,42 +68,44 @@ model User {
   locale       String   @default("zh-CN") @db.VarChar(20) // 中/英双语预留
   timezone     String   @default("Asia/Shanghai") @db.VarChar(50) // 提醒时区（默认 UTC+8）
   status       String   @default("active") @db.VarChar(20) // active/disabled
+  mustChangePassword Boolean @default(false) @map("must_change_password") // R6-1（D-05 B）：管理员代建账号后首次登录强制改密
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   // 反向关系
-  userRoles              UserRole[]
-  memberProfiles         MemberProfile[]
-  projectsCreated        Project[]         @relation("ProjectCreator")
-  projectsOwned          Project[]         @relation("ProjectOwner")
-    ownedTemplates         ProjectTemplate[] @relation("TemplateOwner")
-  tasksAssigned          Task[]            @relation("TaskAssignee")
-  tasksCreated           Task[]            @relation("TaskCreatedBy")
-  timeEntries            TimeEntry[]
-  commentsAuthored       TaskComment[]
-  aiProposalsProposed    AiProposal[]      @relation("AiProposalProposer")
-  aiProposalsApproved    AiProposal[]      @relation("AiProposalApprover")
-  notifications          Notification[]
+  userRoles               UserRole[]
+  memberProfiles          MemberProfile[]
+  projectsCreated         Project[]                @relation("ProjectCreator")
+  projectsOwned           Project[]                @relation("ProjectOwner")
+  ownedTemplates          ProjectTemplate[]        @relation("TemplateOwner")
+  tasksAssigned           Task[]                   @relation("TaskAssignee")
+  tasksCreated            Task[]                   @relation("TaskCreatedBy")
+  timeEntries             TimeEntry[]
+  commentsAuthored        TaskComment[]
+  aiProposalsProposed     AiProposal[]             @relation("AiProposalProposer")
+  aiProposalsApproved     AiProposal[]             @relation("AiProposalApprover")
+  notifications           Notification[]
   notificationPreferences NotificationPreference[]
-  reminders              Reminder[]
-  attachmentsUploaded    Attachment[]
-  personalTasks          PersonalTask[]
+  pushSubscriptions       PushSubscription[]       @relation("PushSubscriptionUser")
+  reminders               Reminder[]
+  attachmentsUploaded     Attachment[]
+  personalTasks           PersonalTask[]
 
   @@map("users")
 }
 
 /// 成员画像 ★D2（Phase 1 迁移必须就位；完成率/准时率不落表，由 tasks 聚合计算）
 model MemberProfile {
-  id             String   @id @default(uuid(7)) @db.Uuid
-  tenantId       String   @map("tenant_id") @db.Uuid // 铁律
-  userId         String   @map("user_id") @db.Uuid
-  skillTags      String[] @default([]) @map("skill_tags") // 技能标签（冷启动自评兜底；后续由完成任务抽取/校正）
-  typePreferences Json?   @map("type_preferences") // 类型偏好 {task_types:[...], weights}
-  complexityTier String?  @map("complexity_tier") @db.VarChar(20) // 复杂度承接档位 low/medium/high
-  selfAssessed   Boolean  @default(false) @map("self_assessed") // 是否自评冷启动数据
-  unlockedAt     DateTime? @map("unlocked_at") @db.Timestamptz(6) // 画像解锁门槛：完成任务数 >=N（N 默认 50，⚠️ 待确认，留 TODO）
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid // 铁律
+  userId          String    @map("user_id") @db.Uuid
+  skillTags       String[]  @default([]) @map("skill_tags") // 技能标签（冷启动自评兜底；后续由完成任务抽取/校正）
+  typePreferences Json?     @map("type_preferences") // 类型偏好 {task_types:[...], weights}
+  complexityTier  String?   @map("complexity_tier") @db.VarChar(20) // 复杂度承接档位 low/medium/high
+  selfAssessed    Boolean   @default(false) @map("self_assessed") // 是否自评冷启动数据
+  unlockedAt      DateTime? @map("unlocked_at") @db.Timestamptz(6) // 画像解锁门槛：完成任务数 >=N（N 默认 50，⚠️ 待确认，留 TODO）
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -118,12 +125,16 @@ model Role {
   key         String   @db.VarChar(50) // 如 tenant.owner/admin/member、project.owner/member/viewer
   name        String   @db.VarChar(100)
   scope       String   @db.VarChar(20) // system/tenant/project/task
-  permissions Json     // 权限点数组，如 ["task:update","member:invite"]；'*' = 全部
+  permissions Json // 权限点数组，如 ["task:update","member:invite"]；'*' = 全部
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   userRoles UserRole[]
 
-  @@unique([tenantId, key])
+  // 普通索引承载常规查询；系统级模板（tenant_id IS NULL）与租户级的唯一性
+  // 靠部分唯一索引实现（PostgreSQL 中普通唯一约束对 NULL 不生效）——
+  // 部分索引在 baseline migration 中手写创建（Prisma 无法表达 partial index）
+  @@index([tenantId, key])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "roles_name_trgm_idx") // pg_trgm 模糊搜索（baseline 手写创建，此处声明防漂移）
   @@map("roles")
 }
 
@@ -140,9 +151,10 @@ model UserRole {
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
-  // 注意：PostgreSQL 唯一索引中 NULL 互不冲突，scope_resource_id 为 NULL 的租户级角色不会互相冲突（符合预期）
-  @@unique([userId, tenantId, roleId, scopeResourceId])
+  // 重复分配的唯一性约束靠部分唯一索引（见 baseline migration）：
+  // 普通唯一约束中 NULL 互不冲突，scope_resource_id 为 NULL 的租户级分配需部分索引兜底
   @@index([tenantId, roleId])
+  @@index([tenantId, userId, roleId, scopeResourceId])
   @@map("user_roles")
 }
 
@@ -165,75 +177,81 @@ model Project {
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6) // 软删（§3.1 统一约定）
 
-  owner     User?     @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  createdByUser User? @relation("ProjectCreator", fields: [createdBy], references: [id], onDelete: SetNull)
-  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  owner         User?  @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdByUser User?  @relation("ProjectCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  tenant        Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
-  tasks          Task[]
-  dependencies   TaskDependency[]
+  tasks           Task[]
+  dependencies    TaskDependency[]
   sourceTemplates ProjectTemplate[] @relation("TemplateSourceProject")
-  aiProposals    AiProposal[]
+  aiProposals     AiProposal[]
 
   @@index([tenantId, status])
   @@index([tenantId, deadline])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "projects_name_trgm_idx") // pg_trgm 模糊搜索（§3.1 任务 4）
   @@map("projects")
 }
 
 /// 任务 ★核心表（显式状态机见 §3.3：todo/in_progress/blocked/done/cancelled + PendingReview 扩展态；常量定义见 common/constants/task-status.ts）
 model Task {
-  id                String    @id @default(uuid(7)) @db.Uuid
-  tenantId          String    @map("tenant_id") @db.Uuid // 铁律
-  projectId         String?   @map("project_id") @db.Uuid // 团队任务必填；个人任务走 personal_tasks（★D3 断点表，已建表）
-  parentId          String?   @map("parent_id") @db.Uuid // 任务树（parent_id 表达层级；深度 <=4 防环在 service 校验）
-  title             String    @db.VarChar(300) // 校验上限 200 字符（DB 容量留余量，§3.5.5）
-  description       String?   @db.Text
-  status            String    @default("todo") @db.VarChar(20) // 显式状态机（§3.3）：todo/in_progress/blocked/done/cancelled；Phase 2 扩展 pending_review
-  priority          String    @default("medium") @db.VarChar(10) // urgent/high/medium/low（§3.5.5，默认 medium）
-  assigneeId        String?   @map("assignee_id") @db.Uuid // NULL=待领取（A5 先到先得）
-  startAt           DateTime? @map("start_at") @db.Timestamptz(6) // 任务开始时间（Phase4：发布任务时间窗起点，与 due_at 构成忙碌窗口供个人计划冲突校验）
-  dueAt             DateTime? @map("due_at") @db.Timestamptz(6)
-  taskMode          String    @default("team") @map("task_mode") @db.VarChar(20) // Phase4：team=团队协作任务 / independent=独立任务（独立任务不支持 AI 拆解）
-  source            String    @default("published") @map("source") @db.VarChar(20) // Phase4：published=管理员发布 / submission=普通成员提报（需审核后进看板）
-  submissionStatus  String?   @map("submission_status") @db.VarChar(20) // Phase4：提报审核态 pending/approved/rejected（仅 source=submission 时有值）
-  submissionNote    String?   @map("submission_note") @db.VarChar(500) // Phase4：提报补充说明
-  reviewNote        String?   @map("review_note") @db.VarChar(500) // Phase4：提报驳回/评审驳回原因
-  reviewRequired    Boolean   @default(false) @map("review_required") // Phase4：发布时选择是否需要评审
-  isReviewTask      Boolean   @default(false) @map("is_review_task") // Phase4：项目评审子任务标记
-  reviewerIds       String[]  @default([]) @map("reviewer_ids") // Phase4：评审任务参与人（管理员可邀请多人）
-  estimatedHours    Decimal?  @map("estimated_hours") @db.Decimal(6, 1) // 估时（Phase 1 采集入口；0 < x <= 1000，小数 1 位）
-  actualHours       Decimal?  @map("actual_hours") @db.Decimal(6, 1) // ★D3：实际工时，Phase 1 计时/完成流程落库（>=0）
-  completedAt       DateTime? @map("completed_at") @db.Timestamptz(6) // ★D3：完成时间（准时率 = 实际 vs due_at）
-  startedAt         DateTime? @map("started_at") @db.Timestamptz(6) // 首次领取/开始时间
-  createdBy         String?   @map("created_by") @db.Uuid
-  tags              String[]  @default([]) // text[]
-  sortOrder         Decimal   @default(0) @map("sort_order") @db.Decimal(12, 2) // 看板列内排序（乐观更新版本依据之一）
-  workflowColumnId  String?   @map("workflow_column_id") @db.Uuid // 自定义列（Phase 2）
-  isAiGenerated     Boolean   @default(false) @map("is_ai_generated") // AI 草稿落库标记（可撤销回滚依据）
-  version           Int       @default(1) // 乐观锁（§3.1：move/状态变更必带 version，冲突返回 40901）
-  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6) // 软删
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id               String    @id @default(uuid(7)) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid // 铁律
+  projectId        String?   @map("project_id") @db.Uuid // 团队任务必填；个人任务走 personal_tasks（★D3 断点表，已建表）
+  parentId         String?   @map("parent_id") @db.Uuid // 任务树（parent_id 表达层级；深度 <=4 防环在 service 校验）
+  title            String    @db.VarChar(300) // 校验上限 200 字符（DB 容量留余量，§3.5.5）
+  description      String?   @db.Text
+  status           String    @default("todo") @db.VarChar(20) // 显式状态机（§3.3）：todo/in_progress/blocked/done/cancelled；Phase 2 扩展 pending_review
+  priority         String    @default("medium") @db.VarChar(10) // urgent/high/medium/low（§3.5.5，默认 medium）
+  assigneeId       String?   @map("assignee_id") @db.Uuid // NULL=待领取（A5 先到先得）
+  startAt          DateTime? @map("start_at") @db.Timestamptz(6) // 任务开始时间（Phase4：发布任务时间窗起点，与 due_at 构成忙碌窗口供个人计划冲突校验）
+  dueAt            DateTime? @map("due_at") @db.Timestamptz(6)
+  taskMode         String    @default("team") @map("task_mode") @db.VarChar(20) // Phase4：team=团队协作任务 / independent=独立任务（独立任务不支持 AI 拆解）
+  source           String    @default("published") @map("source") @db.VarChar(20) // Phase4：published=管理员发布 / submission=普通成员提报（需审核后进看板）
+  submissionStatus String?   @map("submission_status") @db.VarChar(20) // Phase4：提报审核态 pending/approved/rejected（仅 source=submission 时有值）
+  submissionNote   String?   @map("submission_note") @db.VarChar(500) // Phase4：提报补充说明
+  reviewNote       String?   @map("review_note") @db.VarChar(500) // Phase4：提报驳回/评审驳回原因
+  reviewRequired   Boolean   @default(false) @map("review_required") // Phase4：发布时选择是否需要评审
+  isReviewTask     Boolean   @default(false) @map("is_review_task") // Phase4：项目评审子任务标记
+  reviewerIds      String[]  @default([]) @map("reviewer_ids") // Phase4：评审任务参与人（管理员可邀请多人）
+  estimatedHours   Decimal?  @map("estimated_hours") @db.Decimal(6, 1) // 估时（Phase 1 采集入口；0 < x <= 1000，小数 1 位）
+  actualHours      Decimal?  @map("actual_hours") @db.Decimal(6, 1) // ★D3：实际工时，Phase 1 计时/完成流程落库（>=0）
+  completedAt      DateTime? @map("completed_at") @db.Timestamptz(6) // ★D3：完成时间（准时率 = 实际 vs due_at）
+  startedAt        DateTime? @map("started_at") @db.Timestamptz(6) // 首次领取/开始时间
+  blockedAt        DateTime? @map("blocked_at") @db.Timestamptz(6) // R3 阻塞>72h 升级：进 blocked 时记录；离开 blocked 置空（tasks.service.applyTransition）
+  blockEscalatedAt DateTime? @map("block_escalated_at") @db.Timestamptz(6) // 已发升级通知时间戳（防重复升级；任务离开 blocked 重置）
+  createdBy        String?   @map("created_by") @db.Uuid
+  tags             String[]  @default([]) // text[]
+  sortOrder        Decimal   @default(0) @map("sort_order") @db.Decimal(12, 2) // 看板列内排序（乐观更新版本依据之一）
+  workflowColumnId String?   @map("workflow_column_id") @db.Uuid // 自定义列（Phase 2）
+  isAiGenerated    Boolean   @default(false) @map("is_ai_generated") // AI 草稿落库标记（可撤销回滚依据）
+  version          Int       @default(1) // 乐观锁（§3.1：move/状态变更必带 version，冲突返回 40901）
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6) // 软删
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   // 关系
-  project     Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  parent      Task?     @relation("TaskTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children    Task[]    @relation("TaskTree")
-  assignee    User?     @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  createdByUser User?   @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  project       Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  parent        Task?    @relation("TaskTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children      Task[]   @relation("TaskTree")
+  assignee      User?    @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdByUser User?    @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
-  timeEntries     TimeEntry[]
-  dependenciesOut TaskDependency[] @relation("TaskDependencyPrev")
-  dependenciesIn  TaskDependency[] @relation("TaskDependencyNext")
-  comments        TaskComment[]
-  aiProposals     AiProposal[]     @relation("AiProposalTask")
-  reminders       Reminder[]
-  personalTasksLinked PersonalTask[] @relation("PersonalTaskLinked")
+  timeEntries         TimeEntry[]
+  dependenciesOut     TaskDependency[] @relation("TaskDependencyPrev")
+  dependenciesIn      TaskDependency[] @relation("TaskDependencyNext")
+  comments            TaskComment[]
+  aiProposals         AiProposal[]     @relation("AiProposalTask")
+  aiProposalTasks     AiProposalTask[] @relation("AiProposalTaskTask")
+  reminders           Reminder[]
+  personalTasksLinked PersonalTask[]   @relation("PersonalTaskLinked")
 
   @@index([tenantId, projectId])
   @@index([assigneeId, status])
   @@index([tenantId, dueAt])
   @@index([tenantId, parentId])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "tasks_title_trgm_idx") // pg_trgm 模糊搜索（§3.1 任务 4）
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "tasks_description_trgm_idx")
   @@map("tasks")
 }
 
@@ -258,16 +276,16 @@ model TimeEntry {
 
 /// 任务依赖 ★核心表（Phase 1 建表就位、Phase 2 启用；type: FS/SS/FF/SF 四类依赖）
 model TaskDependency {
-  id          String   @id @default(uuid(7)) @db.Uuid
-  tenantId    String   @map("tenant_id") @db.Uuid // 铁律
-  projectId   String?  @map("project_id") @db.Uuid // 冗余便于项目级过滤/CPM
-  prevTaskId  String   @map("prev_task_id") @db.Uuid // 前置任务
-  nextTaskId  String   @map("next_task_id") @db.Uuid // 后置任务
-  type        String   @db.VarChar(2) // FS/SS/FF/SF
-  lagDays     Int      @default(0) @map("lag_days") // 滞后天数
-  isShared    Boolean  @default(false) @map("is_shared") // ★D6：共享子任务/公共前置标记——"重叠优先"依赖交汇维度数据载体
-  createdBy   String?  @map("created_by") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id         String   @id @default(uuid(7)) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid // 铁律
+  projectId  String?  @map("project_id") @db.Uuid // 冗余便于项目级过滤/CPM
+  prevTaskId String   @map("prev_task_id") @db.Uuid // 前置任务
+  nextTaskId String   @map("next_task_id") @db.Uuid // 后置任务
+  type       String   @db.VarChar(2) // FS/SS/FF/SF
+  lagDays    Int      @default(0) @map("lag_days") // 滞后天数
+  isShared   Boolean  @default(false) @map("is_shared") // ★D6：共享子任务/公共前置标记——"重叠优先"依赖交汇维度数据载体
+  createdBy  String?  @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   prevTask Task?    @relation("TaskDependencyPrev", fields: [prevTaskId], references: [id], onDelete: Restrict)
   nextTask Task?    @relation("TaskDependencyNext", fields: [nextTaskId], references: [id], onDelete: Restrict)
@@ -286,31 +304,31 @@ model TaskDependency {
 
 /// 个人任务 ★（独立实体，★D3 断点表：Phase 1 迁移必须就位；状态机同团队任务；与团队任务提升/关联 ⚠️ 待确认，预留 linked_task_id）
 model PersonalTask {
-  id              String    @id @default(uuid(7)) @db.Uuid
-  tenantId        String    @map("tenant_id") @db.Uuid // 铁律
-  userId          String    @map("user_id") @db.Uuid // 属主
-  parentId        String?   @map("parent_id") @db.Uuid // 个人任务再拆解
-  title           String    @db.VarChar(300)
-  description     String?   @db.Text
-  status          String    @default("todo") @db.VarChar(20) // 同任务状态机（§3.3）
-  priority        String    @default("medium") @db.VarChar(10)
-  startAt         DateTime? @map("start_at") @db.Timestamptz(6) // Phase4：个人计划开始时间
-  endAt           DateTime? @map("end_at") @db.Timestamptz(6) // Phase4：个人计划结束时间（与 start_at 构成计划窗口）
-  dueAt           DateTime? @map("due_at") @db.Timestamptz(6)
-  estimatedHours  Decimal?  @map("estimated_hours") @db.Decimal(6, 1) // ★D3 同样就位（个人端也是评估数据源）
-  actualHours     Decimal?  @map("actual_hours") @db.Decimal(6, 1) // ★D3
-  completedAt     DateTime? @map("completed_at") @db.Timestamptz(6) // ★D3
-  tags            String[]  @default([])
-  sortOrder       Decimal   @default(0) @map("sort_order") @db.Decimal(12, 2)
-  linkedTaskId    String?   @map("linked_task_id") @db.Uuid // ⚠️ 团队任务提升/关联预留
-  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6) // 软删
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid // 铁律
+  userId         String    @map("user_id") @db.Uuid // 属主
+  parentId       String?   @map("parent_id") @db.Uuid // 个人任务再拆解
+  title          String    @db.VarChar(300)
+  description    String?   @db.Text
+  status         String    @default("todo") @db.VarChar(20) // 同任务状态机（§3.3）
+  priority       String    @default("medium") @db.VarChar(10)
+  startAt        DateTime? @map("start_at") @db.Timestamptz(6) // Phase4：个人计划开始时间
+  endAt          DateTime? @map("end_at") @db.Timestamptz(6) // Phase4：个人计划结束时间（与 start_at 构成计划窗口）
+  dueAt          DateTime? @map("due_at") @db.Timestamptz(6)
+  estimatedHours Decimal?  @map("estimated_hours") @db.Decimal(6, 1) // ★D3 同样就位（个人端也是评估数据源）
+  actualHours    Decimal?  @map("actual_hours") @db.Decimal(6, 1) // ★D3
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz(6) // ★D3
+  tags           String[]  @default([])
+  sortOrder      Decimal   @default(0) @map("sort_order") @db.Decimal(12, 2)
+  linkedTaskId   String?   @map("linked_task_id") @db.Uuid // ⚠️ 团队任务提升/关联预留
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6) // 软删
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  user       User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parent     PersonalTask? @relation("PersonalTaskTree", fields: [parentId], references: [id], onDelete: SetNull)
+  user       User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent     PersonalTask?  @relation("PersonalTaskTree", fields: [parentId], references: [id], onDelete: SetNull)
   children   PersonalTask[] @relation("PersonalTaskTree")
-  linkedTask Task?         @relation("PersonalTaskLinked", fields: [linkedTaskId], references: [id], onDelete: SetNull)
+  linkedTask Task?          @relation("PersonalTaskLinked", fields: [linkedTaskId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, userId])
   @@map("personal_tasks")
@@ -322,25 +340,26 @@ model PersonalTask {
 
 /// 任务评论/回复串（@提及解析 → 通知；关键决策标记 Phase 2 AI 增强）
 model TaskComment {
-  id        String    @id @default(uuid(7)) @db.Uuid
-  tenantId  String    @map("tenant_id") @db.Uuid // 铁律
-  taskId    String    @map("task_id") @db.Uuid
-  authorId  String?   @map("author_id") @db.Uuid
-  parentId  String?   @map("parent_id") @db.Uuid // 回复串（讨论串）
-  content   String    @db.Text // 富文本 jsonb ⚠️ Phase 2 可选；校验 <=5000 字符（§3.5.5）
-  mentions  Json?     // @解析结果 [{user_id, offset, length}]（含 @角色/@AI）
-  isDecision Boolean  @default(false) @map("is_decision") // 关键决策标记
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6) // 软删
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id         String    @id @default(uuid(7)) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid // 铁律
+  taskId     String    @map("task_id") @db.Uuid
+  authorId   String?   @map("author_id") @db.Uuid
+  parentId   String?   @map("parent_id") @db.Uuid // 回复串（讨论串）
+  content    String    @db.Text // 富文本 jsonb ⚠️ Phase 2 可选；校验 <=5000 字符（§3.5.5）
+  mentions   Json? // @解析结果 [{user_id, offset, length}]（含 @角色/@AI）
+  isDecision Boolean   @default(false) @map("is_decision") // 关键决策标记
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6) // 软删
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  task   Task?        @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  author User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
-  parent TaskComment? @relation("CommentTree", fields: [parentId], references: [id], onDelete: SetNull)
+  task    Task?         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author  User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  parent  TaskComment?  @relation("CommentTree", fields: [parentId], references: [id], onDelete: SetNull)
   replies TaskComment[] @relation("CommentTree")
-  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenant  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([tenantId, taskId, createdAt])
+  @@index([content(ops: raw("gin_trgm_ops"))], type: Gin, map: "task_comments_content_trgm_idx") // pg_trgm 模糊搜索（§3.1 任务 4）
   @@map("task_comments")
 }
 
@@ -350,28 +369,29 @@ model TaskComment {
 
 /// AI 提议 ★核心表（Phase 1 迁移必须就位；独立状态机：pending → approved → applied/rejected/expired，§3.3 补充规则；approved 未 applied 不产生业务副作用）
 model AiProposal {
-  id                String    @id @default(uuid(7)) @db.Uuid
-  tenantId          String    @map("tenant_id") @db.Uuid // 铁律
-  type              String    @db.VarChar(20) // decompose/evaluate/emergency/execute/weekly_report
-  status            String    @default("pending") @db.VarChar(20) // pending/approved/rejected/applied/expired（AI 提议独立状态机，与任务状态机分离）
-  payload           Json      // 草稿全文（decompose 正式 schema 见 §3.5.2；{version, summary, tasks[...], warnings}）
-  diffSummary       Json?     @map("diff_summary") // 与现状对比摘要 {add:[], update:[{task_idx, changed_fields}], remove:[]}
-  proposerId        String?   @map("proposer_id") @db.Uuid // 发起人（用户或 system）
-  approverId        String?   @map("approver_id") @db.Uuid // 审批人
-  approvedAt        DateTime? @map("approved_at") @db.Timestamptz(6)
-  rejectReason      String?   @map("reject_reason") @db.VarChar(500) // 拒绝原因（Phase 3 回流反哺模型）
-  source            String    @db.VarChar(20) // manual_request/event_trigger/scheduled
-  relatedProjectId  String?   @map("related_project_id") @db.Uuid // 关联资源
-  relatedTaskId     String?   @map("related_task_id") @db.Uuid
-  expiresAt         DateTime? @map("expires_at") @db.Timestamptz(6) // ⚠️ 审批时效（默认 72h 自动 expired 并通知提议人，可配置，留 TODO）
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id               String    @id @default(uuid(7)) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid // 铁律
+  type             String    @db.VarChar(20) // decompose/evaluate/emergency/execute/weekly_report
+  status           String    @default("pending") @db.VarChar(20) // pending/approved/rejected/applied/expired（AI 提议独立状态机，与任务状态机分离）
+  payload          Json // 草稿全文（decompose 正式 schema 见 §3.5.2；{version, summary, tasks[...], warnings}）
+  diffSummary      Json?     @map("diff_summary") // 与现状对比摘要 {add:[], update:[{task_idx, changed_fields}], remove:[]}
+  proposerId       String?   @map("proposer_id") @db.Uuid // 发起人（用户或 system）
+  approverId       String?   @map("approver_id") @db.Uuid // 审批人
+  approvedAt       DateTime? @map("approved_at") @db.Timestamptz(6)
+  rejectReason     String?   @map("reject_reason") @db.VarChar(500) // 拒绝原因（Phase 3 回流反哺模型）
+  source           String    @db.VarChar(20) // manual_request/event_trigger/scheduled
+  relatedProjectId String?   @map("related_project_id") @db.Uuid // 关联资源
+  relatedTaskId    String?   @map("related_task_id") @db.Uuid
+  expiresAt        DateTime? @map("expires_at") @db.Timestamptz(6) // ⚠️ 审批时效（默认 72h 自动 expired 并通知提议人，可配置，留 TODO）
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  proposer       User?    @relation("AiProposalProposer", fields: [proposerId], references: [id], onDelete: SetNull)
-  approver       User?    @relation("AiProposalApprover", fields: [approverId], references: [id], onDelete: SetNull)
-  relatedProject Project? @relation(fields: [relatedProjectId], references: [id], onDelete: SetNull)
-  relatedTask    Task?    @relation("AiProposalTask", fields: [relatedTaskId], references: [id], onDelete: SetNull)
-  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  proposer        User?            @relation("AiProposalProposer", fields: [proposerId], references: [id], onDelete: SetNull)
+  approver        User?            @relation("AiProposalApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  relatedProject  Project?         @relation(fields: [relatedProjectId], references: [id], onDelete: SetNull)
+  relatedTask     Task?            @relation("AiProposalTask", fields: [relatedTaskId], references: [id], onDelete: SetNull)
+  aiProposalTasks AiProposalTask[] @relation("AiProposalTaskProposal")
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([tenantId, status, createdAt])
   @@index([tenantId, relatedProjectId])
@@ -390,14 +410,14 @@ model Notification {
   type      String    @db.VarChar(50) // task.assigned/mention/deadline_approaching/ai.proposal...
   title     String    @db.VarChar(300)
   body      String?   @db.Text
-  data      Json?     // 跳转参数（task_id 等）
+  data      Json? // 跳转参数（task_id 等）
   channel   String    @default("in_app") @db.VarChar(20) // in_app/email/push/im
   status    String    @default("pending") @db.VarChar(20) // pending/sent/failed/read
   readAt    DateTime? @map("read_at") @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant     Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   deliveries NotificationDelivery[]
 
   @@index([tenantId, userId, status, createdAt])
@@ -425,20 +445,61 @@ model NotificationDelivery {
 
 /// 通知偏好（事件类型 → 三通道开关 + 免打扰时段）
 model NotificationPreference {
-  id          String   @id @default(uuid(7)) @db.Uuid
-  tenantId    String   @map("tenant_id") @db.Uuid // 铁律
-  userId      String   @map("user_id") @db.Uuid
-  eventType   String   @map("event_type") @db.VarChar(50) // 事件类型；支持通配默认项
-  channels    Json     // {email:bool, push:bool, im:bool}
-  quietHours  Json?    @map("quiet_hours") // 免打扰时段 [{days, start, end}]
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id         String   @id @default(uuid(7)) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid // 铁律
+  userId     String   @map("user_id") @db.Uuid
+  eventType  String   @map("event_type") @db.VarChar(50) // 事件类型；支持通配默认项
+  channels   Json // {email:bool, push:bool, im:bool}
+  quietHours Json?    @map("quiet_hours") // 免打扰时段 [{days, start, end}]
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@unique([userId, eventType])
   @@map("notification_preferences")
+}
+
+/// WebPush 订阅（BC-07 / R5-3 / D-11）：浏览器 pushManager.subscribe() 注册的推送端点
+model PushSubscription {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid // 铁律
+  userId    String   @map("user_id") @db.Uuid
+  endpoint  String   @unique @db.VarChar(500) // 推送服务端点（出站 POST 目标；注册时经 SSRF 校验）
+  p256dh    String   @db.VarChar(255) // 订阅公钥（aes128gcm 加密接收方密钥）
+  auth      String   @db.VarChar(255) // 订阅 auth secret
+  userAgent String?  @map("user_agent") @db.VarChar(300)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user   User   @relation("PushSubscriptionUser", fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation("PushSubscriptionTenant", fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+  @@map("push_subscriptions")
+}
+
+/// 协作工作台文档存储（D-07 一期）：原前端 localStorage 体系（工作台任务/SOP/经验/Wiki/提示词/技能/AI 规则/提醒/心情等）
+/// 按「集合 + 条目」落库，data 为前端视图对象 JSONB；集合白名单与可见范围见 modules/workspace/workspace-collections.ts。
+/// owner_key：租户共享集合为 ''，个人私有集合为 user_id。二期按 DDD 把审批流等业务规则迁到服务端实体表。
+model WorkspaceItem {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid // 铁律
+  collection String   @db.VarChar(40)
+  ownerKey   String   @default("") @map("owner_key") @db.VarChar(36)
+  itemKey    String   @map("item_key") @db.VarChar(200)
+  data       Json     @db.JsonB
+  version    Int      @default(1) // 乐观锁（冲突 40901）
+  createdBy  String?  @map("created_by") @db.Uuid
+  updatedBy  String?  @map("updated_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation("WorkspaceItemTenant", fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, collection, ownerKey, itemKey])
+  @@map("workspace_items")
 }
 
 /// 提醒（双保险：Redis zset 主队列 + pg_cron/应用定时器 DB 兜底扫描；trigger_at 为 zset score 来源，决策 4）
@@ -450,14 +511,14 @@ model Reminder {
   reminderType String    @map("reminder_type") @db.VarChar(20) // due/start/custom/deadline_approach（临期偏差=触发后走 ai 应急）
   triggerAt    DateTime  @map("trigger_at") @db.Timestamptz(6) // zset score 来源
   leadMinutes  Int       @default(0) @map("lead_minutes") // "提前 N 分钟"多档
-  payload      Json?     // 自定义文案
+  payload      Json? // 自定义文案
   status       String    @default("scheduled") @db.VarChar(20) // scheduled/fired/cancelled/failed
   firedAt      DateTime? @map("fired_at") @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  task   Task?   @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  task   Task?  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   // DB 兜底扫描用（决策 4）
   @@index([triggerAt, status])
@@ -470,19 +531,19 @@ model Reminder {
 
 /// 审计日志（append-only：只插入不更新不删除；@Audited 装饰器 + AuditService 写入；actor_type 区分 user/system/ai，决策 8）
 model AuditLog {
-  id           String    @id @default(uuid(7)) @db.Uuid // DDL 允许 bigserial/uuid，统一 uuid(7)
-  tenantId     String    @map("tenant_id") @db.Uuid // 铁律
-  actorId      String?   @map("actor_id") @db.Uuid // 操作人
-  actorType    String    @default("user") @map("actor_type") @db.VarChar(10) // user/system/ai（AI 动作单独留痕）
-  action       String    @db.VarChar(50) // task.update/task.complete/ai.proposal.approve...
-  resourceType String    @map("resource_type") @db.VarChar(30) // 资源定位
-  resourceId   String?   @map("resource_id") @db.VarChar(100)
-  before       Json?     // 变更前快照（diff 可回滚）
-  after        Json?     // 变更后快照
-  ip           String?   @db.VarChar(45)
-  userAgent    String?   @map("user_agent") @db.VarChar(500)
-  requestId    String?   @map("request_id") @db.VarChar(100)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id           String   @id @default(uuid(7)) @db.Uuid // DDL 允许 bigserial/uuid，统一 uuid(7)
+  tenantId     String   @map("tenant_id") @db.Uuid // 铁律
+  actorId      String?  @map("actor_id") @db.Uuid // 操作人
+  actorType    String   @default("user") @map("actor_type") @db.VarChar(10) // user/system/ai（AI 动作单独留痕）
+  action       String   @db.VarChar(50) // task.update/task.complete/ai.proposal.approve...
+  resourceType String   @map("resource_type") @db.VarChar(30) // 资源定位
+  resourceId   String?  @map("resource_id") @db.VarChar(100)
+  before       Json? // 变更前快照（diff 可回滚）
+  after        Json? // 变更后快照
+  ip           String?  @db.VarChar(45)
+  userAgent    String?  @map("user_agent") @db.VarChar(500)
+  requestId    String?  @map("request_id") @db.VarChar(100)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
@@ -505,8 +566,8 @@ model Attachment {
   checksum     String?  @db.VarChar(64) // 上传时计算（DDL 未标注可空性，按"计算后可回填"放宽）
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  uploader User?   @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
-  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  uploader User?  @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([tenantId, resourceType, resourceId])
   @@map("attachments")
@@ -517,26 +578,26 @@ model Attachment {
 // ------------------------------------------------------------------
 
 model ProjectTemplate {
-  id                  String   @id @default(uuid(7)) @db.Uuid
-  tenantId            String   @map("tenant_id") @db.Uuid
-  name                String   @db.VarChar(200)
-  description         String?  @db.Text
-  type                String   @default("project") @db.VarChar(20)
-  category            String?  @db.VarChar(100)
-  ownerId             String?  @map("owner_id") @db.Uuid
-  isPublic            Boolean  @default(false) @map("is_public")
-  sourceProjectId     String?  @map("source_project_id") @db.Uuid
-  taskCount           Int      @default(0) @map("task_count")
-  tags                String[] @default([])
-  taskSnapshot        Json     @map("task_snapshot")
-  dependencySnapshot  Json     @map("dependency_snapshot")
-  createdBy           String?  @map("created_by") @db.Uuid
-  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  name               String    @db.VarChar(200)
+  description        String?   @db.Text
+  type               String    @default("project") @db.VarChar(20)
+  category           String?   @db.VarChar(100)
+  ownerId            String?   @map("owner_id") @db.Uuid
+  isPublic           Boolean   @default(false) @map("is_public")
+  sourceProjectId    String?   @map("source_project_id") @db.Uuid
+  taskCount          Int       @default(0) @map("task_count")
+  tags               String[]  @default([])
+  taskSnapshot       Json      @map("task_snapshot")
+  dependencySnapshot Json      @map("dependency_snapshot")
+  createdBy          String?   @map("created_by") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  owner     User?   @relation("TemplateOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  tenant    Tenant  @relation("TemplateTenant", fields: [tenantId], references: [id], onDelete: Restrict)
+  owner         User?    @relation("TemplateOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  tenant        Tenant   @relation("TemplateTenant", fields: [tenantId], references: [id], onDelete: Restrict)
   sourceProject Project? @relation("TemplateSourceProject", fields: [sourceProjectId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, type])
@@ -545,22 +606,22 @@ model ProjectTemplate {
 }
 
 model AutomationRule {
-  id              String   @id @default(uuid(7)) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  projectId       String?  @map("project_id") @db.Uuid
-  name            String   @db.VarChar(200)
-  description     String?  @db.Text
-  triggerType     String   @map("trigger_type") @db.VarChar(30)
-  triggerConfig   Json     @map("trigger_config")
-  conditionConfig Json?    @map("condition_config")
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  projectId       String?   @map("project_id") @db.Uuid
+  name            String    @db.VarChar(200)
+  description     String?   @db.Text
+  triggerType     String    @map("trigger_type") @db.VarChar(30)
+  triggerConfig   Json      @map("trigger_config")
+  conditionConfig Json?     @map("condition_config")
   actions         Json
-  isEnabled       Boolean  @default(true) @map("is_enabled")
-  isSystem        Boolean  @default(false) @map("is_system")
-  triggerCount    Int      @default(0) @map("trigger_count")
-  lastTriggeredAt DateTime?  @map("last_triggered_at") @db.Timestamptz(6)
-  createdBy       String?  @map("created_by") @db.Uuid
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  isEnabled       Boolean   @default(true) @map("is_enabled")
+  isSystem        Boolean   @default(false) @map("is_system")
+  triggerCount    Int       @default(0) @map("trigger_count")
+  lastTriggeredAt DateTime? @map("last_triggered_at") @db.Timestamptz(6)
+  createdBy       String?   @map("created_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   tenant Tenant @relation("AutomationRuleTenant", fields: [tenantId], references: [id], onDelete: Restrict)
@@ -571,88 +632,161 @@ model AutomationRule {
 }
 
 model ApiKey {
-  id          String   @id @default(cuid())
-  tenantId    String
-  tenant      Tenant   @relation("ApiKeyTenant", fields: [tenantId], references: [id], onDelete: Cascade)
-  name        String
-  keyHash     String   @unique
-  keyPrefix   String
-  scopes      String[] @default([])
-  expiresAt   DateTime?
-  lastUsedAt  DateTime?
-  createdBy   String
-  createdAt   DateTime @default(now())
-  revokedAt   DateTime?
-  revokedBy   String?
+  id         String    @id @default(uuid(7)) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid // 铁律
+  tenant     Tenant    @relation("ApiKeyTenant", fields: [tenantId], references: [id], onDelete: Cascade)
+  name       String    @db.VarChar(200)
+  keyHash    String    @unique @map("key_hash") @db.VarChar(255) // 仅存哈希（SHA-256），明文 key 创建时一次性展示
+  keyPrefix  String    @map("key_prefix") @db.VarChar(10) // 前 8 位，列表展示用
+  scopes     String[]  @default([]) // 权限点白名单，空 = 全权限（按角色）
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz(6)
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdBy  String    @map("created_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedBy  String?   @map("revoked_by") @db.Uuid
 
   @@index([tenantId, createdAt])
+  @@index([tenantId, lastUsedAt])
+  @@map("api_keys")
 }
 
 model Webhook {
-  id               String   @id @default(cuid())
-  tenantId         String
-  tenant           Tenant   @relation("WebhookTenant", fields: [tenantId], references: [id], onDelete: Cascade)
-  name             String
-  url              String
-  secret           String
-  events           String[] @default([])
-  isActive         Boolean  @default(true)
-  lastTriggeredAt  DateTime?
-  triggerCount     Int      @default(0)
-  failureCount     Int      @default(0)
-  createdBy        String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  deletedAt        DateTime?
+  id               String    @id @default(uuid(7)) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid // 铁律
+  tenant           Tenant    @relation("WebhookTenant", fields: [tenantId], references: [id], onDelete: Cascade)
+  name             String    @db.VarChar(200)
+  url              String    @db.VarChar(500) // 外发前 SSRF 校验（禁内网/环回/元数据地址，§3.3）
+  secret           String    @db.VarChar(512) // AES-256 密文（ENCRYPTION_KEY 加密后存储，日志/响应不得泄露明文）
+  secretKeyVersion Int       @default(1) @map("secret_key_version") // 密文密钥版本（密钥轮换支撑）
+  events           String[]  @default([]) // 订阅事件名（domain-events 事件名）
+  isActive         Boolean   @default(true) @map("is_active")
+  lastTriggeredAt  DateTime? @map("last_triggered_at") @db.Timestamptz(6)
+  triggerCount     Int       @default(0) @map("trigger_count")
+  failureCount     Int       @default(0) @map("failure_count")
+  createdBy        String    @map("created_by") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   @@index([tenantId, isActive])
   @@index([tenantId, deletedAt])
+  @@map("webhooks")
 }
 
+/// 租户 AI 模型配置（每租户一条；管理员在「设置 → AI 模型」维护，全团队共用）
+/// 端点为 OpenAI 兼容 /chat/completions；api_key 为 AES-256-GCM 密文，响应/日志/审计只出现末 4 位
+model TenantLlmConfig {
+  tenantId         String   @id @map("tenant_id") @db.Uuid // 铁律（一租户一条，主键即租户）
+  tenant           Tenant   @relation("TenantLlmConfigTenant", fields: [tenantId], references: [id], onDelete: Cascade)
+  provider         String   @db.VarChar(20) // deepseek/zhipu/qwen/moonshot/openai/custom
+  baseUrl          String   @map("base_url") @db.VarChar(500) // 外发前 SSRF 校验（同 Webhook，§3.3）
+  model            String   @db.VarChar(100)
+  apiKey           String   @map("api_key") @db.Text // AES-256-GCM 密文（ENCRYPTION_KEY）
+  apiKeyKeyVersion Int      @default(1) @map("api_key_key_version") // 密文密钥版本（轮换支撑）
+  apiKeyLast4      String   @map("api_key_last4") @db.VarChar(8) // 展示用
+  updatedBy        String   @map("updated_by") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  @@map("tenant_llm_configs")
+}
 
 model CalendarAccount {
-  id             String   @id @default(cuid())
-  tenantId       String
-  tenant         Tenant   @relation("CalendarAccountTenant", fields: [tenantId], references: [id], onDelete: Cascade)
-  userId         String
-  provider       String   @default("feishu")
-  accountName    String
-  calendarId     String
-  accessToken    String   @db.Text
-  refreshToken   String   @db.Text
-  expiresAt      DateTime
-  isActive       Boolean  @default(true)
-  lastSyncedAt   DateTime?
-  syncCount      Int      @default(0)
-  failureCount   Int      @default(0)
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid // 铁律
+  tenant          Tenant    @relation("CalendarAccountTenant", fields: [tenantId], references: [id], onDelete: Cascade)
+  userId          String    @map("user_id") @db.Uuid
+  provider        String    @default("feishu") @db.VarChar(20)
+  accountName     String    @map("account_name") @db.VarChar(200)
+  calendarId      String    @map("calendar_id") @db.VarChar(255)
+  accessToken     String    @map("access_token") @db.Text // AES-256 密文（ENCRYPTION_KEY 加密；日志/响应不得泄露明文）
+  refreshToken    String    @map("refresh_token") @db.Text // AES-256 密文
+  tokenKeyVersion Int       @default(1) @map("token_key_version") // 密文密钥版本（轮换支撑）
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(6)
+  isActive        Boolean   @default(true) @map("is_active")
+  lastSyncedAt    DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  syncCount       Int       @default(0) @map("sync_count")
+  failureCount    Int       @default(0) @map("failure_count")
 
-  eventMappings  CalendarEventMapping[] @relation("AccountEventMappings")
+  eventMappings CalendarEventMapping[] @relation("AccountEventMappings")
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([tenantId])
   @@index([userId])
+  @@map("calendar_accounts")
 }
 
 model CalendarEventMapping {
-  id             String   @id @default(cuid())
-  tenantId       String
-  tenant         Tenant   @relation("CalendarEventMappingTenant", fields: [tenantId], references: [id], onDelete: Cascade)
-  accountId      String
-  account        CalendarAccount @relation("AccountEventMappings", fields: [accountId], references: [id], onDelete: Cascade)
-  taskId         String
-  eventId        String
-  eventUid       String
-  syncState      String   @default("pending_create")
-  lastSyncedAt   DateTime?
-  lastSyncError  String?  @db.Text
+  id            String          @id @default(uuid(7)) @db.Uuid
+  tenantId      String          @map("tenant_id") @db.Uuid // 铁律
+  tenant        Tenant          @relation("CalendarEventMappingTenant", fields: [tenantId], references: [id], onDelete: Cascade)
+  accountId     String          @map("account_id") @db.Uuid
+  account       CalendarAccount @relation("AccountEventMappings", fields: [accountId], references: [id], onDelete: Cascade)
+  taskId        String          @map("task_id") @db.Uuid
+  eventId       String          @map("event_id") @db.VarChar(255)
+  eventUid      String          @map("event_uid") @db.VarChar(255)
+  syncState     String          @default("pending_create") @map("sync_state") @db.VarChar(20)
+  lastSyncedAt  DateTime?       @map("last_synced_at") @db.Timestamptz(6)
+  lastSyncError String?         @map("last_sync_error") @db.Text
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([tenantId, taskId])
   @@index([accountId, eventId])
   @@index([syncState])
+  @@map("calendar_event_mappings")
+}
+
+// ------------------------------------------------------------------
+// 域 9：事务性 Outbox（§3.4 可靠性：关键事件可重放；DB 兜底扫描保证不丢）
+// ------------------------------------------------------------------
+
+/// 事务性 Outbox：与应用写操作同事务发布（INV：关键副作用必须可由扫描兜底补偿，§2.5 可靠性要求）
+model OutboxEvent {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid // 铁律
+  eventName     String   @map("event_name") @db.VarChar(80) // domain-events 事件名
+  payload       Json     // §8.1 信封（eventId/occurredAt/tenantId/actor/version）
+  status        String   @default("pending") @map("status") @db.VarChar(20) // pending/dispatched/failed
+  attempts      Int      @default(0) @map("attempts")
+  lockedUntil   DateTime? @map("locked_until") @db.Timestamptz(6) // 分发锁（防多 worker 重复处理）
+  nextAttemptAt DateTime? @map("next_attempt_at") @db.Timestamptz(6) // 退避
+  lastError     String?  @map("last_error") @db.VarChar(500)
+  dispatchedAt  DateTime? @map("dispatched_at") @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation("OutboxEventTenant", fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, status, nextAttemptAt])
+  @@index([status, lockedUntil])
+  @@map("outbox_events")
+}
+
+// ------------------------------------------------------------------
+// 域 6 补全：AI apply 记录（§3.1 任务 3，INV-8：apply 持久化可查询关联，审计可回滚）
+// ------------------------------------------------------------------
+
+/// AI 提议应用记录：apply 时把 proposal 实际创建/更新的任务落库（INV-8：不依赖不可审计的 JSON）
+model AiProposalTask {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid // 铁律
+  proposalId String    @map("proposal_id") @db.Uuid
+  taskId     String    @map("task_id") @db.Uuid // apply 后实际创建/更新的任务
+  action     String    @db.VarChar(10) // created/updated（apply 语义）
+  payload    Json? // apply 时的字段快照（diff 可回滚/撤销边界）
+  appliedAt  DateTime  @map("applied_at") @db.Timestamptz(6)
+  revertedAt DateTime? @map("reverted_at") @db.Timestamptz(6) // 撤销边界标记
+
+  proposal AiProposal @relation("AiProposalTaskProposal", fields: [proposalId], references: [id], onDelete: Cascade)
+  task     Task       @relation("AiProposalTaskTask", fields: [taskId], references: [id], onDelete: Restrict)
+  tenant   Tenant     @relation("AiProposalTaskTenant", fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, proposalId])
+  @@index([tenantId, taskId])
+  @@map("ai_proposal_tasks")
 }

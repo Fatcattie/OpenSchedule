@@ -1,0 +1,35 @@
+import { describe, expect, it } from 'vitest'
+import { taskEventToAutomationTrigger } from './automation-trigger';
+
+describe('automation-trigger.taskEventToAutomationTrigger', () => {
+  it('task.created → status_changed(from=null, to=todo)', () => {
+    const t = taskEventToAutomationTrigger('task.created', { taskId: 't1', projectId: 'p1' });
+    expect(t).toEqual({
+      triggerType: 'status_changed',
+      ctx: { eventType: 'status_changed', changedFields: { status: { old: null, new: 'todo' } } },
+    });
+  });
+
+  it('task.status_changed → status_changed(from/to 透传)', () => {
+    const t = taskEventToAutomationTrigger('task.status_changed', { from: 'in_progress', to: 'done' });
+    expect(t).toEqual({
+      triggerType: 'status_changed',
+      ctx: { eventType: 'status_changed', changedFields: { status: { old: 'in_progress', new: 'done' } } },
+    });
+  });
+
+  it('task.status_changed 首态 from=null 透传为 null', () => {
+    const t = taskEventToAutomationTrigger('task.status_changed', { from: null, to: 'todo' });
+    expect(t?.ctx.changedFields?.status?.old).toBeNull();
+    expect(t?.ctx.changedFields?.status?.new).toBe('todo');
+  });
+
+  it('task.completed → null（派生事件丢弃防二次触发）', () => {
+    expect(taskEventToAutomationTrigger('task.completed', {})).toBeNull();
+  });
+
+  it('非白名单事件 → null', () => {
+    expect(taskEventToAutomationTrigger('task.assigned', {})).toBeNull();
+    expect(taskEventToAutomationTrigger('project.updated', {})).toBeNull();
+  });
+});

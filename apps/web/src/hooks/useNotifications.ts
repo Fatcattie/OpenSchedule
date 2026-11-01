@@ -1,15 +1,32 @@
 /**
- * 职责：工作台通知中心本地存储 + 事件目录 + 角色可见性
+ * 职责：通知中心数据层 —— R7 TanStack Query 全量迁移
  *
- * - 事件目录：7 大类（审批流/任务协作/评审/时间提醒/权限账号/项目/互动）21+ 事件
- * - 角色可见性：管理人员可见全部通知；普通人员仅可见「personal 作用域且与自己相关」的通知
- * - 去重：时间类事件用 dedupKey（按日粒度，每天一条）；行为类事件按 eventType+taskId/reminderId 60 秒窗口防抖
+ * 设计：
+ * - 以 `notificationApi` 为单一数据源（`listNotifications` / `markNotificationRead` /
+ *   `markAllNotificationsRead`）；`addNotification` 退化为 no-op——通知由后端 Outbox（R6-3）+
+ *   实发通道（R5）+ WS 广播驱动，前端只读。
+ * - 角色可见性：manager 全量；member 仅 `scope==='personal' && (relatedUserIds 为空 || 含我)`。
+ * - 后端通知 source-of-truth：HTTP 是单点；WS 推送 `task.*` / `mention.parsed` 事件后
+ *   用 `queryClient.invalidateQueries` 让缓存重新对齐（WS 自身暂无 `notification.*` 直推）。
+ *
+ * 公共 API（向后兼容原有消费点 + TodayFocusPage / NotificationsPage / useWorkspaceTasks
+ * 的调用形态，不引发消费方改动）：
+ *   { items, allItems, unreadCount, addNotification, markRead, markAllRead, isError }
  */
-import { useCallback, useMemo } from 'react'
-import { useLocalStorageState } from './useLocalStorageState'
-import { mockMe } from '@/api/mock/data'
 
-// ─────────────────────────── 事件目录常量 ───────────────────────────
+import { useCallback, useMemo } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useAuthStore } from '@/stores/authStore'
+import { useCurrentRole } from './useCurrentRole'
+import { useWsEvents } from './useWs'
+import {
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  type NotificationItem,
+} from '@/api/notificationApi'
+
+// ─────────────────────────── 事件目录常量（向后兼容既有导入） ───────────────────────────
 
 export const NOTIFICATION_CATEGORIES = [
   'approval',
@@ -82,9 +99,8 @@ export const NOTIFICATION_EVENT_CATEGORY: Record<WsNotificationEventType, Notifi
   general: 'other',
 }
 
-// ─────────────────────────── 通知对象结构 ───────────────────────────
+// ─────────────────────────── 通知对象结构（前端视图形态） ───────────────────────────
 
-/** 通知跳转载荷：route 为完整前端路由（生成时用 taskRoute 计算），taskId/projectId/reminderId 供去重与筛选 */
 export interface WsNotificationData {
   route?: string
   taskId?: string
@@ -99,9 +115,8 @@ export interface WsNotification {
   title: string
   body: string | null
   data?: WsNotificationData | null
-  /** manager=团队视角事件（管理员可见）；personal=个人相关事件（本人/相关人可见） */
+  /** manager=团队视角事件；personal=个人相关事件（本人/相关人可见） */
   scope: 'manager' | 'personal'
-  /** 相关用户 id（空数组 = 纯个人事件，如提醒到期） */
   relatedUserIds: string[]
   /** 持久去重键（时间类事件按日粒度：eventType:taskId:date） */
   dedupKey?: string
@@ -110,7 +125,7 @@ export interface WsNotification {
 }
 
 export interface AddNotificationInput {
-  eventType: WsNotificationEventType
+  eventType?: WsNotificationEventType
   title: string
   body?: string | null
   data?: WsNotificationData | null
@@ -119,99 +134,171 @@ export interface AddNotificationInput {
   dedupKey?: string
 }
 
-let seq = 0
-const nextId = () => `ntf-${Date.now()}-${(seq++).toString(36)}`
+// ─────────────────────────── 字段映射（后端 → WS Notification 公共形态） ───────────────────────────
 
-/** 兼容历史旧通知数据（无 eventType/category/scope） */
-function normalizeItem(raw: WsNotification): WsNotification {
-  if (raw && raw.eventType && raw.category) return raw
+/** 后端 NotificationItem → 前端 WsNotification。
+ *  - status:'read' 或 readAt 非空 → read:true
+ *  - category 由 type → NOTIFICATION_EVENT_CATEGORY 派生，未知 → 'other'
+ *  - scope 默认 'personal'（审批类由 approval_pending 派生为 'manager'，与服务端路由表态对齐）
+ */
+function mapServerNotificationToWs(item: NotificationItem): WsNotification {
+  const eventType = (item.type as WsNotificationEventType) ?? 'general'
+  const category = NOTIFICATION_EVENT_CATEGORY[eventType] ?? 'other'
+  const scope: 'manager' | 'personal' = category === 'approval' ? 'manager' : 'personal'
+  const data = (item.data ?? {}) as Record<string, unknown>
   return {
-    id: raw.id,
-    eventType: (raw.eventType as WsNotificationEventType) ?? 'general',
-    category: (raw.category as NotificationCategory) ?? NOTIFICATION_EVENT_CATEGORY[(raw.eventType as WsNotificationEventType) ?? 'general'],
-    title: raw.title,
-    body: raw.body ?? null,
-    data: raw.data ?? null,
-    scope: (raw.scope as 'manager' | 'personal') ?? 'manager',
-    relatedUserIds: raw.relatedUserIds ?? [],
-    dedupKey: raw.dedupKey,
-    createdAt: raw.createdAt,
-    read: raw.read,
+    id: item.id,
+    eventType,
+    category,
+    title: item.title,
+    body: item.body ?? null,
+    data: {
+      route: typeof data.route === 'string' ? data.route : undefined,
+      taskId: typeof data.taskId === 'string' ? data.taskId : undefined,
+      projectId: typeof data.projectId === 'string' ? data.projectId : undefined,
+      reminderId: typeof data.reminderId === 'string' ? data.reminderId : undefined,
+    },
+    scope,
+    relatedUserIds: Array.isArray(data.relatedUserIds)
+      ? (data.relatedUserIds as unknown[]).filter((x): x is string => typeof x === 'string')
+      : [],
+    dedupKey: typeof data.dedupKey === 'string' ? data.dedupKey : undefined,
+    createdAt: item.createdAt,
+    read: item.status === 'read' || item.readAt !== null,
   }
 }
 
+// ─────────────────────────── 角色可见性过滤 ───────────────────────────
+
+/** manager：全量；member：仅 personal 且相关用户列表为空（个人专属）或包含我 */
+function filterForRole(items: WsNotification[], role: 'manager' | 'member', meUserId: string | null): WsNotification[] {
+  if (role === 'manager') return items
+  return items.filter(
+    (n) =>
+      n.scope === 'personal' &&
+      (n.relatedUserIds.length === 0 || (meUserId !== null && n.relatedUserIds.includes(meUserId))),
+  )
+}
+
+// ─────────────────────────── 角色可见性过滤 ───────────────────────────
+
+
+// ─────────────────────────── TanStack Query 查询键 ───────────────────────────
+
+export const NOTIFICATIONS_QUERY_KEY = ['notifications'] as const
+
+// ─────────────────────────── Hook ───────────────────────────
+
 export function useNotifications() {
-  const [role] = useLocalStorageState<'manager' | 'member'>('workspace_role', 'manager')
-  const [items, setItems] = useLocalStorageState<WsNotification[]>('ws_notifications', [])
+  const role = useCurrentRole()
+  const me = useAuthStore((s) => s.user)
+  const queryClient = useQueryClient()
 
-  const normalized = useMemo(() => items.map(normalizeItem), [items])
-
-  /** 按角色过滤：管理人员全量；普通人员仅 personal 且与自己相关（相关人列表为空 = 本人专属） */
-  const visibleItems = useMemo(() => {
-    if (role === 'manager') return normalized
-    return normalized.filter(
-      (n) =>
-        n.scope === 'personal' &&
-        (n.relatedUserIds.length === 0 || n.relatedUserIds.includes(mockMe.id)),
-    )
-  }, [normalized, role])
-
-  const unreadCount = useMemo(() => visibleItems.filter((i) => !i.read).length, [visibleItems])
-
-  /** 写入前去重：dedupKey 持久唯一；行为事件按 eventType+token 60 秒窗口防抖（避免多实例重复） */
-  const addNotification = useCallback(
-    (input: AddNotificationInput) => {
-      const eventType = input.eventType ?? 'general'
-      const category = NOTIFICATION_EVENT_CATEGORY[eventType] ?? 'other'
-      const scope = input.scope ?? (category === 'approval' ? 'manager' : 'personal')
-      const relatedUserIds = input.relatedUserIds ?? []
-      const token = input.data?.taskId ?? input.data?.reminderId
-      setItems((c) => {
-        if (input.dedupKey && c.some((i) => i.dedupKey === input.dedupKey)) return c
-        if (
-          token &&
-          c.some(
-            (i) =>
-              i.eventType === eventType &&
-              (i.data?.taskId ?? i.data?.reminderId) === token &&
-              Date.now() - Date.parse(i.createdAt) < 60_000,
-          )
-        ) {
-          return c
-        }
-        return [
-          {
-            id: nextId(),
-            eventType,
-            category,
-            title: input.title,
-            body: input.body ?? null,
-            data: input.data ?? null,
-            scope,
-            relatedUserIds,
-            dedupKey: input.dedupKey,
-            createdAt: new Date().toISOString(),
-            read: false,
-          },
-          ...c,
-        ].slice(0, 200)
-      })
+  // 真实模式：轮询 30s 让新增通知进入缓存
+  const listQuery = useQuery({
+    queryKey: NOTIFICATIONS_QUERY_KEY,
+    queryFn: async (): Promise<{ items: WsNotification[]; total: number; unreadCount: number }> => {
+      const page = await listNotifications(false)
+      const items = page.items.map(mapServerNotificationToWs)
+      const unreadCount = items.filter((i) => !i.read).length
+      return { items, total: page.total, unreadCount }
     },
-    [setItems],
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+    staleTime: 10_000,
+    gcTime: 5 * 60_000,
+  })
+
+  // WS 任务事件可能驱动新通知产生 → 让缓存重新对齐。
+  // 注意：当前 useWsEvents 仅订阅 task.* / mention.parsed；notification.* 直推还没启用（见 hook 头注释）。
+  useWsEvents(
+    useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY })
+    }, [queryClient]),
+  )
+
+  // 标记已读（乐观更新 + 失败回滚）
+  const markReadMut = useMutation({
+    mutationFn: async ({ id, read }: { id: string; read: boolean }) => {
+      const updated = await markNotificationRead(id, read)
+      return { id: updated.id, read: updated.status === 'read' || updated.readAt !== null }
+    },
+    onMutate: async ({ id, read }) => {
+      await queryClient.cancelQueries({ queryKey: NOTIFICATIONS_QUERY_KEY })
+      const prev = queryClient.getQueryData<{ items: WsNotification[]; total: number; unreadCount: number }>(NOTIFICATIONS_QUERY_KEY)
+      if (prev) {
+        queryClient.setQueryData<{ items: WsNotification[]; total: number; unreadCount: number }>(NOTIFICATIONS_QUERY_KEY, {
+          ...prev,
+          items: prev.items.map((n) => (n.id === id ? { ...n, read } : n)),
+          unreadCount: prev.items.filter((n) => n.id === id ? read : n.read).length,
+        })
+      }
+      return { prev }
+    },
+    onError: (_err, _args, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(NOTIFICATIONS_QUERY_KEY, ctx.prev)
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY })
+    },
+  })
+
+  // 全部标记已读
+  const markAllReadMut = useMutation({
+    mutationFn: async () => markAllNotificationsRead(),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: NOTIFICATIONS_QUERY_KEY })
+      const prev = queryClient.getQueryData<{ items: WsNotification[]; total: number; unreadCount: number }>(NOTIFICATIONS_QUERY_KEY)
+      if (prev) {
+        queryClient.setQueryData<{ items: WsNotification[]; total: number; unreadCount: number }>(NOTIFICATIONS_QUERY_KEY, {
+          ...prev,
+          items: prev.items.map((n) => ({ ...n, read: true })),
+          unreadCount: 0,
+        })
+      }
+      return { prev }
+    },
+    onError: (_err, _args, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(NOTIFICATIONS_QUERY_KEY, ctx.prev)
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY })
+    },
+  })
+
+  const allItems = listQuery.data?.items ?? []
+  const meId = me?.id ?? null
+  const visibleItems = useMemo(() => filterForRole(allItems, role, meId), [allItems, role, meId])
+  const visibleUnread = useMemo(() => visibleItems.filter((i) => !i.read).length, [visibleItems])
+
+  const addNotification = useCallback(
+    (_input?: AddNotificationInput) => {
+      // 真实模式：后端 R6-3 Outbox 是通知的唯一来源（事件 → 邮件/IM/Push + 站内 Notification 行）。
+      // 前端 addNotification 仅为向后兼容的 no-op 占位（保留入参签名，兼容 useWorkspaceTasks /
+      // TodayFocusPage 等既有调用点；工作台演示通知属 D-07 范围）。
+    },
+    [],
   )
 
   const markRead = useCallback(
-    (id: string) => setItems((c) => c.map((i) => (i.id === id ? { ...i, read: true } : i))),
-    [setItems],
+    (id: string) => {
+      markReadMut.mutate({ id, read: true })
+    },
+    [markReadMut],
   )
 
-  const markAllRead = useCallback(
-    () =>
-      setItems((c) =>
-        c.map((i) => (role === 'manager' || (i.scope === 'personal' && (i.relatedUserIds.length === 0 || i.relatedUserIds.includes(mockMe.id))) ? { ...i, read: true } : i)),
-      ),
-    [role, setItems],
-  )
+  const markAllRead = useCallback(() => {
+    markAllReadMut.mutate()
+  }, [markAllReadMut])
 
-  return { items: visibleItems, allItems: normalized, unreadCount, addNotification, markRead, markAllRead }
+  return {
+    items: visibleItems,
+    allItems,
+    unreadCount: visibleUnread,
+    addNotification,
+    markRead,
+    markAllRead,
+    /** 收件箱读取失败状态（错误不静默吞掉，供页面展示兜底） */
+    isError: listQuery.isError,
+  }
 }

@@ -1,0 +1,38 @@
+Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
+
+const dsn = require('../../utils/dsn.js');
+const envelope = require('../../utils/envelope.js');
+const isBrowser = require('../../utils/isBrowser.js');
+const randomSafeContext = require('../../utils/randomSafeContext.js');
+
+function createStreamedSpanEnvelope(serializedSpans, dsc, client) {
+  const options = client.getOptions();
+  const dsn$1 = client.getDsn();
+  const tunnel = options.tunnel;
+  const sdk = envelope.getSdkMetadataForEnvelopeHeader(options._metadata);
+  const headers = {
+    sent_at: new Date(randomSafeContext.safeDateNow()).toISOString(),
+    ...dscHasRequiredProps(dsc) && { trace: dsc },
+    ...sdk && { sdk },
+    ...!!tunnel && dsn$1 && { dsn: dsn.dsnToString(dsn$1) }
+  };
+  return envelope.createEnvelope(headers, [createSpanContainerItem(serializedSpans, client)]);
+}
+function createSpanContainerItem(serializedSpans, client) {
+  const inferSetting = client.getDataCollectionOptions().userInfo ? "auto" : "never";
+  return [
+    { type: "span", item_count: serializedSpans.length, content_type: "application/vnd.sentry.items.span.v2+json" },
+    {
+      version: 2,
+      ingest_settings: isBrowser.isBrowser() ? { infer_ip: inferSetting, infer_user_agent: inferSetting } : void 0,
+      items: serializedSpans
+    }
+  ];
+}
+function dscHasRequiredProps(dsc) {
+  return !!dsc.trace_id && !!dsc.public_key;
+}
+
+exports.createSpanContainerItem = createSpanContainerItem;
+exports.createStreamedSpanEnvelope = createStreamedSpanEnvelope;
+//# sourceMappingURL=envelope.js.map

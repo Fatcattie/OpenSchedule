@@ -31,11 +31,11 @@ import {
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { authApi } from '@/api/authApi'
+import { useDirectory, useMe } from '@/hooks/useWorkspaceIdentity'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotifications } from '@/hooks/useNotifications'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
 import { useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
-import { mockMe } from '@/api/mock/data'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
 import { searchWorkspace, type WorkspaceSearchHit } from '@/utils/searchWorkspace'
 import { taskRoute } from '@/utils/taskTree'
 
@@ -48,6 +48,9 @@ const HIT_TYPE_META: Record<WorkspaceSearchHit['type'], { label: string; color: 
 }
 
 export default function AppLayout() {
+  const currentUser = useMe()
+  // 通讯录常驻拉取：供各页显示名解析（lookupMemberName 读其缓存）
+  useDirectory()
   const navigate = useNavigate()
   const location = useLocation()
   const user = useAuthStore((s) => s.user)
@@ -55,7 +58,7 @@ export default function AppLayout() {
   const { unreadCount } = useNotifications()
   const [collapsed, setCollapsed] = useState(false)
   // 按角色过滤菜单（普通人员不显示资源池；时间容器两类角色均显示）
-  const [role] = useLocalStorageState<'manager' | 'member'>('workspace_role', 'manager')
+  const role = useCurrentRole()
   const isManager = role === 'manager'
   // 第六批需求 1：顶栏即时搜索
   const [tasks] = useWorkspaceTasks()
@@ -108,7 +111,7 @@ export default function AppLayout() {
   /** 顶栏即时搜索结果（防抖 200ms；member 仅自己涉及的事项） */
   const searchHits = useMemo(() => {
     if (!searchKeyword.trim()) return []
-    return searchWorkspace(tasks, searchKeyword, { userId: mockMe.id, displayName: mockMe.displayName, isManager }, 'all', 8)
+    return searchWorkspace(tasks, searchKeyword, { userId: currentUser.id, displayName: currentUser.displayName, isManager }, 'all', 8)
   }, [tasks, searchKeyword, isManager])
 
   /** 命中跳转：项目→项目详情/看板；任务/评论→taskRoute（父级详情 / 叶子执行页） */

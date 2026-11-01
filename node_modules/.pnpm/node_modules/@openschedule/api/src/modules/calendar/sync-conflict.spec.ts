@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest'
 import { decideCalendarSync } from './sync-conflict'
 
 describe('calendar sync conflict policy', () => {

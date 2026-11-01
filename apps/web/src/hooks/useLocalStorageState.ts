@@ -61,6 +61,37 @@ export function useLocalStorageState<T>(
   return [state, setState]
 }
 
+/** 非组件代码命令式读取（解析失败或不存在返回 fallback） */
+export function readLocalStorageState<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(PREFIX + key)
+    if (raw != null) return JSON.parse(raw) as T
+  } catch {
+    // 解析失败回退 fallback
+  }
+  return fallback
+}
+
+/**
+ * 非组件代码命令式写入（如 SOP 沉淀工具）：读当前值 → updater → 写回，并通知已挂载的 hook 实例同步。
+ */
+export function writeLocalStorageState<T>(key: string, updater: (prev: T) => T, fallback: T): void {
+  const storageKey = PREFIX + key
+  let prev = fallback
+  try {
+    const raw = localStorage.getItem(storageKey)
+    if (raw != null) prev = JSON.parse(raw) as T
+  } catch {
+    // 解析失败回退 fallback
+  }
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(updater(prev)))
+  } catch {
+    // 忽略写入异常
+  }
+  window.dispatchEvent(new Event(LS_SYNC_EVENT + storageKey))
+}
+
 /** 清空当前工作台所有持久化数据（用于重置演示）。 */
 export function clearWorkspaceStorage(): void {
   const keys: string[] = []

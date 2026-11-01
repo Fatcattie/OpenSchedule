@@ -5,8 +5,7 @@
  * GET → 嵌套 {attachment:{...}, downloadUrl, expiresAt}，下载用 downloadUrl（5 分钟时效）。
  */
 import { client } from './client'
-import { USE_MOCK } from './config'
-import { mockGetAttachment, mockUploadAttachment } from './mock/handlers'
+import { mockOr } from './mock/dispatch'
 import type { ApiResponse } from '@/types'
 
 /** 附件挂载资源类型（schema attachments.resource_type：task/comment/project） */
@@ -37,18 +36,20 @@ export async function uploadAttachment(
   resourceType: AttachmentResourceType,
   resourceId: string,
 ): Promise<Attachment> {
-  if (USE_MOCK) return mockUploadAttachment(file, resourceType, resourceId)
-  const form = new FormData()
-  form.append('file', file)
-  form.append('resource_type', resourceType)
-  form.append('resource_id', resourceId)
-  const resp = await client.post<ApiResponse<Attachment>>('/attachments', form)
-  return resp.data.data
+  return mockOr('mockUploadAttachment', async () => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('resource_type', resourceType)
+    form.append('resource_id', resourceId)
+    const resp = await client.post<ApiResponse<Attachment>>('/attachments', form)
+    return resp.data.data
+  }, file, resourceType, resourceId)
 }
 
 /** 附件详情：GET /attachments/:id（响应含 downloadUrl 预签名地址，可直接用于下载/预览） */
 export async function getAttachment(id: string): Promise<AttachmentDownload> {
-  if (USE_MOCK) return mockGetAttachment(id)
-  const resp = await client.get<ApiResponse<AttachmentDownload>>(`/attachments/${id}`)
-  return resp.data.data
+  return mockOr('mockGetAttachment', async () => {
+    const resp = await client.get<ApiResponse<AttachmentDownload>>(`/attachments/${id}`)
+    return resp.data.data
+  }, id)
 }

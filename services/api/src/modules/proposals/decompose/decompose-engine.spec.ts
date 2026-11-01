@@ -1,6 +1,7 @@
 /**
  * decompose-engine.spec.ts —— AI 拆解引擎单测
  */
+import { describe, expect, it } from 'vitest'
 import {
   decompose,
   scheduleDecompose,
@@ -151,10 +152,8 @@ describe('decompose-engine', () => {
 
     it('目标标题只有空白 → 空片段兜底单任务 + warning', () => {
       const result = decompose({ goalTitle: '   ' })
-      // goalTitle.trim() 为空 → 单任务兜底
-      expect(result.tasks.length).toBe(1)
-      // 空标题任务
-      expect(result.tasks[0].title).toBe('')
+      // goalTitle.trim() 为空 → 单任务兜底      expect(result.tasks.length).toBe(1)
+      // 空标题任务      expect(result.tasks[0].title).toBe('')
     })
   })
 

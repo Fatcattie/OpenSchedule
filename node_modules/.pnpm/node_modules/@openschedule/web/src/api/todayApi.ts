@@ -1,6 +1,5 @@
 import { client } from './client'
-import { USE_MOCK } from './config'
-import { mockGetToday } from './mock/handlers'
+import { mockOr } from './mock/dispatch'
 import type { ApiResponse } from '@/types'
 
 export interface TodayItem {
@@ -14,7 +13,8 @@ export interface TodayItem {
 }
 
 export async function getToday(limit = 50): Promise<TodayItem[]> {
-  if (USE_MOCK) return mockGetToday(limit)
-  const response = await client.get<ApiResponse<TodayItem[]>>('/me/today', { params: { limit } })
-  return response.data.data
+  return mockOr('mockGetToday', async () => {
+    const response = await client.get<ApiResponse<TodayItem[]>>('/me/today', { params: { limit } })
+    return response.data.data
+  }, limit)
 }

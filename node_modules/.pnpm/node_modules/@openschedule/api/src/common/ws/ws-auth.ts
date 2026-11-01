@@ -1,0 +1,45 @@
+/**
+ * ws-auth.ts —— WebSocket 握手鉴权纯函数（R6-4 / §3.2 WS 实时刷新）：
+ * 从 socket.io handshake 提取 Bearer access token（auth.token / auth.bearer / Authorization 兼容形态）。
+ * 只做提取与形态判定；token 校验（签名/过期）由 WsGateway 经 JwtService + AuthUserLoader 完成（实时加载角色，§3.4）。
+ */
+
+/** handshake.auth 可接受的 token 形态（前端 socket.io-client `auth: { token }` 或 `auth: { bearer: 'Bearer xxx' }`） */
+export interface WsHandshakeAuth {
+  token?: string;
+  bearer?: string;
+  [key: string]: unknown;
+}
+
+/** 提取 Bearer access token；缺失/空串/非字符串返回 null（守卫据此 401 拒绝握手） */
+export function extractWsToken(auth: WsHandshakeAuth | null | undefined): string | null {
+  if (!auth || typeof auth !== 'object') return null;
+  const raw = auth.token ?? auth.bearer;
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  // 兼容 "Bearer xxx" 前缀
+  const m = /^Bearer\s+(.+)$/i.exec(trimmed);
+  return m ? m[1] : trimmed;
+}
+
+/** 租户房间名（§3.2 房间=tenantId；单租户/多租户切流均按租户隔离广播） */
+export function tenantRoom(tenantId: string): string {
+  return `tenant:${tenantId}`;
+}
+
+/** 项目房间名（看板页按项目加入；必须带租户前缀，防跨租户 projectId 碰撞/窃听） */
+export function projectRoom(tenantId: string, projectId: string): string {
+  return `tenant:${tenantId}:project:${projectId}`;
+}
+
+/** 广播帧形状（前端 boardStore/通知轮询降级点订阅契约；与 domain-events payload 信封一致） */
+export interface WsEventFrame {
+  event: string;
+  payload: Record<string, unknown>;
+  sentAt: string;
+}
+
+export function buildWsFrame(eventName: string, payload: Record<string, unknown>): WsEventFrame {
+  return { event: eventName, payload, sentAt: new Date().toISOString() };
+}

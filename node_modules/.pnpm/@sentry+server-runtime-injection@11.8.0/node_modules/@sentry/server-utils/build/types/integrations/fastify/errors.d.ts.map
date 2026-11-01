@@ -1,0 +1,1 @@
+{"version":3,"file":"errors.d.ts","sourceRoot":"","sources":["../../../../src/integrations/fastify/errors.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAsB,YAAY,EAAE,cAAc,EAAE,MAAM,SAAS,CAAC;AAchF;;GAEG;AACH,wBAAgB,8BAA8B,IAAI,IAAI,CAUrD;AAED;;;;;;;;;GASG;AACH,wBAAgB,kBAAkB,CAAC,OAAO,EAAE,cAAc,EAAE,KAAK,EAAE,YAAY,EAAE,KAAK,EAAE,KAAK,GAAG,IAAI,CAiBnG"}

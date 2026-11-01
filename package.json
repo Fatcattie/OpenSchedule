@@ -14,22 +14,45 @@
     "dev:api": "pnpm --filter \"./services/api\" run start:dev",
     "dev:web": "pnpm --filter \"./apps/web\" run dev",
     "dev:ai": "cd services/ai && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8300",
-    "build": "pnpm --filter \"./services/api\" --filter \"./apps/web\" run build",
+    "build:packages": "pnpm --filter \"./packages/*\" run build",
+    "build": "pnpm build:packages && pnpm --filter \"./services/api\" --filter \"./apps/web\" run build",
     "lint": "pnpm --filter \"./services/api\" --filter \"./apps/web\" run typecheck",
-    "test": "pnpm --filter \"./services/api\" run test && pnpm --filter \"./apps/web\" run typecheck",
+    "test": "pnpm --filter \"./services/api\" run test && pnpm --filter \"./apps/web\" run test",
+    "smoke": "node qa-e2e/smoke.mjs",
     "test:ai": "cd services/ai && uv run pytest",
     "check:mermaid": "node scripts/check-mermaid.mjs",
     "prisma:generate": "pnpm --filter \"./services/api\" exec prisma generate",
     "prisma:migrate": "pnpm --filter \"./services/api\" exec prisma migrate dev",
     "prisma:deploy": "pnpm --filter \"./services/api\" exec prisma migrate deploy",
+    "prisma:status": "pnpm --filter \"./services/api\" exec prisma migrate status",
+    "prisma:diff": "pnpm --filter \"./services/api\" exec prisma migrate diff --from-migrations=prisma/migrations --to-schema-datamodel=prisma/schema.prisma",
+    "prisma:validate": "pnpm --filter \"./services/api\" exec prisma validate",
     "prisma:studio": "pnpm --filter \"./services/api\" exec prisma studio",
     "docker:up": "docker compose --env-file .env -f deploy/docker-compose.yml up -d --build",
     "docker:down": "docker compose --env-file .env -f deploy/docker-compose.yml down",
     "docker:logs": "docker compose --env-file .env -f deploy/docker-compose.yml logs -f --tail=100",
     "docker:ps": "docker compose --env-file .env -f deploy/docker-compose.yml ps",
-    "docker:infra": "docker compose --env-file .env -f deploy/docker-compose.yml up -d postgres redis minio"
+    "docker:infra": "docker compose --env-file .env -f deploy/docker-compose.yml up -d postgres redis minio",
+    "docker:obs": "docker compose --env-file .env -f deploy/docker-compose.yml --profile observability up -d prometheus grafana alertmanager alert-bridge",
+    "docker:prod:config": "docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml config",
+    "docker:prod": "docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml up -d --remove-orphans",
+    "drill:dry": "node deploy/drill/run.mjs --dry-run --env-file deploy/.env.production.example --allow-empty-secrets",
+    "drill": "node deploy/drill/run.mjs",
+    "load": "node qa-load/run.mjs",
+    "load:check": "node qa-load/run.mjs --check",
+    "seed:tenant": "node scripts/seed-first-tenant.mjs",
+    "seed:tenant:selftest": "node scripts/seed-first-tenant.mjs --selftest"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "playwright-core": "^1.64.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "proxy-addr": "^2.0.8",
+      "shell-quote": "^1.11.0",
+      "deepmerge-ts": "^8.0.2",
+      "qs": "^6.16.0"
+    }
   }
 }

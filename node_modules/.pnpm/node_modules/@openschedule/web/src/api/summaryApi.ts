@@ -4,8 +4,7 @@
  * overdueTasks, completedTasks, draft}；POST body {period, content}（1–20000 字符），同周期覆盖写。
  */
 import { client } from './client'
-import { USE_MOCK } from './config'
-import { mockGetSummary, mockSaveSummary } from './mock/handlers'
+import { mockOr } from './mock/dispatch'
 import type { ApiResponse } from '@/types'
 
 /** 总结周期：day=当日 / week=最近 7 天 / month=最近 30 天 / year=本年度（后端滚动窗口口径） */
@@ -66,14 +65,16 @@ export interface SaveSummaryResult {
 
 /** 获取周期总结：GET /me/summaries?period=（后端按 period 返回滚动窗口聚合） */
 export async function getSummary(period: SummaryPeriod): Promise<PeriodSummary> {
-  if (USE_MOCK) return mockGetSummary(period)
-  const resp = await client.get<ApiResponse<PeriodSummary>>('/me/summaries', { params: { period } })
-  return resp.data.data
+  return mockOr('mockGetSummary', async () => {
+    const resp = await client.get<ApiResponse<PeriodSummary>>('/me/summaries', { params: { period } })
+    return resp.data.data
+  }, period)
 }
 
 /** 保存/更新周期总结草稿：POST /me/summaries（body {period, content}，同周期覆盖写） */
 export async function saveSummary(input: SaveSummaryInput): Promise<SaveSummaryResult> {
-  if (USE_MOCK) return mockSaveSummary(input)
-  const resp = await client.post<ApiResponse<SaveSummaryResult>>('/me/summaries', input)
-  return resp.data.data
+  return mockOr('mockSaveSummary', async () => {
+    const resp = await client.post<ApiResponse<SaveSummaryResult>>('/me/summaries', input)
+    return resp.data.data
+  }, input)
 }

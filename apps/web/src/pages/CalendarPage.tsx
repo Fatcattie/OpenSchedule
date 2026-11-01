@@ -56,7 +56,7 @@ import { useWorkspaceTasks } from '@/hooks/useWorkspaceTasks'
 import { useSyncSettings } from '@/hooks/useSyncSettings'
 import { listProviderEvents, listIntegrationStatus, providerMeta, PROVIDERS } from '@/services/imProvider'
 import type { ImProvider, ExternalCalendarEvent } from '@/services/imProvider'
-import { mockMe } from '@/api/mock/data'
+import { useMe } from '@/hooks/useWorkspaceIdentity'
 import type { CalendarAccount, DayLoad, DayFreeSlots, WorkspaceTask } from '@/types'
 import dayjs from 'dayjs'
 
@@ -102,6 +102,7 @@ export default function CalendarPage() {
 // ========== Tab 1：同步设置（账户列表 + 绑定） ==========
 
 function AccountsTab() {
+  const currentUser = useMe()
   const queryClient = useQueryClient()
   const [tasks, setTasks] = useWorkspaceTasks()
   const [bindModalOpen, setBindModalOpen] = useState(false)
@@ -180,13 +181,13 @@ function AccountsTab() {
         description: e.description,
         status: 'todo' as const,
         priority: 'medium' as const,
-        assigneeId: mockMe.id,
+        assigneeId: currentUser.id,
         dueAt: e.endAt,
         estimatedHours: e.allDay ? null : Math.max(1, Math.round((new Date(e.endAt).getTime() - new Date(e.startAt).getTime()) / 3600000)),
         actualHours: null,
         completedAt: null,
         startedAt: null,
-        createdBy: mockMe.id,
+        createdBy: currentUser.id,
         tags: ['个人计划', `${providerMeta(e.provider).name}日历`],
         sortOrder: tasks.length + i + 1,
         workflowColumnId: null,
@@ -627,6 +628,7 @@ function BindCalendarModal({ open, onClose, providers, onSuccess }: any) {
 // ========== Tab 2：忙闲查询 ==========
 
 function BusyFreeTab({ isManager }: { isManager: boolean }) {
+  const currentUser = useMe()
   const [selectedUsers, setSelectedUsers] = useState<string[]>(isManager ? ['user-001', 'user-002', 'user-003'] : ['user-001'])
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([
     dayjs().startOf('week'),
@@ -643,8 +645,8 @@ function BusyFreeTab({ isManager }: { isManager: boolean }) {
     { id: 'user-005', name: '钱七（测试）' },
   ]
 
-  // 普通人员仅可查询自己：固定为 mockMe 对应的成员，且禁用多选
-  const selfOption = userOptions.find((u) => u.id === mockMe.id) ?? userOptions[0]
+  // 普通人员仅可查询自己：固定为当前登录用户，且禁用多选
+  const selfOption = userOptions.find((u) => u.id === currentUser.id) ?? userOptions[0]
 
   const handleQuery = async () => {
     if (selectedUsers.length === 0) {
@@ -668,7 +670,7 @@ function BusyFreeTab({ isManager }: { isManager: boolean }) {
   const heatmapData: Record<string, DayLoad[]> = {}
   const userNames: Record<string, string> = {}
   if (result) {
-    const users = isManager ? selectedUsers : [mockMe.id]
+    const users = isManager ? selectedUsers : [currentUser.id]
     for (const uid of users) {
       const userResult = result.perUser[uid]
       if (userResult) {
@@ -679,8 +681,8 @@ function BusyFreeTab({ isManager }: { isManager: boolean }) {
     }
   }
 
-  // 普通人员查询的直接限定为自己的 userId（mockMe.id）
-  const effectiveUsers = isManager ? selectedUsers : [mockMe.id]
+  // 普通人员查询的直接限定为自己的 userId（currentUser.id）
+  const effectiveUsers = isManager ? selectedUsers : [currentUser.id]
 
   return (
     <div style={{ padding: '0 16px 16px' }}>
@@ -703,7 +705,7 @@ function BusyFreeTab({ isManager }: { isManager: boolean }) {
               </Select>
             ) : (
               <Select
-                value={mockMe.id}
+                value={currentUser.id}
                 disabled
                 style={{ width: '100%' }}
               >

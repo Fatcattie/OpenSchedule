@@ -1,0 +1,1 @@
+{"version":3,"file":"glob.d.ts","sourceRoot":"","sources":["../../../src/core/glob.ts"],"names":[],"mappings":"AAEA,wBAAgB,SAAS,CACvB,QAAQ,EAAE,MAAM,GAAG,MAAM,EAAE,EAC3B,OAAO,CAAC,EAAE;IAAE,IAAI,CAAC,EAAE,MAAM,CAAC;IAAC,MAAM,CAAC,EAAE,MAAM,GAAG,MAAM,EAAE,CAAA;CAAE,GACtD,OAAO,CAAC,MAAM,EAAE,CAAC,CAEnB"}

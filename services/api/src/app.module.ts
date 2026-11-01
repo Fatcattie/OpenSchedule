@@ -31,6 +31,10 @@ import { ProposalsModule } from './modules/proposals/proposals.module';
 import { HealthModule } from './modules/health/health.module';
 import { ResourcePoolModule } from './modules/resource-pool/resource-pool.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { UsersModule } from './modules/users/users.module';
+import { PersonalTasksModule } from './modules/personal-tasks/personal-tasks.module';
+import { WorkspaceModule } from './modules/workspace/workspace.module';
+import { LlmModule } from './modules/llm/llm.module';
 
 @Module({
   imports: [
@@ -99,6 +103,17 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
 
     // 钉钉 / 飞书集成出口（MCP 网关 / OpenAPI / Mock 三通道，统一由后端代理）
     IntegrationsModule,
+
+    // 人员管理真实 API（users.yaml / roles.yaml 契约切片）：独立 cookie 会话 + CSRF + 三角色矩阵守卫
+    UsersModule,
+
+    // 个人任务（BC-04 / R6-2）：/me/tasks 自用 CRUD + 完成/重开 + 关联团队任务
+    PersonalTasksModule,
+
+    // 协作工作台文档存储（D-07 一期）：/workspace/:collection，原前端 localStorage 体系落库
+    WorkspaceModule,
+    // 租户 AI 模型配置（管理员统一配置 key，AI 服务直连厂商）：/settings/llm、/ai/status、/ai/complete
+    LlmModule,
 
   ],
 })

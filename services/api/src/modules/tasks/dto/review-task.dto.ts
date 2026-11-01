@@ -9,6 +9,7 @@ import {
   IsArray,
   IsBoolean,
   IsDate,
+  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -52,6 +53,10 @@ export class SubtaskItemDto {
   dueAt?: Date;
 
   /** 该子任务是否来自 AI 拆解（审计/撤销依据） */
+  @IsOptional()
+  @IsUUID('all')
+  assigneeId?: string;
+
   @IsOptional()
   @IsBoolean()
   isAiGenerated?: boolean = false;

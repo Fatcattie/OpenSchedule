@@ -11,7 +11,7 @@ import {
   type StackedDatum,
   type Datum,
 } from '@/components/charts/MiniCharts'
-import { mockUsers } from '@/api/mock/data'
+import { useDirectory } from '@/hooks/useWorkspaceIdentity'
 import type { WorkspaceTask } from '@/types'
 import dayjs from 'dayjs'
 
@@ -23,6 +23,7 @@ const STATUS_ORDER = [
 ]
 
 export default function TeamExecutionPanel({ tasks }: { tasks: WorkspaceTask[] }) {
+  const { teamMembers } = useDirectory()
   const { token } = theme.useToken()
   const relevant = tasks.filter(
     (t) => t.kind !== 'plan' && t.kind !== 'project' && t.status !== 'cancelled',
@@ -51,7 +52,7 @@ export default function TeamExecutionPanel({ tasks }: { tasks: WorkspaceTask[] }
     return { label, value }
   })
 
-  const memberData: Datum[] = mockUsers
+  const memberData: Datum[] = teamMembers
     .map((u) => ({
       label: u.displayName,
       value: relevant.filter((t) => t.status === 'done' && t.assigneeId === u.id).length,

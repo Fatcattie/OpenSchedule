@@ -17,6 +17,7 @@ import { ProposalsService } from './proposals.service'
 import { DecomposeDto, RejectProposalDto } from './dto/proposals.dto'
 import { AiCallbackDto } from './dto/ai-callback.dto'
 import { Public } from '../../common/auth/public.decorator'
+import { verifyAiSignature } from '../../common/auth/ai-callback-signature'
 import { ConfigService } from '@nestjs/config'
 import { ApiException } from '../../common/exceptions/api.exception'
 import { Request } from 'express'
@@ -26,13 +27,22 @@ import { Request } from 'express'
 export class ProposalsController {
   constructor(private readonly proposals: ProposalsService, private readonly config: ConfigService) {}
 
+  /**
+   * AI 服务回调入口（§3.3 / R4 HMAC 双端签名）：X-AI-Timestamp + X-AI-Signature 验签（恒定时间 + 时间窗防重放）。
+   * 签名契约：signature = HMAC-SHA256(AI_SERVICE_TOKEN, `${timestamp}.${rawBody}`)。AI 侧发起端签名属 R11。
+   */
   @Public()
   @Post('internal/ai/results')
   async aiResult(@Body() body: AiCallbackDto, @Req() req: Request) {
-    const expected = this.config.get<string>('AI_SERVICE_TOKEN')
-    const authorization = req.headers.authorization ?? ''
-    const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
-    if (!expected || token !== expected) throw new ApiException(40101, 'AI 服务令牌无效', 401)
+    const secret = this.config.get<string>('AI_SERVICE_TOKEN') ?? ''
+    if (!secret) throw new ApiException(40101, 'AI 服务互信未配置', 401)
+    const rawBody = (req as Request & { rawBody?: Buffer }).rawBody
+    const timestamp = req.headers['x-ai-timestamp']
+    const signature = req.headers['x-ai-signature']
+    const tokenStr = Array.isArray(timestamp) ? timestamp[0] : timestamp
+    const sigStr = Array.isArray(signature) ? signature[0] : signature
+    const error = verifyAiSignature(secret, rawBody ?? JSON.stringify(body), tokenStr, sigStr)
+    if (error) throw new ApiException(40101, error, 401)
     return this.proposals.handleAiCallback(body)
   }
 

@@ -16,11 +16,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { getErrorMessage } from '@/api/errors'
-import { mockMe, mockUsers } from '@/api/mock/data'
+import { useDirectory, useMe } from '@/hooks/useWorkspaceIdentity'
 import { projectApi } from '@/api/projectApi'
 import { taskApi } from '@/api/taskApi'
 import { useBoardStore } from '@/stores/boardStore'
-import { useLocalStorageState } from '@/hooks/useLocalStorageState'
+import { useWsEvents } from '@/hooks/useWs'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
 import ErrorView from '@/components/ErrorView'
 import LoadingView from '@/components/LoadingView'
 import StatusTag from '@/components/StatusTag'
@@ -36,10 +37,9 @@ import {
 
 const { Title, Text } = Typography
 
-type WorkspaceRole = 'manager' | 'member'
-
 /** 看板任务卡片：父级进详情页，叶子进执行页；「更多」菜单快捷移动状态（乐观更新） */
 function TaskCard({ task, allTasks, highlighted }: { task: Task; allTasks: Task[]; highlighted?: boolean }) {
+  const { nameOf } = useDirectory()
   const navigate = useNavigate()
   const cardRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
@@ -84,7 +84,7 @@ function TaskCard({ task, allTasks, highlighted }: { task: Task; allTasks: Task[
         {hasChildren && <Tag style={{ fontSize: 10 }}>含子任务</Tag>}
         <Text type="secondary" style={{ fontSize: 11 }}>
           {task.assigneeId
-            ? mockUsers.find((u) => u.id === task.assigneeId)?.displayName ?? '已指派'
+            ? nameOf(task.assigneeId) ?? '已指派'
             : '待承接'}
         </Text>
         {task.dueAt && <Text type={overdue ? 'danger' : 'secondary'} style={{ fontSize: 11 }}>{dayjs(task.dueAt).format('MM-DD 截止')}</Text>}
@@ -99,11 +99,14 @@ function TaskCard({ task, allTasks, highlighted }: { task: Task; allTasks: Task[
 }
 
 export default function BoardPage() {
+  const currentUser = useMe()
+  const { teamMembers, nameOf } = useDirectory()
   const { projectId = '' } = useParams()
   const [searchParams] = useSearchParams()
   const highlightTaskId = searchParams.get('taskId')
+  const queryClient = useQueryClient()
   const setTasks = useBoardStore((s) => s.setTasks)
-  const [role] = useLocalStorageState<WorkspaceRole>('workspace_role', 'manager')
+  const role = useCurrentRole()
   const isManager = role === 'manager'
 
   const projectQuery = useQuery({
@@ -119,6 +122,14 @@ export default function BoardPage() {
     enabled: !!projectId,
   })
 
+  // R6-4：WS 实时刷新 —— 本项目的 task.* 领域事件（服务端 Outbox→EventBus→WsGateway 广播）
+  // 收到即失效 tasks 查询（TanStack Query 重拉，保留分页/过滤口径）；WebSocket 不可用时页面仍手动刷新
+  useWsEvents((_event, payload) => {
+    if (payload.projectId && payload.projectId !== projectId) return
+    queryClient.invalidateQueries({ queryKey: ['tasks', projectId] })
+    queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+  }, !!projectId)
+
   useEffect(() => {
     if (tasksQuery.data) setTasks(tasksQuery.data.items)
   }, [tasksQuery.data, setTasks])
@@ -127,7 +138,7 @@ export default function BoardPage() {
   const rootTasks = useMemo(() => {
     const parents = allTasks.filter((t: Task) => !t.parentId)
     if (isManager) return parents
-    return parents.filter((t) => isUserInTaskSubtree(allTasks, t.id, mockMe.id))
+    return parents.filter((t) => isUserInTaskSubtree(allTasks, t.id, currentUser.id))
   }, [allTasks, isManager])
 
   const columns = useMemo(() => BOARD_COLUMNS.map((col) => ({ ...col, tasks: rootTasks.filter((t: Task) => t.status === col.status || (col.status === 'in_progress' && t.status === 'blocked')) })), [rootTasks])
@@ -219,7 +230,7 @@ export default function BoardPage() {
                       </Tag>
                       <Text type="secondary" style={{ fontSize: 11 }}>
                         {t.assigneeId
-                          ? mockUsers.find((u) => u.id === t.assigneeId)?.displayName ?? t.assigneeId.slice(0, 8)
+                          ? nameOf(t.assigneeId) ?? t.assigneeId.slice(0, 8)
                           : '待承接'}
                       </Text>
                       {t.dueAt && (
@@ -240,7 +251,7 @@ export default function BoardPage() {
             title="承接人员"
             extra={<Text type="secondary" style={{ fontSize: 12 }}>待承接 {unassignedCount} 项</Text>}
           >
-            {mockUsers.map((u) => {
+            {teamMembers.map((u) => {
               const list = activeTasks.filter((t) => t.assigneeId === u.id)
               if (list.length === 0) return null
               const done = list.filter((t) => t.status === 'done').length

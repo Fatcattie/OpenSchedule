@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest'
 import { MockCalendarAdapter } from './calendar-adapter'
 import { externalEventToTaskPatch } from './sync-contract'
 

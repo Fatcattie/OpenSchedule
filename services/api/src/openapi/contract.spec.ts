@@ -1,0 +1,293 @@
+/**
+ * OpenAPI 契约快照门禁（R8-4，设计文档 §4.5「API 契约」/ CI TODO#1）。
+ *
+ * src/openapi/*.yaml 切片改动 → 装配产物变化 → 与 openapi.snapshot.json
+ * diff 失败。这是 CI 的契约守卫：有意变更契约必须显式 `openapi:sync`
+ * 并随代码一起提交快照。
+ */
+import { describe, expect, it } from 'vitest'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+import {
+  assembleContract,
+  buildSnapshot,
+  ContractAssemblyError,
+  loadSlices,
+  renderSnapshot,
+  SNAPSHOT_FILENAME,
+} from './assemble';
+
+const OPENAPI_DIR = __dirname;
+
+/** 最小化切片构造：路径 / 组件 / x-requirements 用同一 suffix，返回默认拼装 */
+function minimalSlice(suffix: string, extra: Record<string, unknown> = {}): string {
+  const doc = {
+    openapi: '3.1.0',
+    info: { title: `t-${suffix}`, version: '1.0.0' },
+    servers: [{ url: '/api', description: 'd' }],
+    security: [],
+    paths: {
+      [`/${suffix}`]: {
+        get: {
+          operationId: `op${suffix}`,
+          responses: { '200': { description: 'ok' } },
+        },
+      },
+    },
+    components: { schemas: { [`S${suffix}`]: { type: 'object' } } },
+    'x-requirements': {
+      FRX: { summary: `req-${suffix}`, paths: [`/${suffix}`] },
+    },
+    ...extra,
+  };
+  // JSON 是 YAML 1.2 子集：直接序列化即可被切片解析器读取
+  return JSON.stringify(doc);
+}
+
+function writeTempSlices(
+  contents: string[],
+): { dir: string; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), 'openapi-spec-'));
+  contents.forEach((content, i) => {
+    writeFileSync(join(dir, `slice-${String(i).padStart(2, '0')}.yaml`), content, 'utf8');
+  });
+  return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+describe('OpenAPI 契约装配（负路径：非法切片必须报错）', () => {
+  it('合法切片装配通过结构校验', () => {
+    expect(() => assembleContract(OPENAPI_DIR)).not.toThrow();
+  });
+
+  it('装配是确定性的（两次渲染逐字节一致）', () => {
+    expect(buildSnapshot(OPENAPI_DIR)).toBe(buildSnapshot(OPENAPI_DIR));
+  });
+
+  it('operationId 全文档唯一', () => {
+    const doc = assembleContract(OPENAPI_DIR);
+    const seen = new Set<string>();
+    for (const methods of Object.values(doc.paths as Record<string, unknown>)) {
+      for (const op of Object.values(methods as Record<string, unknown>)) {
+        const id = (op as Record<string, unknown>).operationId as string | undefined;
+        if (id) {
+          expect(seen.has(id)).toBe(false);
+          seen.add(id);
+        }
+      }
+    }
+  });
+
+  it('所有本地 $ref 可解析（无悬空引用）', () => {
+    const doc = assembleContract(OPENAPI_DIR);
+    const resolvePointer = (ref: string): unknown => {
+      let current: unknown = doc;
+      for (const seg of ref
+        .slice(2)
+        .split('/')
+        .map((s) => s.replace(/~1/g, '/').replace(/~0/g, '~'))) {
+        if (current === null || typeof current !== 'object') return undefined;
+        current = (current as Record<string, unknown>)[seg];
+      }
+      return current;
+    };
+    const dangling: string[] = [];
+    const walk = (value: unknown): void => {
+      if (Array.isArray(value)) return value.forEach(walk);
+      if (value !== null && typeof value === 'object') {
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+          if (k === '$ref' && typeof v === 'string' && v.startsWith('#/')) {
+            if (resolvePointer(v) === undefined) dangling.push(v);
+          } else {
+            walk(v);
+          }
+        }
+      }
+    };
+    walk(doc);
+    expect(dangling).toEqual([]);
+  });
+
+  it('x-requirements 声明的路径都在 paths 中（需求追溯闭包）', () => {
+    const doc = assembleContract(OPENAPI_DIR);
+    const paths = doc.paths as Record<string, unknown>;
+    for (const raw of Object.values(doc['x-requirements'] as Record<string, unknown>)) {
+      for (const p of (raw as Record<string, unknown>).paths as string[]) {
+        if (!(p in paths)) {
+          throw new Error(`x-requirements 声明了不存在的 path：${p}`);
+        }
+      }
+    }
+  });
+
+  it('x-requirements 同 FR 跨切片合并 paths（并集）', () => {
+    const doc = assembleContract(OPENAPI_DIR);
+    const fr6 = (doc['x-requirements'] as Record<string, unknown>)['FR-006'] as {
+      paths: string[];
+    };
+    // roles.yaml 声明 [/me/capabilities, /roles]，permissions-matrix.yaml 声明 [/permissions/matrix]
+    expect(fr6.paths).toEqual(['/me/capabilities', '/permissions/matrix', '/roles']);
+  });
+
+  it('servers 按 url 去重且排序', () => {
+    const doc = assembleContract(OPENAPI_DIR);
+    const urls = (doc.servers as Array<{ url: string }>).map((s) => s.url);
+    expect(new Set(urls).size).toBe(urls.length);
+    expect([...urls].sort()).toEqual(urls);
+  });
+
+  it('快照渲染键递归排序（与书写顺序无关）', () => {
+    const doc = assembleContract(OPENAPI_DIR);
+    const rendered = renderSnapshot(doc);
+    expect(rendered.endsWith('\n')).toBe(true);
+    // 顶层键在输出中按字典序出现：components < info < openapi < paths < security < servers < x-requirements
+    // （按 2 空格缩进定位顶层键，避免命中嵌套/描述文本中的同名子串）
+    const order = ['components', 'info', 'openapi', 'paths', 'security', 'servers', 'x-requirements']
+      .map((k) => rendered.indexOf(`\n  "${k}"`));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('与已提交快照一致（CI diff 门禁）', () => {
+    const committed = readFileSync(resolve(OPENAPI_DIR, SNAPSHOT_FILENAME), 'utf8');
+    expect(buildSnapshot(OPENAPI_DIR)).toBe(committed);
+  });
+});
+
+describe('OpenAPI 契约装配（负路径：非法切片必须报错）', () => {
+  const cases: Array<[string, string[], RegExp]> = [
+    [
+      'paths 键冲突（同名不同内容）',
+      [
+        minimalSlice('a'),
+        minimalSlice('b', {
+          paths: {
+            '/a': { get: { operationId: 'opb', responses: { '200': { description: 'ok' } } } },
+          },
+          'x-requirements': { FRY: { summary: 'y', paths: ['/a'] } },
+        }),
+      ],
+      /paths 键冲突「\/a」/,
+    ],
+    [
+      'components.schemas 键冲突（结构不一致）',
+      [
+        minimalSlice('a'),
+        minimalSlice('b', {
+          paths: { '/b': { get: { operationId: 'opb', responses: { '200': { description: 'ok' } } } } },
+          components: { schemas: { Sa: { type: 'string' } } }, // 与 a 的 {type:'object'} 结构冲突
+          'x-requirements': { FRY: { summary: 'y', paths: ['/b'] } },
+        }),
+      ],
+      /components\.schemas 键冲突「Sa」/,
+    ],
+    [
+      '未知顶层键',
+      [minimalSlice('a', { 'x-surprise': {} })],
+      /未知顶层键「x-surprise」/,
+    ],
+    [
+      '悬空 $ref',
+      [
+        minimalSlice('a', {
+          paths: {
+            '/a': {
+              get: {
+                operationId: 'opa',
+                responses: { '200': { description: 'ok', content: { 'application/json': { schema: { $ref: '#/components/schemas/Ghost' } } } } },
+              },
+            },
+          },
+        }),
+      ],
+      /悬空 \$ref/,
+    ],
+    [
+      'operationId 重复',
+      [
+        minimalSlice('a', {
+          paths: {
+            '/a': {
+              get: { operationId: 'dup', responses: { '200': { description: 'ok' } } },
+              post: { operationId: 'dup', responses: { '200': { description: 'ok' } } },
+            },
+          },
+        }),
+      ],
+      /operationId 重复「dup」/,
+    ],
+    [
+      'x-requirements 引用不存在的 path',
+      [minimalSlice('a', { 'x-requirements': { FRX: { summary: 'x', paths: ['/ghost'] } } })],
+      /x-requirements 声明了不存在的 path/,
+    ],
+    [
+      'openapi 版本非 3.1.0',
+      [minimalSlice('a', { openapi: '3.0.0' })],
+      /openapi 版本必须是 3\.1\.0/,
+    ],
+    [
+      '切片级 security 非空数组',
+      [minimalSlice('a', { security: [{ sessionCookie: [] }] })],
+      /切片级 security 必须是 \[\]/,
+    ],
+  ];
+
+  for (const [name, slices, pattern] of cases) {
+    it(name, () => {
+      const { dir, cleanup } = writeTempSlices(slices);
+      try {
+        expect(() => assembleContract(dir)).toThrow(ContractAssemblyError);
+        expect(() => assembleContract(dir)).toThrow(pattern);
+      } finally {
+        cleanup();
+      }
+    });
+  }
+
+  it('info.version 不一致报错', () => {
+    const other = JSON.parse(minimalSlice('a')) as Record<string, unknown>;
+    other.info = { title: 't', version: '2.0.0' };
+    const { dir, cleanup } = writeTempSlices([minimalSlice('a'), JSON.stringify(other)]);
+    try {
+      expect(() => assembleContract(dir)).toThrow(/info\.version 不一致/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('x-requirements 同 FR 非 summary 字段冲突报错', () => {
+    const b = JSON.parse(minimalSlice('b')) as Record<string, unknown>;
+    b['x-requirements'] = { FRX: { summary: 'ok', paths: ['/b'], severity: 'high' } };
+    b.paths = { '/b': { get: { operationId: 'opb', responses: { '200': { description: 'ok' } } } } };
+    const { dir, cleanup } = writeTempSlices([minimalSlice('a'), JSON.stringify(b)]);
+    try {
+      expect(() => assembleContract(dir)).toThrow(/x-requirements\.FRX\.severity 冲突/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('同名同内容节点跨切片去重（切片自足声明，如 sessionCookie scheme）', () => {
+    const b = JSON.parse(minimalSlice('b')) as Record<string, unknown>;
+    // b 重复声明与 a 完全一致的 /a 与 Sa，仅新增自有节点
+    b.paths = { '/a': { get: { operationId: 'opa', responses: { '200': { description: 'ok' } } } }, '/b': { get: { operationId: 'opb', responses: { '200': { description: 'ok' } } } } };
+    b.components = { schemas: { Sa: { type: 'object' }, Sb: { type: 'object' } } };
+    b['x-requirements'] = { FRY: { summary: 'y', paths: ['/b'] } };
+    const { dir, cleanup } = writeTempSlices([minimalSlice('a'), JSON.stringify(b)]);
+    try {
+      const doc = assembleContract(dir);
+      expect(Object.keys(doc.paths as object).sort()).toEqual(['/a', '/b']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('loadSlices 排除快照文件且文件名字典序', () => {
+    const slices = loadSlices(OPENAPI_DIR);
+    expect(slices.length).toBeGreaterThanOrEqual(4);
+    expect(slices.every((s) => s.file.endsWith('.yaml'))).toBe(true);
+    expect(slices.some((s) => s.file === SNAPSHOT_FILENAME)).toBe(false);
+  });
+});

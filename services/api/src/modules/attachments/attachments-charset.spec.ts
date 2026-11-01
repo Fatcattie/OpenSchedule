@@ -10,6 +10,7 @@
  * 依赖仅 `@nestjs/testing`（已在 devDependencies）+ Node 内置 `http`（无 supertest，不新增依赖）。
  */
 import 'reflect-metadata';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import * as http from 'node:http';
@@ -80,6 +81,8 @@ describe('AttachmentsController —— multipart 中文文件名（defParamChars
 
   beforeAll(async () => {
     receivedFile = undefined;
+    // vitest(esbuild) 不发射 emitDecoratorMetadata ⇒ 手动补构造参数类型，供 Nest DI 解析（见 vitest.config.ts 说明）
+    Reflect.defineMetadata('design:paramtypes', [AttachmentsService], AttachmentsController);
     const moduleRef = await Test.createTestingModule({
       controllers: [AttachmentsController],
       providers: [

@@ -5,9 +5,10 @@
  * - 自动迁移旧「MetaSkill 工具草稿」（saved_tools）为技能条目，历史数据不丢失。
  */
 import { useCallback, useMemo } from 'react'
-import { useLocalStorageState } from './useLocalStorageState'
+import { useWorkspaceState } from './useWorkspaceState'
+import { USE_MOCK } from '@/api/config'
 import { newId, seedSkills } from '@/constants/intelligentDefaults'
-import { mockMe } from '@/api/mock/data'
+import { useMe } from '@/hooks/useWorkspaceIdentity'
 import type { SkillItem, SharedEntry } from '@/types/intelligent'
 
 const STORAGE_KEY = 'skills'
@@ -66,10 +67,13 @@ function migrateLegacyTools(ownerId: string, ownerName: string): SkillItem[] {
 }
 
 export function useSkills() {
-  const [skills, setSkills] = useLocalStorageState<SkillItem[]>(STORAGE_KEY, () => [
-    ...seedSkills(mockMe.id, mockMe.displayName ?? '我'),
-    ...migrateLegacyTools(mockMe.id, mockMe.displayName ?? '我'),
-  ])
+  const currentUser = useMe()
+  // 示例种子与旧草稿迁移仅 mock 演示使用（真实租户从空库开始，D-07）
+  const [skills, setSkills] = useWorkspaceState<SkillItem[]>(STORAGE_KEY, () =>
+    USE_MOCK
+      ? [...seedSkills(currentUser.id, currentUser.displayName ?? '我'), ...migrateLegacyTools(currentUser.id, currentUser.displayName ?? '我')]
+      : [],
+  )
 
   const create = useCallback(
     (input: Pick<SkillItem, 'name' | 'summary' | 'content'> & Partial<SkillItem>) => {
@@ -82,8 +86,8 @@ export function useSkills() {
         tags: input.tags ?? [],
         version: input.version ?? '1.0.0',
         favorite: input.favorite ?? false,
-        createdBy: input.createdBy ?? mockMe.id,
-        createdByName: input.createdByName ?? mockMe.displayName ?? '我',
+        createdBy: input.createdBy ?? currentUser.id,
+        createdByName: input.createdByName ?? currentUser.displayName ?? '我',
         createdAt: now,
         updatedAt: now,
         sharedWith: input.sharedWith ?? [],
@@ -93,7 +97,7 @@ export function useSkills() {
       setSkills((prev) => [item, ...prev])
       return item
     },
-    [setSkills],
+    [setSkills, currentUser.id, currentUser.displayName],
   )
 
   const update = useCallback(
@@ -102,21 +106,21 @@ export function useSkills() {
         prev.map((s) => (s.id === id ? { ...s, ...patch, updatedAt: new Date().toISOString() } : s)),
       )
     },
-    [setSkills],
+    [setSkills, currentUser.id, currentUser.displayName],
   )
 
   const remove = useCallback(
     (id: string) => {
       setSkills((prev) => prev.filter((s) => s.id !== id))
     },
-    [setSkills],
+    [setSkills, currentUser.id, currentUser.displayName],
   )
 
   const toggleFavorite = useCallback(
     (id: string) => {
       setSkills((prev) => prev.map((s) => (s.id === id ? { ...s, favorite: !s.favorite } : s)))
     },
-    [setSkills],
+    [setSkills, currentUser.id, currentUser.displayName],
   )
 
   const share = useCallback(
@@ -133,7 +137,7 @@ export function useSkills() {
         }),
       )
     },
-    [setSkills],
+    [setSkills, currentUser.id, currentUser.displayName],
   )
 
   const duplicate = useCallback(
@@ -143,8 +147,8 @@ export function useSkills() {
         ...item,
         id: newId('skill'),
         name: `${item.name}（副本）`,
-        createdBy: mockMe.id,
-        createdByName: mockMe.displayName ?? '我',
+        createdBy: currentUser.id,
+        createdByName: currentUser.displayName ?? '我',
         createdAt: now,
         updatedAt: now,
         sharedWith: [],
@@ -155,22 +159,22 @@ export function useSkills() {
       setSkills((prev) => [copy, ...prev])
       return copy
     },
-    [setSkills],
+    [setSkills, currentUser.id, currentUser.displayName],
   )
 
-  const mine = useMemo(() => skills.filter((s) => s.createdBy === mockMe.id), [skills])
+  const mine = useMemo(() => skills.filter((s) => s.createdBy === currentUser.id), [skills, currentUser.id])
 
   const sharedWithMe = useMemo<SharedEntry<SkillItem>[]>(
     () =>
       skills
-        .filter((s) => s.createdBy !== mockMe.id && s.sharedWith.includes(mockMe.id))
+        .filter((s) => s.createdBy !== currentUser.id && s.sharedWith.includes(currentUser.id))
         .map((s) => ({
           item: s,
           sharedBy: s.createdBy,
           sharedByName: s.createdByName,
-          note: s.shareNotes[mockMe.id],
+          note: s.shareNotes[currentUser.id],
         })),
-    [skills],
+    [skills, currentUser.id],
   )
 
   return { skills, mine, sharedWithMe, create, update, remove, toggleFavorite, share, duplicate }

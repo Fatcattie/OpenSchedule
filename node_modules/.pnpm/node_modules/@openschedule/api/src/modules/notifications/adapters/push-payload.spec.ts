@@ -1,0 +1,46 @@
+import { describe, expect, it } from 'vitest'
+import { buildPushPayload, parseVapidConfig, shouldPruneSubscription } from './push-payload';
+
+describe('parseVapidConfig VAPID 配置解析', () => {
+  it('公钥/私钥任一缺失 → null（push 未启用）', () => {
+    expect(parseVapidConfig({})).toBeNull();
+    expect(parseVapidConfig({ VAPID_PUBLIC_KEY: 'pub' })).toBeNull();
+    expect(parseVapidConfig({ VAPID_PRIVATE_KEY: 'priv' })).toBeNull();
+  });
+
+  it('完整配置 + 默认 subject', () => {
+    expect(parseVapidConfig({ VAPID_PUBLIC_KEY: 'pub', VAPID_PRIVATE_KEY: 'priv' })).toEqual({
+      publicKey: 'pub',
+      privateKey: 'priv',
+      subject: 'mailto:admin@openschedule.dev',
+    });
+  });
+});
+
+describe('buildPushPayload 推送载荷构建', () => {
+  it('标题/正文超长截断（加密体积护栏），data 透传', () => {
+    const payload = buildPushPayload({ title: 'x'.repeat(500), body: 'y'.repeat(5000), data: { taskId: 't1' } });
+    expect(payload.title.length).toBe(120);
+    expect(payload.body.length).toBe(1000);
+    expect(payload.data).toEqual({ taskId: 't1' });
+  });
+
+  it('body 为 null → 空串；data 为 undefined → null', () => {
+    const payload = buildPushPayload({ title: 't', body: null, data: undefined });
+    expect(payload.body).toBe('');
+    expect(payload.data).toBeNull();
+  });
+});
+
+describe('shouldPruneSubscription 死订阅判定', () => {
+  it('404/410 → 清理（订阅已注销/过期）', () => {
+    expect(shouldPruneSubscription(404)).toBe(true);
+    expect(shouldPruneSubscription(410)).toBe(true);
+  });
+
+  it('其他状态/缺失 → 不清理（走重试）', () => {
+    expect(shouldPruneSubscription(201)).toBe(false);
+    expect(shouldPruneSubscription(500)).toBe(false);
+    expect(shouldPruneSubscription(undefined)).toBe(false);
+  });
+});

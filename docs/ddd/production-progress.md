@@ -1331,8 +1331,9 @@
 #### 当前阻塞
 
 - **恢复演练仅为 CI 级**：数据量为空库 + 哨兵行，未记录 RTO；目标机 `deploy/drill/run.mjs`（含生产 `pg-backup` 定时备份实跑、RTO 记录）仍待服务器（§4.2 RPO/RTO）。
-- CI 注解：`actions/*@v4` 基于已弃用的 Node 20；`ubuntu-latest` 自 2026-10-19 起迁移到 Ubuntu 26——当前不影响结果，后续可升级 actions 主版本 / 固定 runner 版本。
-- 本地 `backup/pre-push-335a787` 分支可在确认后删除。
+- ~~CI 注解：`actions/*@v4` 基于已弃用的 Node 20；`ubuntu-latest` 自 2026-10-19 起迁移到 Ubuntu 26——当前不影响结果，后续可升级 actions 主版本 / 固定 runner 版本。~~ **2026-11-02 已处理**：全部 action 升至 Node 24 主版本（checkout v5 / setup-node v5 / setup-python v6 / upload-artifact v6 / pnpm action-setup v5 / docker build-push v7 · login v4 · setup-buildx v4）；runner 迁移 Ubuntu 26 仍待观察。
+- ~~本地 `backup/pre-push-335a787` 分支可在确认后删除。~~ **2026-11-02 已删除**（提交 `335a787` 已在 main/origin/main 中）。
+- **移动端接真实后端前置（2026-11-02）**：`API_BASE` 改为 `${EXPO_PUBLIC_API_URL}/api/v1`（真机可用）；`USE_MOCK` 改为三态（显式 env 优先，否则「配了源站即真实」），eas preview/production 固定 `EXPO_PUBLIC_USE_MOCK=false`；占位 `projectId` 移除，改由 `app.config.ts` 读 `EAS_PROJECT_ID` 注入；新增 `tests/config-env.test.ts`（mobile 59 suites / 1019 tests 全绿）。**仍需**：用户 Expo 账号 `eas init` 取真实项目 ID、`eas env:set` 设源站；移动端真实分支对后端接口的端到端联调未做（audit 审批后端无端点 N6）。
 
 ### R10-1 生产部署与运维开工：生产编排 + web 生产镜像 + CD + runbook（2026-10-18）
 

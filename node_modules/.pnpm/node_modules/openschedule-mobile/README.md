@@ -70,24 +70,33 @@ apps/mobile/
 
 ## 三、Mock 与真实 API 切换
 
-服务层统一由 `src/services/config.ts` 的 `USE_MOCK` 控制：
+服务层统一由 `src/services/config.ts` 的 `USE_MOCK` 与 `API_BASE` 控制，取值来自环境变量（模板见 `.env.example`）：
 
-```ts
-export const USE_MOCK: boolean = process.env.EXPO_PUBLIC_USE_MOCK !== 'false'
-```
+| 变量 | 作用 |
+| --- | --- |
+| `EXPO_PUBLIC_API_URL` | 后端源站（如 `https://schedule.example.com`，不含 `/api/v1`）。**真机/模拟器必填**，相对路径只在 Expo Web 同源部署时可用 |
+| `EXPO_PUBLIC_USE_MOCK` | `true`/`false` 显式指定；留空时 = 配了 `EXPO_PUBLIC_API_URL` 走真实后端，否则走 mock |
+| `EAS_PROJECT_ID` | EAS 项目 ID，由 `app.config.ts` 注入 `extra.eas.projectId`；留空则不写入 |
 
 - **默认（mock）**：所有读接口返回本地 `src/data` 种子数据；所有写接口在内存库上生效，并保留 `// TODO(real-api): <METHOD> <path>` 调用位与 `version` 字段。
-- **切换真实后端**：启动时设置环境变量即可，**无需修改任何页面代码**：
+- **本地连真实后端**：
 
 ```bash
-# Windows (PowerShell)
-$env:EXPO_PUBLIC_USE_MOCK="false"; npm start
+# Windows (PowerShell)；真机调试本机后端时用电脑局域网 IP
+$env:EXPO_PUBLIC_API_URL="http://192.168.1.10:3000"; npm start
 
 # macOS / Linux
-EXPO_PUBLIC_USE_MOCK=false npm start
+EXPO_PUBLIC_API_URL=http://192.168.1.10:3000 npm start
 ```
 
-真实模式下请求经 `src/services/client.ts` 发出：注入 `Authorization: Bearer <token>`、解包 `ApiResponse<T>`、把错误归一化为 `ApiError`（含 40901 乐观锁 / 40902 非法迁移），401 触发 `unauthorizedHandler` 清空会话回到登录页。REST 前缀为 `/api/v1`（`API_BASE`）。
+- **EAS 构建**：`eas.json` 的 preview/production profile 已固定 `EXPO_PUBLIC_USE_MOCK=false`；源站与项目 ID 用 EAS 环境变量设置：
+
+```bash
+eas env:set --name EXPO_PUBLIC_API_URL --value https://你的域名 --environment production --visibility plaintext
+eas env:set --name EAS_PROJECT_ID     --value <项目 UUID>      --environment production --visibility plaintext
+```
+
+真实模式下请求经 `src/services/client.ts` 发出：注入 `Authorization: Bearer <token>`、解包 `ApiResponse<T>`、把错误归一化为 `ApiError`（含 40901 乐观锁 / 40902 非法迁移），401 触发 `unauthorizedHandler` 清空会话回到登录页。请求地址为 `${EXPO_PUBLIC_API_URL}/api/v1`（`API_BASE`）。
 
 ---
 

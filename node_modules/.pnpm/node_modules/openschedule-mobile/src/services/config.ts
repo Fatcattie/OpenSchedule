@@ -2,14 +2,25 @@
  * 职责：服务层统一配置 —— API 前缀、mock 开关、存储 key、mock 延迟区间（对齐 Web 端 config.ts）。
  */
 
-/** REST 统一前缀 */
-export const API_BASE = '/api/v1'
+/**
+ * 后端源站（协议 + 域名 [+ 端口]，不含 `/api/v1`），如 `https://schedule.example.com`。
+ * 真机 / 模拟器没有"同源"概念，相对路径无法请求，必须通过 `EXPO_PUBLIC_API_URL` 显式配置；
+ * 留空时退化为相对路径，仅 Expo Web 与后端同源部署时可用。
+ */
+export const API_ORIGIN: string = (process.env.EXPO_PUBLIC_API_URL ?? '').trim().replace(/\/+$/, '')
+
+/** REST 统一前缀（含源站） */
+export const API_BASE = `${API_ORIGIN}/api/v1`
 
 /**
- * Mock 开关（默认开，保证后端未就绪时页面不白屏）：
- * - 默认走 mock；接真实后端时设 `EXPO_PUBLIC_USE_MOCK=false` 即可，无需改页面代码。
+ * Mock 开关：
+ * - `EXPO_PUBLIC_USE_MOCK=true|false` 显式指定时以其为准；
+ * - 未指定时：配置了 `EXPO_PUBLIC_API_URL` → 走真实后端，否则走 mock（本地演示不白屏）。
+ * 正式构建由 eas.json 的 preview/production profile 显式设为 false，避免误把 mock 打进安装包。
  */
-export const USE_MOCK: boolean = process.env.EXPO_PUBLIC_USE_MOCK !== 'false'
+const USE_MOCK_ENV = process.env.EXPO_PUBLIC_USE_MOCK
+export const USE_MOCK: boolean =
+  USE_MOCK_ENV === 'true' ? true : USE_MOCK_ENV === 'false' ? false : API_ORIGIN === ''
 
 /** token 存储 key（native 走 SecureStore / web 走 localStorage） */
 export const TOKEN_KEYS = {

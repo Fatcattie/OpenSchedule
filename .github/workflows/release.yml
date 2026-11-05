@@ -7,8 +7,8 @@
 #
 # 与 ci.yml 的分工：ci.yml 是**门禁**（lint/build/test/audit/migration），本文件只负责**发布**。
 # 前置：仓库 Settings → Environments 建 staging / production（production 加 Required reviewers）。
-# 说明：迁移 job 复用 api 镜像内的 prisma CLI（prisma 为 dependencies，随镜像发布），
-#       与 ci.yml 的 migration job 同源脚本（deploy/postgres/*.sh）。
+# 说明：迁移在目标机上经 compose `migrate` 服务执行（复用 api 镜像内的 prisma CLI，与运行时同版本），
+#       不在 runner 上直连数据库——生产 PG 不对外暴露端口。所需 secrets 仅 SSH 三件套，无需 DATABASE_URL。
 # ============================================================
 name: Release
 
@@ -96,41 +96,13 @@ jobs:
           cache-from: type=gha,scope=ai
           cache-to: type=gha,mode=max,scope=ai
 
-  # ---------- 2. 迁移 job（先于应用滚动；幂等） ----------
-  # 上线顺序：迁移（向后兼容）→ 应用 → 观察；回滚时不回滚迁移（expand/contract 约定）
-  migrate:
-    name: Migrate (${{ needs.build-images.outputs.tag }})
-    needs: build-images
-    runs-on: ubuntu-latest
-    environment: ${{ matrix.environment }}
-    strategy:
-      matrix:
-        # staging 自动跑；production 受环境保护规则（required reviewers）阻塞
-        environment: [staging]
-    steps:
-      - uses: actions/checkout@v5
-      - name: Apply migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          REGISTRY: ${{ needs.build-images.outputs.registry }}
-          IMAGE_TAG: ${{ needs.build-images.outputs.tag }}
-        run: |
-          set -euo pipefail
-          # 用发布镜像内的 prisma CLI 执行（与运行时同版本，避免本地/镜像漂移）
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          docker run --rm \
-            -e DATABASE_URL="$DATABASE_URL" \
-            "$REGISTRY/openschedule-api:$IMAGE_TAG" \
-            npx prisma migrate deploy
-          docker run --rm \
-            -e DATABASE_URL="$DATABASE_URL" \
-            "$REGISTRY/openschedule-api:$IMAGE_TAG" \
-            npx prisma migrate status
-
-  # ---------- 3. 部署（staging 自动；production 需审批） ----------
+  # ---------- 2. 部署（staging 自动；production 需审批） ----------
+  # 迁移在目标机上执行：生产 PG 不对外暴露端口，GitHub runner 无法直连，故不设独立 runner 迁移 job。
+  # 上线顺序：迁移（向后兼容，prisma migrate deploy 幂等）→ 迁移状态校验 → 应用滚动 → 冒烟；
+  # 回滚时不回滚迁移（expand/contract 约定）。迁移/校验失败 → set -e 中止，不滚动应用。
   deploy:
     name: Deploy → ${{ matrix.environment }}
-    needs: [build-images, migrate]
+    needs: [build-images]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
@@ -160,6 +132,7 @@ jobs:
             export REGISTRY="$REGISTRY" IMAGE_TAG="$IMAGE_TAG"
             docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml pull api web ai
             docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml --profile tools run --rm migrate
+            docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml --profile tools run --rm migrate npx prisma migrate status
             docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml up -d --remove-orphans
             docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml ps
           REMOTE
@@ -174,10 +147,10 @@ jobs:
           code="$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL/")"
           test "$code" = "200"
 
-  # ---------- 4. 生产发布（人工审批 gate；复用同一镜像 tag） ----------
+  # ---------- 3. 生产发布（人工审批 gate；复用同一镜像 tag） ----------
   deploy-production:
     name: Deploy → production (needs approval)
-    needs: [build-images, migrate, deploy]
+    needs: [build-images, deploy]
     runs-on: ubuntu-latest
     environment:
       name: production
@@ -210,6 +183,7 @@ jobs:
             docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml --profile ops up -d pg-backup
             docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml pull api web ai
             docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml --profile tools run --rm migrate
+            docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml --profile tools run --rm migrate npx prisma migrate status
             docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml up -d --remove-orphans
             docker compose --env-file deploy/.env.production -f deploy/docker-compose.prod.yml ps
           REMOTE

@@ -135,7 +135,7 @@ Windows PowerShell 使用 `deploy/postgres/backup.ps1`、`restore.ps1`、`verify
 | `deploy/.env.production.example` | 生产变量模板（真实值放 `deploy/.env.production`，已被 .gitignore 排除） |
 | `deploy/server/bootstrap.sh` / `gen-env.sh` | 服务器一次性初始化（Docker/用户/防火墙/内核参数）与 `.env.production` 生成（R10-3） |
 | `docs/ops/runbook.md` | 运维手册：发布/回滚/告警处置/备份恢复演练/密钥清单 |
-| `.github/workflows/release.yml` | CD：推 `v*` tag → 构建三镜像 → 迁移 job → staging 自动 → production 人工审批 |
+| `.github/workflows/release.yml` | CD：推 `v*` tag → 构建三镜像 → staging 自动（目标机迁移） → production 人工审批 |
 
 ```bash
 sudo bash deploy/server/bootstrap.sh --ssh-pubkey "<CI 公钥>"   # 一次性：服务器初始化（Debian/RHEL 系兼容；--check 只自检）

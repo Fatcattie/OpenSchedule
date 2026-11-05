@@ -10,7 +10,7 @@
  *  3. web 生产镜像：apps/web/Dockerfile 的 prod 目标（nginx 静态托管 + VITE_USE_MOCK=false + dist）
  *  4. 反向代理与 TLS：deploy/caddy/Caddyfile（/api/* → api:3000、/metrics 403、其余 → web:80、HSTS）
  *  5. AI 模型凭据（D-14）：部署配置不含任何模型 key（已移除 LiteLLM）；key 由管理员在设置页配置、库内加密
- *  6. CD 流水线：.github/workflows/release.yml（三镜像 → 迁移 job → staging → production 人工 gate）
+ *  6. CD 流水线：.github/workflows/release.yml（三镜像 → staging（目标机迁移+校验+滚动）→ production 人工 gate）
  *  7. 备份与恢复演练：pg-backup job + docs/ops/runbook.md（10 条告警处置 + restore/verify 流程）
  *  8. 不回归：ci.yml 的 migration/备份恢复步骤仍在；.gitignore 仍只放行模板不放行 .env.production
  *  9. staging 演练包（R10-2）
@@ -166,9 +166,12 @@ function run() {
   const releaseRaw = read('.github', 'workflows', 'release.yml');
   const release = parseYaml(releaseRaw, '.github/workflows/release.yml');
   const jobs = release.jobs;
-  for (const job of ['build-images', 'migrate', 'deploy', 'deploy-production']) {
+  for (const job of ['build-images', 'deploy', 'deploy-production']) {
     assert.ok(jobs[job], `release.yml 缺少 job：${job}`);
   }
+  // 生产 PG 不对外暴露：迁移不得在 runner 上直连数据库（须在目标机经 compose migrate 执行）
+  assert.ok(!jobs.migrate, 'release.yml 不得设 runner 直连数据库的 migrate job');
+  assert.ok(!releaseRaw.includes('secrets.DATABASE_URL'), 'release.yml 不得依赖 secrets.DATABASE_URL');
   assert.ok(JSON.stringify(release.on.push.tags).includes('v*'), 'release.yml 须由 v* tag 触发');
   // 三镜像都构建且 web 用 prod 目标
   for (const target of ['services/api/Dockerfile', 'apps/web/Dockerfile', 'services/ai/Dockerfile']) {
@@ -176,10 +179,15 @@ function run() {
   }
   assert.match(releaseRaw, /file: apps\/web\/Dockerfile\s*\n\s*target: prod/, 'web 镜像须构建 prod 目标（静态托管）');
   // 迁移先于部署（上线顺序不可颠倒）
-  assert.ok(jobs.migrate.needs.includes('build-images'), 'migrate 须依赖镜像构建');
-  assert.ok(jobs.deploy.needs.includes('migrate'), 'deploy 须依赖 migrate（先迁移后滚动）');
-  assert.ok(releaseRaw.includes('prisma migrate deploy'), '发布须执行 prisma migrate deploy');
-  assert.ok(releaseRaw.includes('prisma migrate status'), '发布须执行迁移状态校验');
+  assert.ok(jobs.deploy.needs.includes('build-images'), 'deploy 须依赖镜像构建');
+  assert.ok(jobs['deploy-production'].needs.includes('deploy'), '生产发布须在 staging 发布之后');
+  for (const job of ['deploy', 'deploy-production']) {
+    const script = JSON.stringify(jobs[job].steps);
+    const migrateAt = script.indexOf('run --rm migrate');
+    const statusAt = script.indexOf('run --rm migrate npx prisma migrate status');
+    const upAt = script.indexOf('up -d --remove-orphans');
+    assert.ok(migrateAt >= 0 && statusAt > migrateAt && upAt > statusAt, `${job} 须先迁移、再校验迁移状态、后滚动应用`);
+  }
   // 生产发布必须挂在受保护的 GitHub Environment 上（人工 gate）
   assert.equal(jobs['deploy-production'].environment.name, 'production', '生产发布须走 production Environment（审批 gate）');
   assert.ok(releaseRaw.includes('run --rm migrate'), '发布编排须先跑迁移 job');

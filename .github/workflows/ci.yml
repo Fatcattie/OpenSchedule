@@ -2,7 +2,7 @@
 # OpenSchedule CI（方案 chapter_04 §4.5 DoD 的流水线承载）
 # Lint（typecheck + OpenAPI 快照）· Build · API Test（覆盖率门禁）· Web Test（覆盖率门禁）
 # · AI Service Test · Audit（依赖漏洞，可交付范围门槛 high）· Migration（空库部署 / 漂移 / 备份恢复 / 真实库 e2e）
-# 发布流水线见 .github/workflows/release.yml（R10：三镜像 + 迁移 job + staging 自动 / production 审批 gate）
+# 发布流水线见 .github/workflows/release.yml（R10：三镜像 + staging 自动（目标机迁移） / production 审批 gate）
 # ⚠️ 仍待补齐：
 #   1. AI schema 合规率 eval 的**真实 LLM 采样**（离线 strict 基线已在 tests/test_decompose_schema_eval.py 随 ai-test job 执行；
 #      真实模型 ≥99% 采样需 EVAL_LLM=1 + EVAL_LLM_API_KEY，见 production-progress §R8-12）

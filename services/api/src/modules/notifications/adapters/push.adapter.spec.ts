@@ -55,6 +55,13 @@ function startPushService(): Promise<{ server: Server; port: number; received: C
 
 const vapidKeys = webpush.generateVAPIDKeys();
 
+/** 本地推送服务在 127.0.0.1：生产 agent 会被 SSRF 守卫拦截（见 url-guard），测试换成放行自签证书的普通 agent */
+function localAdapter(prisma: PrismaService): PushAdapter {
+  const adapter = new PushAdapter(prisma);
+  adapter.agent = new https.Agent({ rejectUnauthorized: false });
+  return adapter;
+}
+
 const outbound = (overrides: Partial<OutboundNotification> = {}): OutboundNotification => ({
   id: 'n1',
   tenantId: 't1',
@@ -114,7 +121,7 @@ describe('PushAdapter 真实投递（web-push 加密出站）', () => {
       process.env.VAPID_PUBLIC_KEY = vapidKeys.publicKey;
       process.env.VAPID_PRIVATE_KEY = vapidKeys.privateKey;
       const { prisma } = fakePrisma([{ id: 'sub-1', endpoint: `https://127.0.0.1:${pushService.port}/push-ok`, ...makeSubscriptionKeys() }]);
-      const adapter = new PushAdapter(prisma);
+      const adapter = localAdapter(prisma);
 
       await adapter.send(outbound(), { id: 'd1', notificationId: 'n1', channel: 'push', attempts: 0 });
 
@@ -135,7 +142,7 @@ describe('PushAdapter 真实投递（web-push 加密出站）', () => {
       process.env.VAPID_PUBLIC_KEY = vapidKeys.publicKey;
       process.env.VAPID_PRIVATE_KEY = vapidKeys.privateKey;
       const { prisma, deleteMany } = fakePrisma([{ id: 'sub-gone', endpoint: `https://127.0.0.1:${pushService.port}/push-gone`, ...makeSubscriptionKeys() }]);
-      const adapter = new PushAdapter(prisma);
+      const adapter = localAdapter(prisma);
 
       await expect(adapter.send(outbound(), { id: 'd2', notificationId: 'n1', channel: 'push', attempts: 0 })).rejects.toThrow('PUSH_ALL_SUBSCRIPTIONS_GONE');
       expect(deleteMany).toHaveBeenCalledWith({ where: { id: 'sub-gone' } });
@@ -153,7 +160,7 @@ describe('PushAdapter 真实投递（web-push 加密出站）', () => {
         { id: 'sub-dead', endpoint: `https://127.0.0.1:${pushService.port}/push-missing`, ...makeSubscriptionKeys() },
         { id: 'sub-live', endpoint: `https://127.0.0.1:${pushService.port}/push-ok`, ...makeSubscriptionKeys() },
       ]);
-      const adapter = new PushAdapter(prisma);
+      const adapter = localAdapter(prisma);
 
       await expect(adapter.send(outbound(), { id: 'd3', notificationId: 'n1', channel: 'push', attempts: 0 })).resolves.toBeUndefined();
       expect(deleteMany).toHaveBeenCalledTimes(1);

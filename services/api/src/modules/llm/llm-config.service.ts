@@ -9,7 +9,7 @@ import { HttpStatus, Injectable } from '@nestjs/common'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { CredentialCipher } from '../../common/security/credential-cipher'
-import { assertSafeOutboundUrl } from '../../common/security/url-guard'
+import { assertSafeOutboundUrl, safeFetch } from '../../common/security/url-guard'
 import { ApiException } from '../../common/exceptions/api.exception'
 import { API_ERROR_CODES } from '../../common/constants/error-codes'
 import { AuthUser, isTenantAdmin } from '../../common/decorators/current-user.decorator'
@@ -35,8 +35,8 @@ export type LlmTestResult =
 
 @Injectable()
 export class LlmConfigService {
-  /** 测试注入点：生产用全局 fetch */
-  fetchImpl: typeof fetch = (...args) => fetch(...args)
+  /** 测试注入点：生产用 safeFetch（连接时 SSRF 校验 + 不跟随重定向，安全问题 M-3） */
+  fetchImpl: typeof fetch = (...args) => safeFetch(...args)
 
   constructor(
     private readonly prisma: PrismaService,

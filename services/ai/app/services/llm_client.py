@@ -16,6 +16,7 @@ import httpx
 
 from ..config import Settings, get_settings
 from ..schemas.decompose import DecomposeRequest, DecomposeResult, DecomposeTask, LlmTarget, TaskDependency
+from .url_guard import SafeAsyncTransport, UnsafeOutboundTargetError
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,10 @@ class LLMClient:
     def __init__(self, settings: Settings, target: LlmTarget | None) -> None:
         self._settings = settings
         self._target = target
-        self._client = httpx.AsyncClient(timeout=settings.llm_timeout_seconds)
+        # M-2：连接时 SSRF 校验（SafeAsyncTransport 钉 IP）+ 显式不跟随重定向（30x 不得把请求引到内网）
+        self._client = httpx.AsyncClient(
+            timeout=settings.llm_timeout_seconds, transport=SafeAsyncTransport(), follow_redirects=False
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -141,6 +145,9 @@ class LLMClient:
             )
         except httpx.TimeoutException as exc:
             raise LLMTimeoutError(f"LLM 请求超时（{settings.llm_timeout_seconds}s）") from exc
+        except UnsafeOutboundTargetError as exc:
+            logger.warning("拒绝不安全的模型出站目标（SSRF 防护）：%s", exc)
+            raise LLMConnectionError(f"模型服务地址不安全，已拒绝：{httpx.URL(url).host}") from exc
         except httpx.ConnectError as exc:
             raise LLMConnectionError(f"无法连接模型服务：{httpx.URL(url).host}") from exc
         except httpx.HTTPError as exc:
@@ -171,6 +178,9 @@ class LLMClient:
             raise LLMUpstreamError(f"LLM 上游错误（HTTP {resp.status_code}）")
         if resp.status_code >= 400:
             raise LLMInvalidResponseError(f"LLM 拒绝请求（HTTP {resp.status_code}：{resp.text[:200]}）")
+        if 300 <= resp.status_code < 400:
+            # 不跟随重定向（M-2）：30x 视为接口地址配置错误
+            raise LLMInvalidResponseError(f"LLM 接口返回重定向（HTTP {resp.status_code}），请检查 Base URL")
 
     # —— 拆解专用 ——
     async def generate_decompose(self, request: DecomposeRequest, feedback: str | None = None) -> str:

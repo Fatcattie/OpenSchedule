@@ -5,7 +5,9 @@
  */
 import { Injectable } from '@nestjs/common';
 import * as webpush from 'web-push';
+import type { Agent } from 'node:https';
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { safeHttpsAgent } from '../../../common/security/url-guard';
 import { DeliveryRecord, NotificationAdapter, OutboundNotification } from './notification-adapter.interface';
 import { buildPushPayload, parseVapidConfig, shouldPruneSubscription } from './push-payload';
 
@@ -15,6 +17,8 @@ const PUSH_TTL_SECONDS = 3_600;
 @Injectable()
 export class PushAdapter implements NotificationAdapter {
   readonly channel = 'push' as const;
+  /** 出站 agent（测试注入点）：生产为 safeHttpsAgent，连接时 SSRF 校验（endpoint 为用户提交的出站目标，M-3） */
+  agent: Agent = safeHttpsAgent;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -32,7 +36,7 @@ export class PushAdapter implements NotificationAdapter {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           payload,
-          { vapidDetails: vapid, TTL: PUSH_TTL_SECONDS, timeout: PUSH_TIMEOUT_MS },
+          { vapidDetails: vapid, TTL: PUSH_TTL_SECONDS, timeout: PUSH_TIMEOUT_MS, agent: this.agent },
         );
         sent++;
       } catch (err) {

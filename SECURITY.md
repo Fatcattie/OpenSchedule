@@ -39,20 +39,24 @@
 
 ## 已知问题跟踪
 
-来源：[`docs/code-analysis-report.md`](docs/code-analysis-report.md)（2026-11-05 本地静态审查；状态于 2026-11-08 对照源码复核）。
+来源：[`docs/code-analysis-report.md`](docs/code-analysis-report.md)（2026-11-05 本地静态审查）。2026-11-08 已全部修复，回归测试见 `services/api/src/common/security/security-hardening.spec.ts`、`services/ai/tests/test_security_hardening.py`、`apps/web/src/utils/securityHardening.test.ts`。
 
-| 编号 | 级别 | 问题 | 位置 | 状态 |
+| 编号 | 级别 | 问题 | 修复方式 | 状态 |
 |---|---|---|---|---|
-| H-1 | 高 | AI 服务默认互信 token（`dev-ai-service-token-change-me`）绕过主服务按前缀匹配的启动黑名单 | `services/ai/app/config.py:39`、`services/api/src/common/startup/startup-guard.ts:19` | 🔴 未修复 |
-| M-1 | 中 | 限流无条件信任 `X-Forwarded-For`，未设置 `trust proxy`，登录限流可被伪造 IP 绕过 | `services/api/src/common/rate-limit/rate-limit.guard.ts:40-44` | 🔴 未修复 |
-| M-2 | 中 | AI 侧出站 LLM 请求无 SSRF 守卫，且 httpx 会跟随重定向 | `services/ai/app/services/llm_client.py:128,139` | 🔴 未修复 |
-| M-3 | 中 | url-guard 存在 DNS rebinding TOCTOU 问题；未覆盖 CGNAT / benchmarking / 组播保留网段 | `services/api/src/common/security/url-guard.ts` | 🔴 未修复 |
-| M-4 | 中 | CSV 导出存在公式注入（`=`、`+`、`-`、`@` 开头的单元格未转义） | `services/api/src/modules/import-export/import-export.service.ts:221` | 🔴 未修复 |
-| M-5 | 中 | Web 端 refresh token 存在 localStorage，一旦有 XSS 即可被长期窃取 | `apps/web/src/api/config.ts`、`apps/mobile/src/services/platform/secureStore.web.ts` | 🔴 未修复 |
-| L-1 | 低 | 移动端 mock 演示口令硬编码，未配 API 地址时默认启用 mock | `apps/mobile/src/services/auth.service.ts:20-23` | 🔴 未修复 |
-| L-2 | 低 | 本地 compose 使用弱默认口令，Redis 无鉴权且映射到宿主端口（仅开发环境） | `deploy/docker-compose.yml` | 🔴 未修复 |
-| L-3 | 低 | 缺 CSP 头；`ssh-keyscan` 首次连接信任（TOFU）；`serve-dist` 路径前缀校验未补 `path.sep` | 见报告 §3 L-3 | 🔴 未修复 |
+| H-1 | 高 | AI 服务默认互信 token 绕过启动黑名单 | AI 服务 `APP_ENV=production` 时 token 为空或含 change-me 即拒绝启动；主服务黑名单由前缀匹配改为包含匹配 | ✅ 已修复 |
+| M-1 | 中 | 限流信任可伪造的 `X-Forwarded-For` | 新增 `TRUST_PROXY`（生产 compose 设为 1，只信任 Caddy 这一跳），限流只用 `req.ip` | ✅ 已修复 |
+| M-2 | 中 | AI 侧出站 LLM 请求无 SSRF 守卫 | `SafeAsyncTransport`：解析并校验全部 IP 后把连接固定到已校验 IP（Host/SNI 不变）；不跟随重定向 | ✅ 已修复 |
+| M-3 | 中 | url-guard DNS rebinding TOCTOU 与保留网段缺口 | 改为基于 `net.BlockList` 匹配，补全 CGNAT / 基准测试 / 组播 / NAT64 / 6to4 等网段；新增 `safeFetch` / `safeHttpsAgent` 在连接时校验 DNS 结果，LLM 调用与 Web Push 默认使用 | ✅ 已修复 |
+| M-4 | 中 | CSV 导出公式注入 | 三处导出（import-export、reports、Web `downloadCsv`）对 `= + - @ 	 ` 开头的单元格加 `'` 前缀；导入时还原，往返不变 | ✅ 已修复 |
+| M-5 | 中 | refresh token 存 localStorage | Web：refresh token 改由 HttpOnly + SameSite=Strict Cookie 承载（`X-Auth-Transport: cookie`），access token 只存内存，刷新页面时用 Cookie 恢复会话；Expo Web 改为只存内存；原生端不变（SecureStore） | ✅ 已修复 |
+| L-1 | 低 | 移动端 mock 演示口令可能被打进安装包 | `app.config.ts`：EAS production 构建如果 mock 未关闭或缺少 `EXPO_PUBLIC_API_URL`，直接构建失败 | ✅ 已修复 |
+| L-2 | 低 | 开发 compose 弱口令 + Redis 端口暴露 | 宿主端口默认只绑定 `127.0.0.1`（`DEV_BIND_HOST` 可覆盖），开发口令与无鉴权 Redis 不再暴露到局域网 | ✅ 已修复 |
+| L-3 | 低 | 缺 CSP；ssh-keyscan TOFU；serve-dist 路径前缀绕过 | API 与 SPA（nginx）下发 CSP；发布流水线改为固定主机指纹（`DEPLOY_KNOWN_HOSTS` / `PROD_DEPLOY_KNOWN_HOSTS`）并开启 `StrictHostKeyChecking=yes`；serve-dist 改用 `path.relative` 判定 | ✅ 已修复 |
 
-建议修复顺序：H-1 → M-1 / M-2 / M-4 → M-3 / M-5 / L-3 → L-1 / L-2。
+### 部署方需要完成的配置
+
+- GitHub Secrets 新增 `DEPLOY_KNOWN_HOSTS`、`PROD_DEPLOY_KNOWN_HOSTS`：内容为目标机的 known_hosts 行。在可信网络执行 `ssh-keyscan -H <host>`，与服务器上 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` 的指纹核对一致后再存入。未配置时部署 job 会报错退出。
+- EAS 的 production 环境需配置 `EXPO_PUBLIC_API_URL`，否则生产构建会失败。
+- 经 Caddy 以外的代理链部署时，需按实际跳数设置 `TRUST_PROXY`。
 
 另外：依赖组件的 CVE 扫描（SCA）尚未执行，建议补跑 `pnpm audit` 与 `pip-audit`。

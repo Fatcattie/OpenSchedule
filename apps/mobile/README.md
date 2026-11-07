@@ -76,7 +76,7 @@ apps/mobile/
 | --- | --- |
 | `EXPO_PUBLIC_API_URL` | 后端源站（如 `https://schedule.example.com`，不含 `/api/v1`）。**真机/模拟器必填**，相对路径只在 Expo Web 同源部署时可用 |
 | `EXPO_PUBLIC_USE_MOCK` | `true`/`false` 显式指定；留空时 = 配了 `EXPO_PUBLIC_API_URL` 走真实后端，否则走 mock |
-| `EAS_PROJECT_ID` | EAS 项目 ID，由 `app.config.ts` 注入 `extra.eas.projectId`；留空则不写入 |
+| `EAS_PROJECT_ID` | EAS 项目 ID 覆盖值；留空 = 内置默认 `@bigcatleos-team/openschedule`（`c728f5e8-…`，见 `app.config.ts`） |
 
 - **默认（mock）**：所有读接口返回本地 `src/data` 种子数据；所有写接口在内存库上生效，并保留 `// TODO(real-api): <METHOD> <path>` 调用位与 `version` 字段。
 - **本地连真实后端**：
@@ -89,11 +89,10 @@ $env:EXPO_PUBLIC_API_URL="http://192.168.1.10:3000"; npm start
 EXPO_PUBLIC_API_URL=http://192.168.1.10:3000 npm start
 ```
 
-- **EAS 构建**：`eas.json` 的 preview/production profile 已固定 `EXPO_PUBLIC_USE_MOCK=false`；源站与项目 ID 用 EAS 环境变量设置：
+- **EAS 构建**：项目已关联 `@bigcatleos-team/openschedule`；`eas.json` 的 preview/production profile 已固定 `EXPO_PUBLIC_USE_MOCK=false`；源站用 EAS 环境变量设置：
 
 ```bash
 eas env:set --name EXPO_PUBLIC_API_URL --value https://你的域名 --environment production --visibility plaintext
-eas env:set --name EAS_PROJECT_ID     --value <项目 UUID>      --environment production --visibility plaintext
 ```
 
 真实模式下请求经 `src/services/client.ts` 发出：注入 `Authorization: Bearer <token>`、解包 `ApiResponse<T>`、把错误归一化为 `ApiError`（含 40901 乐观锁 / 40902 非法迁移），401 触发 `unauthorizedHandler` 清空会话回到登录页。请求地址为 `${EXPO_PUBLIC_API_URL}/api/v1`（`API_BASE`）。

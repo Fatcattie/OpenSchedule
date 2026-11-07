@@ -76,3 +76,6 @@ opencode.json
 # Windows 下 pnpm 使用 junction，Git 入库时展开为实体文件，
 # clone 后无需安装、离线即可直接运行（含平台二进制：esbuild/prisma 引擎等）。
 !**/node_modules/**
+# 例外：Vite 预构建缓存 / Vitest 结果缓存属运行产物（每次 dev/test 都会改写），
+# 不属于依赖快照；必须放在上面的重新纳入规则之后才生效。
+**/node_modules/.vite/

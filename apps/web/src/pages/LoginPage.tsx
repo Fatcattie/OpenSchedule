@@ -16,11 +16,11 @@ const { Title, Text } = Typography
 export default function LoginPage() {
   const navigate = useNavigate()
   const accessToken = useAuthStore((s) => s.accessToken)
-  const setTokens = useAuthStore((s) => s.setTokens)
+  const setAccessToken = useAuthStore((s) => s.setAccessToken)
   const setUser = useAuthStore((s) => s.setUser)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // R6-1：刚登录（本页触发的 setTokens）时不立即被下方 <Navigate to="/workspace"> 抢跳，以 navigate 目标（含强制改密 /profile）为准
+  // R6-1：刚登录（本页触发的 setAccessToken）时不立即被下方 <Navigate to="/workspace"> 抢跳，以 navigate 目标（含强制改密 /profile）为准
   const justLoggedIn = useRef(false)
 
   // 已登录直接进入时间日历工作台（本页刚完成登录时除外）
@@ -32,7 +32,7 @@ export default function LoginPage() {
     try {
       const tokens = await authApi.login({ email: values.email, password: values.password })
       justLoggedIn.current = true
-      setTokens(tokens.accessToken, tokens.refreshToken)
+      setAccessToken(tokens.accessToken)
       // 拉取当前用户（含所属租户/角色），随后进入项目列表
       const me = await authApi.fetchMe()
       setUser({ ...me.user, roles: me.roles })

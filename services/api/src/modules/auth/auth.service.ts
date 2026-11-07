@@ -129,7 +129,7 @@ export class AuthService {
 
   /** 刷新（§3.1：40101=access 过期，客户端用 refresh 换新；轮换式：旧 refresh 即刻吊销） */
   async refresh(dto: RefreshDto): Promise<{ data: unknown }> {
-    const payload = await this.verifyRefresh(dto.refreshToken);
+    const payload = await this.verifyRefresh(dto.refreshToken ?? '');
 
     // 轮换：吊销旧 jti，签发新双 token（防重放）
     await this.tokenStore.revoke(payload.jti);
@@ -142,7 +142,7 @@ export class AuthService {
   /** 注销：吊销 refresh jti（幂等：token 已失效/已吊销也返回成功） */
   async logout(dto: LogoutDto): Promise<{ data: { ok: true } }> {
     try {
-      const payload = await this.verifyRefresh(dto.refreshToken);
+      const payload = await this.verifyRefresh(dto.refreshToken ?? '');
       await this.tokenStore.revoke(payload.jti);
       await this.audit.record({ action: 'user.logout', resourceType: 'user', resourceId: payload.sub, tenantId: payload.tenantId, actorId: payload.sub });
     } catch {

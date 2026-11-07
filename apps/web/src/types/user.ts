@@ -35,7 +35,8 @@ export interface User {
 /** 登录返回（规格 3.5.1：POST /auth/login 返回 access + refresh；R6-1 新增 mustChangePassword 强制改密标志） */
 export interface AuthTokens {
   accessToken: string // JWT，TTL 15m（规格 3.7 JWT_ACCESS_TTL）
-  refreshToken: string // TTL 7d
+  /** TTL 7d；Web（Cookie 模式）下服务端不在响应体返回，改由 HttpOnly Cookie 承载（M-5） */
+  refreshToken?: string
   /** R6-1（D-05 B）：管理员代建账号首次登录为 true，客户端据此走强制改密流程（POST /auth/change-password） */
   mustChangePassword?: boolean
 }

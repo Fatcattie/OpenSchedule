@@ -12,7 +12,16 @@ export const API_BASE = '/api/v1'
  */
 export const USE_MOCK: boolean = import.meta.env.VITE_USE_MOCK === 'true'
 
-/** token 在 localStorage 的存储 key */
+/**
+ * 认证传输模式头（M-5）：声明 Cookie 模式后，服务端把 refresh token 写入 HttpOnly Cookie、响应体不再返回，
+ * refresh/logout 也从该 Cookie 读取（见 services/api/src/modules/auth/refresh-cookie.ts）
+ */
+export const AUTH_TRANSPORT_HEADERS = { 'X-Auth-Transport': 'cookie' } as const
+
+/**
+ * localStorage key：真实模式不再存任何 token（只用于清理旧版本残留）；
+ * 仅 mock 模式持久化假 access token
+ */
 export const TOKEN_STORAGE_KEYS = {
   access: 'os.access_token',
   refresh: 'os.refresh_token',

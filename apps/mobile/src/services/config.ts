@@ -22,7 +22,7 @@ const USE_MOCK_ENV = process.env.EXPO_PUBLIC_USE_MOCK
 export const USE_MOCK: boolean =
   USE_MOCK_ENV === 'true' ? true : USE_MOCK_ENV === 'false' ? false : API_ORIGIN === ''
 
-/** token 存储 key（native 走 SecureStore / web 走 localStorage） */
+/** token 存储 key（native 走 SecureStore / web 仅内存，M-5） */
 export const TOKEN_KEYS = {
   access: 'os.access_token',
   refresh: 'os.refresh_token',

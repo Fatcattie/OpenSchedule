@@ -2,7 +2,7 @@
  * 职责：axios 实例与拦截器 —— Bearer token 注入、401 自动 refresh 重试（并发去重）、错误信封归一化
  */
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
-import { API_BASE } from './config'
+import { API_BASE, AUTH_TRANSPORT_HEADERS, USE_MOCK } from './config'
 import { normalizeError } from './errors'
 import { useAuthStore } from '@/stores/authStore'
 import type { ApiErrorEnvelope, ApiResponse } from '@/types'
@@ -26,32 +26,42 @@ const AUTH_ENDPOINTS = ['/auth/login', '/auth/register', '/auth/refresh']
 let refreshPromise: Promise<string | null> | null = null
 
 /**
- * 用 refresh token 换新 access token（规格 3.1：40101=access 过期，客户端用 refresh 换新）
- * 并发多个 401 时只发起一次刷新请求，其余请求共享同一 Promise
+ * 用 refresh Cookie 换新 access token（规格 3.1：40101=access 过期，客户端用 refresh 换新）。
+ * M-5：refresh token 在 HttpOnly Cookie 里（Path=/api/v1/auth），浏览器自动携带，前端脚本不接触。
+ * 并发多个 401 时只发起一次刷新请求，其余请求共享同一 Promise。
  */
-async function refreshAccessToken(): Promise<string | null> {
+async function exchangeRefreshCookie(): Promise<string | null> {
   if (refreshPromise) return refreshPromise
   refreshPromise = (async () => {
-    const refreshToken = useAuthStore.getState().refreshToken
-    if (!refreshToken) return null
+    if (USE_MOCK) return useAuthStore.getState().accessToken
     try {
-      const resp = await rawClient.post<ApiResponse<{ accessToken: string; refreshToken?: string }>>('/auth/refresh', {
-        refreshToken,
-      })
-      const tokens = resp.data?.data
-      if (!tokens?.accessToken) return null
-      useAuthStore.getState().setTokens(tokens.accessToken, tokens.refreshToken ?? refreshToken)
-      return tokens.accessToken
+      const resp = await rawClient.post<ApiResponse<{ accessToken: string }>>('/auth/refresh', {}, { headers: AUTH_TRANSPORT_HEADERS })
+      const accessToken = resp.data?.data?.accessToken
+      if (!accessToken) return null
+      useAuthStore.getState().setAccessToken(accessToken)
+      return accessToken
     } catch {
-      // 刷新失败：清空本地凭证并跳回登录页（full reload 让内存态全部复位）
-      useAuthStore.getState().clear()
-      if (window.location.pathname !== '/login') window.location.assign('/login')
       return null
     } finally {
       refreshPromise = null
     }
   })()
   return refreshPromise
+}
+
+/** 页面加载时恢复会话（RequireAuth 调用）：成功返回 true；失败不跳转，由守卫重定向登录页 */
+export async function restoreSession(): Promise<boolean> {
+  return (await exchangeRefreshCookie()) !== null
+}
+
+/** 业务请求 401 时刷新；失败则清空凭证并跳回登录页（full reload 让内存态全部复位） */
+async function refreshAccessToken(): Promise<string | null> {
+  const token = await exchangeRefreshCookie()
+  if (!token) {
+    useAuthStore.getState().clear()
+    if (window.location.pathname !== '/login') window.location.assign('/login')
+  }
+  return token
 }
 
 // ── 响应拦截：错误信封归一化 + 401 自动刷新重试（最多重试 1 次） ──

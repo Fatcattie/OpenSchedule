@@ -3,7 +3,8 @@
  * register/login/refresh/logout 为 @Public()（跳过全局 JwtAuthGuard）；me 需登录（默认受保护）。
  * 响应统一信封 {data, meta}（§3.5）。
  */
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { Public } from '../../common/auth/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RateLimit } from '../../common/rate-limit/rate-limit.decorator';
@@ -15,6 +16,7 @@ import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateMemberDto } from './dto/create-member.dto';
+import { applyRefreshTransport, clearRefreshCookie, readRefreshCookie, wantsCookieTransport } from './refresh-cookie';
 
 @Controller('auth')
 export class AuthController {
@@ -24,31 +26,63 @@ export class AuthController {
   @Public()
   @RateLimit({ limit: 5, windowMs: 60_000, keyBy: 'ip' })
   @Post('register')
-  register(@Body() dto: RegisterDto): Promise<{ data: unknown }> {
-    return this.authService.register(dto);
+  async register(
+    @Body() dto: RegisterDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ data: unknown }> {
+    return applyRefreshTransport(req, res, await this.authService.register(dto));
   }
 
   /** 登录：返回 access + refresh；登录爆破防线：5 次/分钟/IP */
   @Public()
   @RateLimit({ limit: 5, windowMs: 60_000, keyBy: 'ip' })
   @Post('login')
-  login(@Body() dto: LoginDto): Promise<{ data: unknown }> {
-    return this.authService.login(dto);
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ data: unknown }> {
+    return applyRefreshTransport(req, res, await this.authService.login(dto));
   }
 
-  /** 刷新令牌（轮换式：旧 refresh 吊销，发新双 token） */
+  /**
+   * 刷新令牌（轮换式：旧 refresh 吊销，发新双 token）。
+   * refresh token 来源：请求体；Web Cookie 模式（X-Auth-Transport: cookie）下回落 HttpOnly Cookie（M-5）。
+   */
   @Public()
   @RateLimit({ limit: 5, windowMs: 60_000, keyBy: 'ip' })
   @Post('refresh')
-  refresh(@Body() dto: RefreshDto): Promise<{ data: unknown }> {
-    return this.authService.refresh(dto);
+  async refresh(
+    @Body() dto: RefreshDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ data: unknown }> {
+    const refreshToken = this.resolveRefreshToken(dto.refreshToken, req);
+    try {
+      return applyRefreshTransport(req, res, await this.authService.refresh({ refreshToken }));
+    } catch (err) {
+      if (wantsCookieTransport(req)) clearRefreshCookie(res); // 失效的 Cookie 一并清掉
+      throw err;
+    }
   }
 
   /** 注销（吊销 refresh jti） */
   @Public()
   @Post('logout')
-  logout(@Body() dto: LogoutDto): Promise<{ data: { ok: true } }> {
-    return this.authService.logout(dto);
+  async logout(
+    @Body() dto: LogoutDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ data: { ok: true } }> {
+    const refreshToken = this.resolveRefreshToken(dto.refreshToken, req);
+    if (wantsCookieTransport(req)) clearRefreshCookie(res);
+    return this.authService.logout({ refreshToken });
+  }
+
+  /** 请求体优先；仅 Cookie 模式才读 Cookie（防 CSRF：跨站无法附带自定义头） */
+  private resolveRefreshToken(fromBody: string | undefined, req: Request): string {
+    return fromBody || (wantsCookieTransport(req) ? readRefreshCookie(req) : undefined) || '';
   }
 
   /** 当前用户 + 所属租户/角色 */

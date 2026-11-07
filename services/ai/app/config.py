@@ -10,8 +10,11 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 启动即拒绝的占位标记（与主服务 startup-guard.ts 的 PLACEHOLDER_MARKERS 保持一致）
+PLACEHOLDER_MARKERS: tuple[str, ...] = ("change-me", "changeme")
 
 
 class Settings(BaseSettings):
@@ -36,6 +39,7 @@ class Settings(BaseSettings):
     sentry_release: str = ""
 
     # —— 服务间鉴权（§3.5.2：内部网络 + 服务 token，与主服务共享）——
+    # 默认值仅供本地开发/测试；APP_ENV=production 时为空或含占位串即拒绝启动（_reject_placeholder_secrets）
     ai_service_token: str = "dev-ai-service-token-change-me"
 
     # —— LLM 调用参数 ——
@@ -61,6 +65,15 @@ class Settings(BaseSettings):
     # —— 拆解限制（§3.5.2 单次 ≤8-10 步；A4 拆解深度 ≤4 层，计划为第 0 层）——
     decompose_max_tasks: int = Field(default=10, ge=1, le=50)
     decompose_max_depth: int = Field(default=4, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def _reject_placeholder_secrets(self) -> Settings:
+        """生产 fail-fast：AI_SERVICE_TOKEN 不得为空或沿用公开的占位默认值（安全问题 H-1）。"""
+        if self.app_env.strip().lower() == "production":
+            token = self.ai_service_token.strip().lower()
+            if not token or any(marker in token for marker in PLACEHOLDER_MARKERS):
+                raise ValueError("生产环境 AI_SERVICE_TOKEN 未配置或仍为占位值（含 change-me），拒绝启动")
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

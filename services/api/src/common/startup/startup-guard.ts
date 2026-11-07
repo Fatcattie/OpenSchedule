@@ -15,8 +15,17 @@ const PRODUCTION_REQUIRED_ENV: readonly (readonly [string, string])[] = [
   ['AI_SERVICE_TOKEN', 'AI 服务互信 token（/internal/ai/results 回调鉴权）'],
 ];
 
-/** 启动即拒绝的占位值（防 change-me 进生产，§7.3） */
-const PLACEHOLDER_PREFIXES: readonly string[] = ['change-me'];
+/**
+ * 启动即拒绝的占位标记（防 change-me 进生产，§7.3）。
+ * 按「包含」而非「前缀」匹配：公开默认值如 `dev-ai-service-token-change-me` 以 change-me 结尾（安全问题 H-1）。
+ */
+const PLACEHOLDER_MARKERS: readonly string[] = ['change-me', 'changeme'];
+
+/** 值是否为占位串（大小写不敏感，包含任一标记即视为占位） */
+export function isPlaceholderSecret(value: string): boolean {
+  const v = value.toLowerCase();
+  return PLACEHOLDER_MARKERS.some((marker) => v.includes(marker));
+}
 
 export interface ProductionStartupCheckResult {
   ok: boolean;
@@ -37,7 +46,7 @@ export function checkProductionStartup(config: ConfigService, logger: Logger): P
       failures.push(`missing:${name}`);
       continue;
     }
-    if (PLACEHOLDER_PREFIXES.some((prefix) => value.startsWith(prefix))) {
+    if (isPlaceholderSecret(value)) {
       failures.push(`placeholder:${name}`);
     }
   }

@@ -14,6 +14,94 @@
 
 **节奏**：按方案 chapter_04 的 B1–B30 三十批三阶段推进（约 6–12 个月）——Phase 1 确定性协作闭环（B1–B14，含 AI 拆解草稿）、Phase 2 数据变现（依赖/CPM、智能评估、周报 AI、自动化、日历集成）、Phase 3 AI 执行与临期应急。本仓库当前处于 **B1 脚手架阶段**：monorepo 根配置 + docker-compose 本地栈 + CI 基线已就位，验收点为「docker compose up 一键起、/health 全绿、CI 跑通」。
 
+## 系统架构
+
+### 部署拓扑（单机 docker compose）
+
+Caddy 是生产环境唯一的对外入口（自动 HTTPS）：`/api/*` 转发到主后端，其余路径交给 Web 静态站点。Web 与移动端 APP 都只调用同一套 REST API；主后端是**唯一写库方**，AI 服务不接触业务库。
+
+```mermaid
+flowchart LR
+  subgraph Clients["客户端"]
+    WEB["🖥️ Web 管理端<br/>React 19 + Vite（PWA）"]
+    APP["📱 移动端 APP<br/>Expo / React Native"]
+  end
+
+  CADDY["Caddy<br/>反向代理 · 自动 HTTPS"]
+
+  subgraph Server["云服务器 · docker compose"]
+    NGINX["web<br/>nginx 静态 SPA"]
+    API["api<br/>NestJS 模块化单体<br/>唯一写库方 · 多租户 · 审计"]
+    AI["ai<br/>FastAPI + LangGraph<br/>任务拆解 / AI 规则"]
+    PG[("PostgreSQL 16<br/>业务数据 · 全文搜索")]
+    REDIS[("Redis 7<br/>BullMQ 队列 · 提醒 · WS 广播")]
+    MINIO[("MinIO<br/>附件对象存储")]
+    OBS["Prometheus · Alertmanager · Grafana<br/>（可选 observability profile）"]
+  end
+
+  LLM["大模型厂商<br/>OpenAI 兼容端点<br/>（租户管理员配置 key）"]
+  IM["飞书 / 钉钉 / 企微<br/>通知 · 日历"]
+
+  WEB -- HTTPS --> CADDY
+  APP -- "HTTPS /api/v1" --> CADDY
+  CADDY -- "/*" --> NGINX
+  CADDY -- "/api/* · /health" --> API
+  API --> PG
+  API --> REDIS
+  API --> MINIO
+  API -- "拆解请求（携带模型配置）" --> AI
+  AI -- "结果回调 /internal/ai/results" --> API
+  AI --> LLM
+  API --> IM
+  OBS -. 抓取指标 .-> API
+```
+
+### AI 拆解闭环：AI 只提议，人确认后才落库
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor U as 项目负责人
+  participant W as Web / APP
+  participant A as api（主后端）
+  participant AI as ai（AI 服务）
+  participant L as 大模型
+
+  U->>W: 输入大计划，点「AI 拆解」
+  W->>A: POST /proposals/decompose
+  A->>A: 读取租户模型配置（加密存储）
+  A->>AI: POST /ai/decompose（服务 token + 本次模型配置）
+  AI-->>A: 202 + run_id
+  AI->>L: 生成子任务 / 依赖 / 估时
+  L-->>AI: 结构化结果
+  AI->>AI: Schema 校验，不合格则模板降级
+  AI-->>A: SSE 流 / 回调 /internal/ai/results
+  A->>A: 保存为「拆解草稿」（proposal）
+  A-->>W: 返回草稿供审阅
+  U->>W: 调整后确认
+  W->>A: POST /proposals/:id/apply
+  A->>A: 创建任务并写入 audit_logs
+  Note over AI,A: AI 服务永不直连业务库，模型 key 不落盘
+```
+
+## 界面预览
+
+> 截图来自内置演示数据（mock 模式），可按「快速开始」在本地复现。
+
+### Web 管理端
+
+| 协作工作台 · 指挥舱 | 任务协作（树形视图） |
+|:---:|:---:|
+| ![协作工作台](docs/images/readme/web-workspace.png) | ![任务协作](docs/images/readme/web-task-collab.png) |
+| **项目详情 · 流程顺序** | **时间容器 · 飞书 / 钉钉日历同步** |
+| ![项目流程](docs/images/readme/web-project-flow.png) | ![时间容器](docs/images/readme/web-time-container.png) |
+
+### 移动端 APP
+
+| 工作台 | 今日聚焦 | 项目看板 | 任务详情 |
+|:---:|:---:|:---:|:---:|
+| <img src="docs/images/readme/mobile-home.png" width="200" alt="工作台"> | <img src="docs/images/readme/mobile-today.png" width="200" alt="今日聚焦"> | <img src="docs/images/readme/mobile-board.png" width="200" alt="项目看板"> | <img src="docs/images/readme/mobile-task.png" width="200" alt="任务详情"> |
+
 ## 快速开始
 
 ### 前置要求

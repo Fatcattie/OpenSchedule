@@ -36,11 +36,11 @@ export class RateLimitGuard implements CanActivate {
     return true;
   }
 
-  /** 客户端 IP：优先 X-Forwarded-For（反向代理），回退 socket 地址 */
+  /**
+   * 客户端 IP：只用 req.ip。Express 按 `trust proxy`（TRUST_PROXY，见 common/security/trust-proxy.ts）
+   * 从可信代理写入的 X-Forwarded-For 中解析；不直接读 XFF 头，防止伪造绕过限流（安全问题 M-1）。
+   */
   private resolveIp(req: Request): string {
-    const xf = req.headers['x-forwarded-for'];
-    if (Array.isArray(xf)) return xf[0]?.trim() || 'unknown';
-    if (typeof xf === 'string') return xf.split(',')[0]?.trim() || 'unknown';
-    return req.ip || 'unknown';
+    return req.ip || req.socket?.remoteAddress || 'unknown';
   }
 }

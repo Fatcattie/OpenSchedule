@@ -116,6 +116,8 @@ services:
       STORAGE_ENDPOINT: http://minio:9000
       STORAGE_PUBLIC_BASE_URL: https://${DOMAIN}/storage/${STORAGE_BUCKET:-openschedule}
       AI_SERVICE_URL: http://ai:8300
+      # 公网 → Caddy → api 一跳；仅信任这一跳写入的 X-Forwarded-For（限流/审计 IP，安全问题 M-1）
+      TRUST_PROXY: "1"
       METRICS_ENABLED: "true"
       # pino 级别与慢查询阈值（R9）
       LOG_LEVEL: ${LOG_LEVEL:-info}

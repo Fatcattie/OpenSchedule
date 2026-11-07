@@ -14,6 +14,7 @@ import { SecurityHeadersMiddleware } from './common/middleware/security-headers.
 import { initDefaultMetrics } from './common/observability/metrics';
 import { AppLogger } from './common/observability/pino-logger';
 import { initSentry, isSentryEnabled } from './common/observability/sentry';
+import { parseTrustProxy } from './common/security/trust-proxy';
 import { checkProductionStartup } from './common/startup/startup-guard';
 
 async function bootstrap(): Promise<void> {
@@ -28,6 +29,9 @@ async function bootstrap(): Promise<void> {
   app.useBodyParser('json', { limit: '8mb' });
   const config = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
+
+  // 可信反向代理跳数（M-1）：仅可信代理写入的 X-Forwarded-For 参与 req.ip 解析（限流/审计依赖 req.ip）
+  app.set('trust proxy', parseTrustProxy(config.get<string>('TRUST_PROXY')));
 
   // 统一前缀（§3.5：统一前缀 /api/v1；controller 内路径不带前缀）；/health、/health/ready 排除在外（docker-compose HEALTHCHECK 探根路径，§3.4 分层探针）；
   // /metrics 亦排除（部署侧 Prometheus 抓取器直接访问 /metrics，R9）

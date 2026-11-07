@@ -7,6 +7,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Response } from 'express';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { neutralizeCsvFormula } from '../import-export/csv';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
 import { detectOverlaps, type TaskForOverlap, type DependencyForOverlap } from './overlap/overlap-detector';
 
@@ -845,7 +846,7 @@ export class ReportsService {
 
     const escapeCsv = (v: any) => {
       if (v == null) return '';
-      const s = String(v);
+      const s = neutralizeCsvFormula(String(v)); // M-4：防公式注入
       if (s.includes(',') || s.includes('"') || s.includes('\n')) {
         return '"' + s.replace(/"/g, '""') + '"';
       }

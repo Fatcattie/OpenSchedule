@@ -24,11 +24,19 @@ export function safeFileName(name: string, fallback = 'untitled'): string {
   return cleaned || fallback
 }
 
+/**
+ * CSV 公式注入防护（安全问题 M-4，与服务端 import-export/csv.ts 同规则）：
+ * `= + - @ \t \r` 开头的单元格加 `'` 前缀，Excel/WPS 会按文本显示而不执行公式；纯数值原样保留。
+ */
+export function neutralizeCsvFormula(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) && !/^[+-]?\d+(\.\d+)?$/.test(value) ? `'${value}` : value
+}
+
 /** 下载 CSV（首行表头，补 BOM 便于 Excel 正确识别中文） */
 export function downloadCsv(filename: string, header: string[], rows: (string | number)[][]) {
   const esc = (v: string | number) => {
-    const s = String(v ?? '')
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    const s = neutralizeCsvFormula(String(v ?? ''))
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
   const csv = [header.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\r\n')
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })

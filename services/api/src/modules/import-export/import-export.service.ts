@@ -11,7 +11,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { AuthUser } from '../../common/auth/auth-user.interface';
 import { isTenantAdmin } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { parseCsv, toCsv } from './csv';
+import { parseCsv, restoreCsvFormula, toCsv } from './csv';
 import { ExportFormat, ExportTasksQueryDto, ImportTasksQueryDto, UploadedCsvFile } from './dto/import-export-query.dto';
 
 /** 导入导出模块错误码（§3.1 分段码表） */
@@ -243,7 +243,7 @@ export class ImportExportService {
   ): RowResult {
     const cell = (col: string): string => {
       const idx = columnIndex[col];
-      return idx !== undefined && idx < cells.length ? cells[idx].trim() : '';
+      return idx !== undefined && idx < cells.length ? restoreCsvFormula(cells[idx].trim()) : '';
     };
 
     const title = cell('title');

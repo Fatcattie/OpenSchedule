@@ -5,6 +5,8 @@
 #   pnpm docker:up        # 等价：docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 #   pnpm docker:infra     # 仅起基础设施（日常本地开发：pg + redis + minio）
 # 端口约定：api 3000 / web 5173 / ai 8300 / pg 5432 / redis 6379 / minio 9000(S3)+9001(控制台)
+# 安全（L-2）：宿主端口默认只绑定 127.0.0.1（开发默认口令、Redis 无鉴权不暴露到局域网）；
+#   真机调试需局域网访问时在 .env 设 DEV_BIND_HOST=0.0.0.0（仅可信网络）。
 #   可观测性（profile=observability）：prometheus 9090 / grafana 3001
 # 网络地址覆盖：容器内各服务通过服务名互访（postgres/redis/minio/api/ai），
 #   与根 .env 中的 localhost 地址无关（compose environment 优先于 env_file）。
@@ -21,7 +23,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openschedule}
       POSTGRES_DB: ${POSTGRES_DB:-openschedule}
     ports:
-      - "5432:5432"
+      - "${DEV_BIND_HOST:-127.0.0.1}:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # 初始化脚本（扩展等）仅在数据卷首次初始化时执行；改脚本后需 down -v 重置
@@ -39,7 +41,7 @@ services:
     container_name: os-redis
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "${DEV_BIND_HOST:-127.0.0.1}:6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -58,8 +60,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web 控制台
+      - "${DEV_BIND_HOST:-127.0.0.1}:9000:9000"   # S3 API
+      - "${DEV_BIND_HOST:-127.0.0.1}:9001:9001"   # Web 控制台
     volumes:
       - miniodata:/data
     healthcheck:
@@ -89,7 +91,7 @@ services:
       # R9：Prometheus 抓取端点（默认 true；'false' 时 /metrics 404，会触发 ApiDown 告警）
       METRICS_ENABLED: ${METRICS_ENABLED:-true}
     ports:
-      - "3000:3000"
+      - "${DEV_BIND_HOST:-127.0.0.1}:3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -112,7 +114,7 @@ services:
       # Vite 代理目标（容器内服务名）：apps/web/vite.config.ts 的 proxy 请读取该变量
       VITE_API_PROXY_TARGET: http://api:3000
     ports:
-      - "5173:5173"
+      - "${DEV_BIND_HOST:-127.0.0.1}:5173:5173"
     depends_on:
       api:
         condition: service_healthy
@@ -139,7 +141,7 @@ services:
       AI_STATE_REDIS_URL: redis://redis:6379/3
       # 模型配置由团队管理员在 Web「设置 → AI 模型」维护，随请求下发（无需在此配置 key）
     ports:
-      - "8300:8300"
+      - "${DEV_BIND_HOST:-127.0.0.1}:8300:8300"
     depends_on:
       api:
         condition: service_healthy
@@ -163,7 +165,7 @@ services:
       - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
       - promdata:/prometheus
     ports:
-      - "9090:9090"
+      - "${DEV_BIND_HOST:-127.0.0.1}:9090:9090"
     depends_on:
       api:
         condition: service_healthy
@@ -181,7 +183,7 @@ services:
       - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanagerdata:/alertmanager
     ports:
-      - "9093:9093"
+      - "${DEV_BIND_HOST:-127.0.0.1}:9093:9093"
     depends_on:
       - alert-bridge
 
@@ -219,7 +221,7 @@ services:
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafanadata:/var/lib/grafana
     ports:
-      - "3001:3000"   # 宿主 3001：避让 api 的 3000
+      - "${DEV_BIND_HOST:-127.0.0.1}:3001:3000"   # 宿主 3001：避让 api 的 3000
     depends_on:
       - prometheus
 

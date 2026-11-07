@@ -5,6 +5,7 @@
  * - Referrer-Policy: no-referrer
  * - Strict-Transport-Security（仅生产，强制 HTTPS）
  * - Cache-Control: no-store（API 响应默认不缓存）
+ * - Content-Security-Policy：API 只返回 JSON/文件，不加载任何子资源 → 全部禁止（安全问题 L-3）
  * CORS 收敛由 startup-guard（生产白名单）+ main.ts enableCors 完成，本中间件不重复。
  */
 import { Injectable, NestMiddleware } from '@nestjs/common';
@@ -17,6 +18,7 @@ export class SecurityHeadersMiddleware implements NestMiddleware {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
     if (process.env.APP_ENV === 'production') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }

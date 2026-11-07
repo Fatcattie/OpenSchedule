@@ -121,11 +121,15 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh && printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
-          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-          ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" bash -s <<REMOTE
+          # 主机指纹固定（安全问题 L-3）：不再 ssh-keyscan 首次信任（TOFU，可被中间人冒充）；
+          # DEPLOY_KNOWN_HOSTS 为目标机 known_hosts 行，在可信网络执行 `ssh-keyscan -H <host>` 并核对指纹后存入
+          if [ -z "${DEPLOY_KNOWN_HOSTS:-}" ]; then echo "::error::缺少 secret DEPLOY_KNOWN_HOSTS（目标机 SSH 主机指纹）"; exit 1; fi
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
+          ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" bash -s <<REMOTE
             set -euo pipefail
             cd "\$HOME/openschedule"
             git fetch --all --tags && git checkout "$IMAGE_TAG" 2>/dev/null || true
@@ -170,11 +174,15 @@ jobs:
           DEPLOY_HOST: ${{ secrets.PROD_DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.PROD_DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.PROD_DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.PROD_DEPLOY_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh && printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
-          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-          ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" bash -s <<REMOTE
+          # 主机指纹固定（安全问题 L-3）：不再 ssh-keyscan 首次信任（TOFU，可被中间人冒充）；
+          # PROD_DEPLOY_KNOWN_HOSTS 为目标机 known_hosts 行，在可信网络执行 `ssh-keyscan -H <host>` 并核对指纹后存入
+          if [ -z "${DEPLOY_KNOWN_HOSTS:-}" ]; then echo "::error::缺少 secret PROD_DEPLOY_KNOWN_HOSTS（目标机 SSH 主机指纹）"; exit 1; fi
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
+          ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" bash -s <<REMOTE
             set -euo pipefail
             cd "\$HOME/openschedule"
             git fetch --all --tags && git checkout "$IMAGE_TAG" 2>/dev/null || true

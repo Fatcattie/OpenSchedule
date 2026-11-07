@@ -95,8 +95,10 @@ const server = http.createServer((req, res) => {
   }
 
   let filePath = path.join(root, urlPath)
-  // 防目录穿越
-  if (!filePath.startsWith(root)) {
+  // 防目录穿越：必须是 root 本身或其子路径。用 path.relative 判定而非字符串前缀，
+  // 防兄弟目录前缀绕过（root=E:\a 时 E:\a-evil 不得通过，L-3）
+  const rel = path.relative(root, filePath)
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
     return send(res, 403, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Forbidden')
   }
 

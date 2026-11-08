@@ -147,6 +147,23 @@ export class UsersService {
     return this.toView(updated, dto.role ?? target.role);
   }
 
+  /** 自我资料编辑（本地补充端点）：任何活跃用户可改自己的 displayName/email。
+   *  人员管理范围矩阵天然不含自身（super_admin 管 admin/member、admin 管 member），
+   *  故自我编辑不走该矩阵，单独提供端点；禁止修改角色，写审计日志。 */
+  async updateSelf(tenantId: string, actorId: string, dto: UpdatePersonnelDto): Promise<PersonnelUserView> {
+    if (dto.role !== undefined) throw ApiException.forbidden('不能通过自我资料编辑修改角色');
+    const target = await this.loadTarget(tenantId, actorId);
+    const updated = await this.prisma.user.update({
+      where: { id: actorId },
+      data: {
+        ...(dto.email !== undefined ? { email: dto.email.trim().toLowerCase() } : {}),
+        ...(dto.displayName !== undefined ? { displayName: dto.displayName.trim() } : {}),
+      },
+    });
+    await this.audit.record({ tenantId, actorId, action: 'me.profile.update', resourceType: 'user', resourceId: actorId, after: { email: updated.email, displayName: updated.displayName } });
+    return this.toView(updated, target.role);
+  }
+
   async setStatus(tenantId: string, actorId: string, actorRole: PersonnelRole, userId: string, dto: SetPersonnelStatusDto): Promise<PersonnelUserView> {
     const target = await this.loadTarget(tenantId, userId);
     this.assertTargetAllowed(actorRole, target.role, 'set_status');

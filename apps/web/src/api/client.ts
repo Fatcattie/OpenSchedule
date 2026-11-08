@@ -164,31 +164,38 @@ export interface SetPersonnelStatusInput {
   status: PersonnelUserStatus
 }
 
+/** 人员域响应解包：后端按 openapi 契约返回裸负载（{items}/{user}/{capabilities}），
+ *  历史前端按 ApiResponse 信封多剥一层 data 导致「data is undefined」（本地修复，兼容两种格式） */
+function unwrapPersonnel<T>(body: ApiResponse<T> | T): T {
+  const maybe = body as ApiResponse<T>
+  return maybe && typeof maybe === 'object' && 'data' in maybe && maybe.data !== undefined ? maybe.data : (body as T)
+}
+
 /** 列表：服务端筛选 + 游标分页（FR-005 真实 API，无 mock 回退、无本地兜底数据） */
 export async function listPersonnel(params: PersonnelListParams = {}): Promise<PersonnelListResult> {
   const resp = await client.get<ApiResponse<{ items: PersonnelUser[]; nextCursor: string | null }>>('/users', { params })
-  return resp.data.data
+  return unwrapPersonnel(resp.data)
 }
 
 /** 创建：admin 只能建 member，super_admin 可选 admin/member（服务端强制，FR-002） */
 export async function createPersonnel(input: CreatePersonnelInput): Promise<PersonnelUser> {
   const resp = await client.post<ApiResponse<{ user: PersonnelUser }>>('/users', input)
-  return resp.data.data.user
+  return unwrapPersonnel(resp.data).user
 }
 
 export async function getPersonnel(id: string): Promise<PersonnelUser> {
   const resp = await client.get<ApiResponse<{ user: PersonnelUser }>>(`/users/${encodeURIComponent(id)}`)
-  return resp.data.data.user
+  return unwrapPersonnel(resp.data).user
 }
 
 export async function updatePersonnel(id: string, input: UpdatePersonnelInput): Promise<PersonnelUser> {
   const resp = await client.patch<ApiResponse<{ user: PersonnelUser }>>(`/users/${encodeURIComponent(id)}`, input)
-  return resp.data.data.user
+  return unwrapPersonnel(resp.data).user
 }
 
 export async function setPersonnelStatus(id: string, input: SetPersonnelStatusInput): Promise<PersonnelUser> {
   const resp = await client.post<ApiResponse<{ user: PersonnelUser }>>(`/users/${encodeURIComponent(id)}/status`, input)
-  return resp.data.data.user
+  return unwrapPersonnel(resp.data).user
 }
 
 /** 删除：204 无响应体；服务端 409 保护最后一名活跃超级管理员（FR-003 不变量） */
@@ -196,8 +203,15 @@ export async function deletePersonnel(id: string): Promise<void> {
   await client.delete(`/users/${encodeURIComponent(id)}`)
 }
 
+/** 自我资料编辑：PATCH /me/profile（任何活跃角色可改自己的 displayName/email；
+ *  人员管理范围矩阵不含自身，自我编辑必须走本端点，PATCH /users/:id 对自己会 403） */
+export async function updateMyProfile(input: { email?: string; displayName?: string }): Promise<PersonnelUser> {
+  const resp = await client.patch<ApiResponse<{ user: PersonnelUser }>>('/me/profile', input)
+  return unwrapPersonnel(resp.data).user
+}
+
 /** 能力自省（FR-007）：菜单/按钮按此显隐；越权请求仍会被服务端矩阵拒绝（FR-008） */
 export async function getMyPersonnelCapabilities(): Promise<MyPersonnelCapabilities> {
   const resp = await client.get<ApiResponse<MyPersonnelCapabilities>>('/me/capabilities')
-  return resp.data.data
+  return unwrapPersonnel(resp.data)
 }

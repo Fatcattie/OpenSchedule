@@ -17,6 +17,7 @@ import {
   deletePersonnel,
   listPersonnel,
   setPersonnelStatus,
+  updateMyProfile,
   updatePersonnel,
   type PersonnelRole,
   type PersonnelUser,
@@ -118,12 +119,13 @@ export function useUsers() {
         updatedAt: new Date().toISOString(),
       }
       if (!USE_MOCK) {
+        // 自我编辑走 /me/profile（PATCH /users/:id 的范围矩阵不含自身，任何角色都会 403）；
         // 契约只允许改 email / displayName；其它字段忽略（前端保留）
         const input = {
           email: patch.email,
           displayName: patch.displayName,
         }
-        const updated = await updatePersonnel(id, input)
+        const updated = await updateMyProfile(input)
         const view = toLegacyUserView(updated)
         const merged = { ...nextMe, ...view }
         setAuthUser(merged)

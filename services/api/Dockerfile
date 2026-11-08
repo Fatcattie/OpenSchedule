@@ -35,7 +35,9 @@ COPY --from=deps /app /app
 # 注意：services/api/package.json 的 files 字段不得排除 prisma/（迁移文件须随镜像发布）
 RUN pnpm build:packages \
     && pnpm --filter "./services/api" run build \
-    && pnpm --filter "./services/api" deploy /out
+    && pnpm --filter "./services/api" deploy /out \
+# pnpm deploy 重建 /out/node_modules 时会丢掉 node_modules/.prisma 生成物，这里用全量依赖里的 CLI 补一次 generate
+    && cd /out && /app/services/api/node_modules/.bin/prisma generate
 
 # ---------- 阶段 4：运行层（仅保留产物与依赖，不含构建工具） ----------
 FROM node:22-alpine AS runner

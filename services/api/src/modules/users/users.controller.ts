@@ -13,7 +13,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePersonnelAction, PersonnelAuthzGuard, toPersonnelRole } from '../../middleware/authz';
 import type { AuthUser } from '../../common/auth/auth-user.interface';
 import { CreatePersonnelDto, PersonnelListQueryDto, SetPersonnelStatusDto, UpdatePersonnelDto } from './dto/personnel.dto';
-import { UsersService } from './users.service';
+import { UsersService, type PersonnelUserView } from './users.service';
 
 @Controller('users')
 @UseGuards(PersonnelAuthzGuard)
@@ -99,5 +99,14 @@ export class PersonnelMeController {
   @Get('capabilities')
   capabilities(@CurrentUser() user: AuthUser): Promise<{ userId: string; role: string; personnel: Record<string, unknown> }> {
     return this.users.capabilities(toPersonnelRole(user.roles), user.userId);
+  }
+
+  /** 自我资料编辑：仅 displayName/email（不涉及角色与状态，审计落 me.profile.update） */
+  @Patch('profile')
+  updateProfile(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdatePersonnelDto,
+  ): Promise<{ user: PersonnelUserView }> {
+    return this.users.updateSelf(user.tenantId, user.userId, dto).then((view) => ({ user: view }));
   }
 }

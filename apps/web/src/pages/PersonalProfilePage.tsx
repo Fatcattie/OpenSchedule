@@ -35,7 +35,7 @@ export default function PersonalProfilePage() {
   const [avatar, setAvatar] = useState<string | null>(me.avatarUrl)
   const [pwdSubmitting, setPwdSubmitting] = useState(false)
 
-  const handleEdit = (values: {
+  const handleEdit = async (values: {
     displayName: string
     email: string
     phone?: string
@@ -43,12 +43,17 @@ export default function PersonalProfilePage() {
     bio?: string
     motto?: string
   }) => {
-    updateMe({
-      ...values,
-      avatarUrl: avatar,
-    })
-    setEditOpen(false)
-    message.success('个人资料已保存')
+    try {
+      await updateMe({
+        ...values,
+        avatarUrl: avatar,
+      })
+      setEditOpen(false)
+      message.success('个人资料已保存')
+    } catch {
+      // 修复：保存失败（网络/权限等）不再误报成功
+      message.error('个人资料保存失败，请稍后重试')
+    }
   }
 
   const handleChangePassword = async (values: { oldPassword: string; newPassword: string; confirmPassword: string }) => {
